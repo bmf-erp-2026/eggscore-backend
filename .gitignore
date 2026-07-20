@@ -1,0 +1,6 @@
+node_modules/
+.env
+eggscore.db
+eggscore.db-shm
+eggscore.db-wal
+server.log
