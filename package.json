@@ -1,9 +1,11 @@
 {
   "name": "eggscore-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "EggScore ERP backend — orders, funnel events, sales, inventory",
+  "main": "server.postgres.js",
   "scripts": {
+    "start": "node server.postgres.js",
+    "start:dev": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
