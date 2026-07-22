@@ -8,6 +8,11 @@
 // That IS a real change to the route files, not just this file — see
 // MIGRATION-NOTES.md for exactly what changed and why.
 const { Pool } = require('pg');
+const dbUrl = process.env.DATABASE_URL || '';
+const userMatch = dbUrl.match(/postgres:\/\/([^:]+):/);
+const pwTail = (dbUrl.match(/:([^:@]+)@/)?.[1] || '').slice(-4);
+console.log('[DIAG] DB user in env:', userMatch?.[1]);
+console.log('[DIAG] DB password last-4 chars in env:', pwTail);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
