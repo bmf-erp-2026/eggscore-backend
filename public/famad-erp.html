@@ -18675,6 +18675,7 @@ function confirmOrder(ref) {
   if(o.crates>STATE.inventory.main){ showToast(`⚠ Only ${STATE.inventory.main} crates in stock — order needs ${o.crates}.`); return; }
   o.status='confirmed'; o.confirmedAt=new Date().toISOString();
   saveOrders(orders); updateOrdersBadge(); renderOrders();
+  patchOrderStatusOnBackend(ref, { status: 'confirmed' });
   showToast(`✓ Order ${ref} confirmed.`);
   waReplyOrder(ref,'confirm');
 }
