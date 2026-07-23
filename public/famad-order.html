@@ -1,0 +1,2648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>BMF EggScore · Place Your Order</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Fraunces:ital,wght@0,300;0,600;0,700;1,400&family=Poppins:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#0a0e14; --surface:#0f1520; --card:#141c2a; --raised:#1a2438;
+  --border:rgba(80,160,255,0.12); --border-b:rgba(80,160,255,0.28);
+  --blue:#4a9eff; --blue-dim:#2a5a99; --lime:#6dd96d; --sun:#f0c040;
+  --amber:#e09030; --red:#e04848; --cream:#eceee8; --dust:#a8aaa0;
+  --mist:#606870; --ink:#2a3040; --teal:#3dd6c0;
+  --wa:#25d366; --wa-dim:#128c4a;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--cream);font-family:'Fraunces',Georgia,serif;min-height:100vh;}
+body::after{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");pointer-events:none;z-index:9999;}
+::-webkit-scrollbar{width:4px;} ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+input[type=number]{-moz-appearance:textfield;}
+
+/* ── LAYOUT ── */
+.portal-wrap{max-width:580px;margin:0 auto;padding:24px 16px 60px;}
+
+/* ── HEADER ── */
+.portal-header{text-align:center;padding:32px 0 24px;position:relative;}
+.ph-logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--blue);letter-spacing:-.5px;}
+.ph-logo span{color:var(--amber);font-size:12px;font-weight:400;font-family:'DM Mono',monospace;margin-left:4px;letter-spacing:1px;}
+.ph-title{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--cream);margin-top:16px;line-height:1.1;}
+.ph-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);margin-top:8px;line-height:1.6;}
+.ph-badge{display:inline-flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:9px;padding:4px 12px;border-radius:20px;background:rgba(109,217,109,0.08);border:1px solid rgba(109,217,109,0.2);color:var(--lime);margin-top:12px;}
+.ph-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--lime);animation:pulse 1.4s infinite;}
+.ph-progressive-banner{display:inline-flex;align-items:center;gap:7px;font-family:'Syne',sans-serif;font-weight:700;
+  font-size:12px;padding:8px 16px;border-radius:20px;margin-top:10px;color:var(--teal);
+  background:rgba(61,214,192,0.1);border:1px solid rgba(61,214,192,0.35);
+  box-shadow:0 0 16px rgba(61,214,192,0.25);animation:progGlow 2.6s ease-in-out infinite;}
+.ph-progressive-banner .sub{font-family:'DM Mono',monospace;font-weight:400;font-size:9px;color:var(--mist);display:block;margin-top:2px}
+@keyframes progGlow{0%,100%{box-shadow:0 0 10px rgba(61,214,192,0.2);}50%{box-shadow:0 0 20px rgba(61,214,192,0.45);}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── STOCK TICKER ── */
+.stock-ticker{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:20px;display:grid;grid-template-columns:minmax(100px,auto) 1fr minmax(120px,auto);align-items:start;gap:12px;}
+.st-left{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);}
+.st-avail{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;}
+.st-avail.good{color:var(--lime);}
+.st-avail.low{color:var(--amber);}
+.st-avail.none{color:var(--red);}
+.st-right{text-align:right;min-height:64px;}
+.st-price{font-family:'DM Mono',monospace;font-size:13px;color:var(--cream);font-weight:500;}
+.st-pprice{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px;}
+
+/* ── PANELS ── */
+.panel{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.wizard-step{display:none;}
+.wizard-step.active{display:block;}
+.wizard-indicator{display:flex;justify-content:space-between;align-items:flex-start;margin:0 auto 18px auto;max-width:560px;padding:0 4px;}
+.wiz-dot-wrap{display:flex;flex-direction:column;align-items:center;flex:1;position:relative;cursor:pointer;}
+.wiz-dot-wrap:hover .wiz-dot{filter:brightness(1.25);transform:scale(1.08);}
+.wiz-dot-wrap:hover .wiz-label{opacity:0.85;}
+.wiz-dot{transition:filter 0.15s ease, transform 0.15s ease;}
+.wiz-dot-wrap:not(:last-child)::after{content:'';position:absolute;top:13px;left:56%;width:88%;height:2px;background:var(--border);z-index:0;}
+.wiz-dot-wrap.done:not(:last-child)::after{background:var(--lime);}
+.wiz-dot{width:26px;height:26px;border-radius:50%;background:var(--card);border:2px solid var(--border);
+  display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);
+  z-index:1;transition:all .2s ease;}
+.wiz-dot-wrap.active .wiz-dot{border-color:var(--blue);color:var(--blue);background:rgba(74,158,255,0.1);}
+.wiz-dot-wrap.done .wiz-dot{border-color:var(--lime);color:var(--lime);background:rgba(109,217,109,0.1);}
+.wiz-label{font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:5px;text-align:center;letter-spacing:0.3px;}
+.wiz-dot-wrap.active .wiz-label{color:var(--blue);font-weight:600;}
+.wiz-nav{display:none;justify-content:space-between;gap:10px;margin:-6px 0 16px 0;}
+.wiz-nav[data-step-nav="1"]{display:flex;}
+.wiz-nav button{flex:1;}
+.panel-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);background:var(--raised);}
+.panel-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--cream);}
+.panel-tag{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);letter-spacing:1px;}
+.panel-body{padding:18px;}
+
+/* ── FORM ── */
+.form-group{display:flex;flex-direction:column;gap:5px;margin-bottom:13px;}
+.form-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);letter-spacing:1px;text-transform:uppercase;}
+.form-label .req{color:var(--red);}
+.form-input,.form-select{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--cream);font-family:'DM Mono',monospace;font-size:13px;outline:none;transition:border-color .15s,box-shadow .15s;width:100%;}
+.form-input:focus,.form-select:focus{border-color:var(--blue-dim);box-shadow:0 0 0 3px rgba(74,158,255,0.08);}
+.form-input::placeholder{color:var(--ink);}
+
+/* ── VOLUME REQUEST MODAL ────────────────────────────── */
+.vr-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;
+  align-items:center;justify-content:center;z-index:200;padding:20px;}
+.vr-overlay.active{display:flex;}
+.vr-modal{background:var(--card);border:1px solid var(--border);border-radius:14px;
+  padding:24px;max-width:420px;width:100%;max-height:90vh;overflow-y:auto;}
+.vr-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;}
+.vr-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--cream);}
+.vr-close{background:none;border:none;color:var(--mist);font-size:18px;cursor:pointer;
+  padding:2px 6px;}
+.vr-close:hover{color:var(--cream);}
+.vr-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.6;
+  margin-bottom:18px;}
+.vr-success{display:none;text-align:center;padding:20px 0;}
+.vr-success.active{display:block;}
+.vr-success-icon{font-size:40px;margin-bottom:12px;}
+.form-select option{background:var(--surface);}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+/* ── CRATE STEPPER ── */
+.crate-stepper{display:flex;align-items:center;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.cs-btn{background:none;border:none;color:var(--blue);font-size:20px;font-family:'DM Mono',monospace;width:48px;height:48px;cursor:pointer;transition:background .15s;flex-shrink:0;}
+.cs-btn:hover{background:rgba(74,158,255,0.1);}
+.cs-btn:disabled{color:var(--mist);cursor:not-allowed;}
+.cs-val{flex:1;text-align:center;font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--cream);line-height:48px;}
+input.cs-val{background:none;border:none;outline:none;width:100%;padding:0;-moz-appearance:textfield;}
+input.cs-val::-webkit-outer-spin-button, input.cs-val::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+input.cs-val:focus{background:rgba(74,158,255,0.08);}
+.cs-jump-btn{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 4px;
+  font-family:'DM Mono',monospace;font-size:10px;color:var(--blue);cursor:pointer;transition:background .15s;text-align:center;}
+.cs-jump-btn:hover{background:rgba(74,158,255,0.1);}
+
+/* ── COMPUTED ── */
+.computed-box{background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:8px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;}
+.cb-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--blue-dim);text-transform:uppercase;letter-spacing:1px;}
+.cb-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--blue);}
+.computed-box.lime{background:rgba(109,217,109,0.06);border-color:rgba(109,217,109,0.2);}
+.computed-box.lime .cb-label{color:#3a7a3a;}
+.computed-box.lime .cb-val{color:var(--lime);}
+
+/* ── PAYMENT METHOD ── */
+.pay-options{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px;}
+.pay-opt{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;cursor:pointer;transition:all .2s;text-align:center;}
+.pay-opt:hover{border-color:rgba(74,158,255,0.3);}
+.pay-opt.selected{border-color:var(--blue);background:rgba(74,158,255,0.08);}
+.pay-opt.small-only{border-color:rgba(37,211,102,0.2);}
+.pay-opt.small-only.selected{border-color:var(--wa);background:rgba(37,211,102,0.08);}
+.pay-opt .po-icon{font-size:20px;margin-bottom:4px;}
+.pay-opt .po-name{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:var(--dust);}
+.pay-opt.selected .po-name{color:var(--cream);}
+.pay-opt .po-desc{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:2px;}
+.pay-opt.locked{opacity:0.4;cursor:not-allowed;position:relative;}
+.pay-opt.locked::after{content:'LARGE ORDERS ONLY';position:absolute;top:4px;right:4px;font-family:'DM Mono',monospace;font-size:6.5px;color:var(--amber);letter-spacing:.5px;}
+
+/* ── SECURITY NOTICE ── */
+.security-box{background:rgba(240,192,64,0.05);border:1px solid rgba(240,192,64,0.2);border-radius:8px;padding:12px 14px;margin-bottom:14px;}
+.sb-hdr{display:flex;align-items:center;gap:7px;margin-bottom:6px;}
+.sb-icon{font-size:14px;}
+.sb-title{font-family:'DM Mono',monospace;font-size:9px;color:var(--sun);letter-spacing:1.5px;text-transform:uppercase;}
+.sb-body{font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.6;}
+
+/* ── BANK DETAILS ── */
+.bank-card{background:var(--raised);border:1px solid var(--border-b);border-radius:8px;padding:14px 16px;margin-top:12px;}
+.bank-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(74,158,255,0.05);}
+.bank-row:last-child{border-bottom:none;}
+.br-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);}
+.br-val{font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);font-weight:500;}
+
+/* ── SUBMIT ── */
+.submit-btn{width:100%;padding:15px;background:var(--blue);border:none;border-radius:10px;color:var(--bg);font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;margin-top:4px;}
+.submit-btn:hover{background:#6ab4ff;transform:translateY(-1px);}
+.submit-btn:active{transform:translateY(0);}
+.submit-btn:disabled{background:var(--mist);cursor:not-allowed;transform:none;}
+.wiz-btn-ghost{background:var(--surface);border:1px solid var(--border);color:var(--cream);}
+.wiz-btn-ghost:hover{background:var(--card);border-color:var(--blue);}
+
+/* ── WA FALLBACK ── */
+.wa-fallback{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;background:rgba(37,211,102,0.06);border:1px solid rgba(37,211,102,0.2);border-radius:10px;margin-top:12px;cursor:pointer;text-decoration:none;transition:all .2s;}
+.wa-fallback:hover{background:rgba(37,211,102,0.12);}
+.volume-request-banner:hover{background:rgba(74,158,255,0.12);}
+.wa-fallback span{font-family:'DM Mono',monospace;font-size:11px;color:var(--wa);}
+
+/* ── SUCCESS SCREEN ── */
+.success-screen{display:none;text-align:center;padding:32px 20px;}
+.success-screen.show{display:block;}
+.ss-icon{font-size:56px;margin-bottom:16px;}
+.ss-title{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--lime);margin-bottom:8px;}
+.ss-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);line-height:1.7;margin-bottom:20px;}
+.ref-badge{display:inline-block;font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--blue);background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.3);padding:10px 20px;border-radius:8px;margin:12px 0;letter-spacing:2px;}
+.payment-instructions{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:left;margin:16px 0;}
+.pi-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--cream);margin-bottom:10px;}
+.pi-step{display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;}
+.pi-num{width:20px;height:20px;border-radius:50%;background:rgba(74,158,255,0.15);border:1px solid rgba(74,158,255,0.3);color:var(--blue);font-family:'DM Mono',monospace;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.pi-text{font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.5;}
+.pi-text strong{color:var(--cream);}
+
+/* ── PROMO BANNER ── */
+.promo-banner{background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.2);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;}
+.pb-icon{font-size:16px;}
+.pb-text{font-family:'DM Mono',monospace;font-size:10px;color:var(--teal);line-height:1.5;}
+
+/* ── ALERT ── */
+.alert{padding:10px 14px;border-radius:8px;font-family:'DM Mono',monospace;font-size:10px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;}
+.alert.warn{background:rgba(224,144,48,0.08);border:1px solid rgba(224,144,48,0.2);color:var(--amber);}
+.alert.err{background:rgba(224,72,72,0.08);border:1px solid rgba(224,72,72,0.2);color:var(--red);}
+.alert.ok{background:rgba(109,217,109,0.08);border:1px solid rgba(109,217,109,0.2);color:var(--lime);}
+
+/* ── DELIVERY PREFERENCE ── */
+.delivery-choice{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.del-choice{background:var(--surface);border:2px solid var(--border);border-radius:10px;
+  padding:14px 12px;cursor:pointer;transition:all .2s;text-align:center;}
+.del-choice:hover{border-color:rgba(74,158,255,0.35);}
+.del-choice.selected{border-color:var(--blue);background:rgba(74,158,255,0.07);}
+.del-choice.selected.delivery{border-color:var(--teal);background:rgba(61,214,192,0.07);}
+.dc-icon{font-size:24px;margin-bottom:6px;}
+.dc-name{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--dust);}
+.del-choice.selected .dc-name{color:var(--blue);}
+.del-choice.selected.delivery .dc-name{color:var(--teal);}
+.dc-desc{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px;line-height:1.5;}
+
+.zone-selector{margin-bottom:14px;}
+.zone-opts{display:flex;flex-direction:column;gap:7px;}
+.zone-opt{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  cursor:pointer;transition:all .2s;}
+.zone-opt:hover{border-color:rgba(61,214,192,0.3);}
+.zone-opt.selected{border-color:var(--teal);background:rgba(61,214,192,0.06);}
+.zo-left{display:flex;align-items:center;gap:10px;}
+.zo-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.zo-name{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--dust);}
+.zone-opt.selected .zo-name{color:var(--teal);}
+.zo-range{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px;}
+.zo-right{text-align:right;}
+.zo-levy{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--cream);}
+.zo-per{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px;}
+
+.location-input-wrap{margin-bottom:14px;}
+
+.order-breakdown{background:var(--raised);border:1px solid var(--border);border-radius:8px;
+  padding:12px 14px;margin-bottom:14px;}
+.ob-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;
+  border-bottom:1px solid rgba(74,158,255,0.05);}
+.ob-row:last-child{border-bottom:none;padding-top:8px;margin-top:4px;}
+.ob-row.total{border-top:1px solid var(--border-b);padding-top:10px;}
+.ob-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);}
+.ob-val{font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);font-weight:500;}
+.ob-val.egg{color:var(--blue);}
+.ob-val.delivery{color:var(--teal);}
+.ob-val.total{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--lime);}
+.ob-label.total{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:var(--cream);}
+
+.collect-info{background:rgba(74,158,255,0.05);border:1px solid rgba(74,158,255,0.15);
+  border-radius:8px;padding:10px 13px;font-family:'DM Mono',monospace;font-size:10px;
+  color:var(--dust);line-height:1.6;margin-bottom:14px;}
+
+@media(max-width:420px){.delivery-choice{grid-template-columns:1fr;}}
+
+/* ── RESPONSIVE ── */
+@media(max-width:480px){
+  .form-row{grid-template-columns:1fr;}
+  .pay-options{grid-template-columns:1fr 1fr;}
+  .stock-ticker{grid-template-columns:1fr;}
+  .stock-ticker .st-left,.stock-ticker .st-right{width:100%;text-align:center;}
+  .stock-ticker > div[style*="border-left"]{border-left:none;border-right:none;border-top:1px dashed var(--border);border-bottom:1px dashed var(--border);padding:10px 0!important;margin:8px 0;width:100%;}
+}
+</style>
+</head>
+<body>
+
+<div class="portal-wrap">
+
+  <!-- HEADER -->
+  <div class="portal-header">
+    <div class="ph-logo" style="display:flex;align-items:center;justify-content:center;height:36px">
+      <svg width="170" height="34" viewBox="0 0 170 34" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <defs>
+          <clipPath id="phEggClipFull">
+            <path d="M 17 3 C 22 3, 27 10, 27 18 C 27 26, 23 32, 17 32 C 11 32, 7 26, 7 18 C 7 10, 12 3, 17 3 Z"/>
+          </clipPath>
+        </defs>
+        <path d="M 17 3 C 22 3, 27 10, 27 18 C 27 26, 23 32, 17 32 C 11 32, 7 26, 7 18 C 7 10, 12 3, 17 3 Z" fill="#FFFFFF"/>
+        <g clip-path="url(#phEggClipFull)">
+          <rect x="5" y="23" width="24" height="10" fill="#FFFFFF"/>
+          <polyline points="7,25 12,25 14.5,29 19,20 24,22.5 27,22.5"
+                    fill="none" stroke="#0B3D91" stroke-width="2.4"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+        <text x="35" y="24" font-family="Poppins, 'Syne', sans-serif" font-weight="700" font-size="18" fill="#FFFFFF" letter-spacing="0">Egg<tspan fill="#5BA8F0">Score</tspan></text>
+      </svg>
+    </div>
+    <h1 class="ph-title">Place Your<br/>Egg Order</h1>
+    <p class="ph-sub">Direct ordering — no calls needed<br/>Your order reaches us instantly</p>
+    <div class="ph-badge"><span class="ph-badge-dot"></span> Portal Live</div>
+    <div><span class="ph-progressive-banner">📦 We offer volume discount pricing<span class="sub">The more crates you order, the less you pay per crate — automatically</span></span></div>
+
+    <!-- PREFER WHATSAPP — a genuine alternative to the form, so it has to
+         be visible before any of it, not discovered after finishing it. -->
+    <a href="https://wa.me/2348068371725?text=Hello%20BMF%20EggScore%20Limited%2C%20I%27d%20like%20to%20place%20an%20order%20via%20WhatsApp."
+      target="_blank" class="wa-fallback" style="max-width:400px;margin:14px auto 0 auto">
+      <span>💬</span><span>Prefer WhatsApp? Order here →</span>
+    </a>
+  </div>
+
+  <!-- ORDER FORM (shown by default) -->
+  <div id="order-form-section">
+
+    <!-- STOCK STATUS -->
+    <div class="stock-ticker" id="stock-ticker" style="padding:16px 18px">
+      <div class="st-left" style="flex:0 0 auto">
+        <div style="font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px">Stock Available</div>
+        <div class="st-avail good" id="avail-display">—</div>
+        <div style="font-size:9px;margin-top:3px;color:var(--mist)">crates ready to order</div>
+      </div>
+
+      <!-- WARNING TRIANGLE — price stability notice, sitting between stock and price -->
+      <div style="flex:1;min-width:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+        text-align:center;padding:0 14px;border-left:1px dashed var(--border);border-right:1px dashed var(--border)">
+        <div style="font-size:26px;line-height:1;margin-bottom:5px;color:var(--amber)">⚠</div>
+        <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);line-height:1.5;max-width:200px">
+          Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.
+        </div>
+      </div>
+
+      <div class="st-right" style="flex:0 0 auto">
+        <div class="st-price" id="price-display">₦5,700/crate</div>
+        <div class="st-pprice" id="portal-price-sub">delivered price, per crate</div>
+        <div id="portal-batch-note" style="display:none;font-family:'DM Mono',monospace;
+          font-size:8.5px;color:var(--teal);margin-top:3px"></div>
+        <div id="promo-price-note" style="display:none;font-family:'DM Mono',monospace;
+          font-size:9px;color:var(--teal);margin-top:3px"></div>
+      </div>
+    </div>
+
+    <!-- VOLUME REQUEST BANNER — pulled out to its own full-width,
+         higher-visibility element, same visual weight as the WhatsApp
+         banner, since this is a message worth actively surfacing -->
+    <div onclick="openVolumeRequestModal()" class="volume-request-banner" style="display:flex;align-items:center;justify-content:center;gap:8px;
+      padding:14px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.25);border-radius:10px;
+      margin-bottom:16px;cursor:pointer;transition:all .2s">
+      <span style="font-size:14px">📦</span>
+      <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);font-weight:600">Need more than <span id="vol-request-stock-count">this</span>? Make a volume request →</span>
+    </div>
+
+    <!-- ACTIVE PROMO BANNER -->
+    <div id="promo-banner" style="display:none" class="promo-banner">
+      <div class="pb-icon">🎯</div>
+      <div class="pb-text" id="promo-banner-text">—</div>
+    </div>
+
+    <!-- STEP WIZARD INDICATOR -->
+    <div class="wizard-indicator" id="wizard-indicator">
+      <div class="wiz-dot-wrap active" data-wiz="1" onclick="goToWizardStep(1)"><div class="wiz-dot">1</div><div class="wiz-label">Details</div></div>
+      <div class="wiz-dot-wrap" data-wiz="2" onclick="goToWizardStep(2)"><div class="wiz-dot">2</div><div class="wiz-label">Order</div></div>
+      <div class="wiz-dot-wrap" data-wiz="3" onclick="goToWizardStep(3)"><div class="wiz-dot">3</div><div class="wiz-label">Review</div></div>
+      <div class="wiz-dot-wrap" data-wiz="4" onclick="goToWizardStep(4)"><div class="wiz-dot">4</div><div class="wiz-label">Payment</div></div>
+    </div>
+
+    <!-- STEP 1: IDENTIFY -->
+    <div class="panel wizard-step active" data-step="1" id="wizard-step-1">
+      <div class="panel-hdr">
+        <div class="panel-title">① Your Details</div>
+        <div class="panel-tag">identify your account</div>
+      </div>
+      <div class="panel-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Your Name / Business <span class="req">*</span></label>
+            <input class="form-input" id="c-name" placeholder="e.g. Alhaji Musa Supplies" oninput="lookupCustomer()"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Number <span class="req">*</span></label>
+            <input class="form-input" id="c-phone" type="tel" placeholder="080X XXXX XXXX" oninput="updateOrderCalc()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Location / Market <span class="req">*</span></label>
+            <input class="form-input" id="c-location" placeholder="e.g. Mushin, Lagos"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Customer Code <span style="color:var(--mist)">(optional)</span></label>
+            <input class="form-input" id="c-code" placeholder="e.g. BEL-C001" oninput="lookupByCode()"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Referred By <span style="color:var(--mist)">(optional — a friend's referral code)</span></label>
+            <input class="form-input" id="c-referral-code" placeholder="e.g. BEL-TUND123" oninput="checkReferralCode()"/>
+            <div id="referral-check-msg" style="display:none;font-family:'DM Mono',monospace;font-size:9px;margin-top:4px"></div>
+          </div>
+        </div>
+        <div id="customer-match-box" style="display:none" class="alert ok">
+          ✓ Account recognised — <span id="match-name"></span> · <span id="match-loyalty"></span>
+        </div>
+        <div id="my-loyalty-panel" style="display:none;background:rgba(240,180,40,0.06);border:1px solid rgba(240,180,40,0.25);
+          border-radius:8px;padding:12px 14px;margin-top:8px"></div>
+        <div id="price-change-notice" style="display:none;font-family:'DM Mono',monospace;
+          font-size:9.5px;color:var(--amber);background:rgba(224,144,48,0.07);
+          border:1px solid rgba(224,144,48,0.2);border-radius:7px;padding:8px 11px;
+          margin-top:8px;line-height:1.6"></div>
+        <div id="wallet-notice" style="display:none;font-family:'DM Mono',monospace;
+          font-size:9.5px;color:var(--lime);background:rgba(109,217,109,0.07);
+          border:1px solid rgba(109,217,109,0.2);border-radius:7px;padding:8px 11px;
+          margin-top:8px;line-height:1.6"></div>
+      </div>
+    </div><!-- /wizard-step-1 -->
+
+    <div class="wiz-nav" data-step-nav="1">
+      <button class="submit-btn" style="margin-top:0" onclick="goToWizardStep(2)">Continue to Order →</button>
+    </div>
+
+    <!-- STEP 2: ORDER -->
+    <div class="panel wizard-step" data-step="2" id="wizard-step-2">
+      <div class="panel-hdr">
+        <div class="panel-title">② Your Order</div>
+        <div class="panel-tag" id="order-tag">select quantity</div>
+      </div>
+      <div class="panel-body">
+
+        <div class="form-group">
+          <label class="form-label">Crates to Order <span class="req">*</span></label>
+          <div class="crate-stepper">
+            <button class="cs-btn" onclick="adjustCrates(-10)">−</button>
+            <button class="cs-btn" onclick="adjustCrates(-1)" style="font-size:16px">‒</button>
+            <input class="cs-val" id="crate-display" type="number" inputmode="numeric" min="1" value="10"
+              onchange="onCrateInputChange(this)"
+              onkeydown="if(event.key==='Enter'){ this.blur(); }"/>
+            <button class="cs-btn" onclick="adjustCrates(1)" style="font-size:16px">+</button>
+            <button class="cs-btn" onclick="adjustCrates(10)">+</button>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:5px">
+            <span>Min: 1 crate · type a number directly for large orders</span>
+            <span id="max-display">Max: — crates available</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px" id="cs-jump-row">
+            <div class="cs-jump-btn" onclick="setCratesValue(50)">50</div>
+            <div class="cs-jump-btn" onclick="setCratesValue(100)">100</div>
+            <div class="cs-jump-btn" onclick="setCratesValue(250)">250</div>
+            <div class="cs-jump-btn" onclick="setCratesValue(500)">500</div>
+            <div class="cs-jump-btn" onclick="setCratesValue(1000)">1,000</div>
+          </div>
+        </div>
+
+        <div id="stock-warn" class="alert warn" style="display:none">⚠ Requested quantity exceeds available stock.</div>
+        <div id="discount-applied" class="alert ok" style="display:none">
+          🎯 Promo discount applied — <span id="discount-detail"></span>
+        </div>
+        <div id="wallet-nudge" style="display:none;font-family:'DM Mono',monospace;
+          font-size:9.5px;color:var(--teal);background:rgba(61,214,192,0.07);
+          border:1px solid rgba(61,214,192,0.2);border-radius:7px;padding:8px 11px;
+          margin-top:8px;line-height:1.6"></div>
+
+        <div class="form-group">
+          <label class="form-label">Delivery Notes <span style="color:var(--mist)">(optional)</span></label>
+          <input class="form-input" id="c-notes" placeholder="Delivery address, timing preference, special instructions…"/>
+        </div>
+      </div>
+    </div><!-- /wizard-step-2 -->
+
+    <div class="wiz-nav" data-step-nav="2">
+      <button class="submit-btn wiz-btn-ghost" style="flex:0.6;margin-top:0" onclick="goToWizardStep(1)">← Back</button>
+      <button class="submit-btn" style="flex:1;margin-top:0" onclick="goToWizardStep(3)">Continue to Review →</button>
+    </div>
+
+    <!-- STEP 2.5: DELIVERY PREFERENCE -->
+    <!-- STEP 3: ORDER BREAKDOWN -->
+    <div class="panel wizard-step" data-step="3" id="wizard-step-3">
+      <div class="panel-hdr">
+        <div class="panel-title">③ Order Breakdown</div>
+        <div class="panel-tag">before payment</div>
+      </div>
+      <div class="panel-body">
+        <div class="order-breakdown">
+          <div class="ob-row">
+            <div class="ob-label">Egg price</div>
+            <div class="ob-val egg" id="ob-egg-price">—</div>
+          </div>
+          <div class="ob-row">
+            <div class="ob-label">Crates ordered</div>
+            <div class="ob-val" id="ob-crates">—</div>
+          </div>
+          <div class="ob-row">
+            <div class="ob-label">Egg subtotal</div>
+            <div class="ob-val egg" id="ob-egg-subtotal">—</div>
+          </div>
+          <div class="ob-row" id="ob-promo-row" style="display:none">
+            <div class="ob-label">Promo discount</div>
+            <div class="ob-val" style="color:var(--lime)" id="ob-promo-val">—</div>
+          </div>
+          <div class="ob-row" id="ob-wallet-row" style="display:none">
+            <div class="ob-label">Wallet credit applied</div>
+            <div class="ob-val" style="color:var(--lime)" id="ob-wallet-val">—</div>
+          </div>
+          <div class="ob-row total">
+            <div class="ob-label total" id="ob-total-label">Total Payable</div>
+            <div class="ob-val total" id="ob-total">—</div>
+          </div>
+          <div class="ob-row" id="ob-balance-row" style="display:none">
+            <div class="ob-label" style="color:var(--lime);font-weight:600">Balance to pay</div>
+            <div class="ob-val total" style="color:var(--lime)" id="ob-balance-val">—</div>
+          </div>
+          <div id="ob-savings-row" style="display:none;margin-top:10px;padding:10px 12px;
+            background:rgba(109,217,109,0.07);border:1px solid rgba(109,217,109,0.25);border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12.5px;color:var(--lime)">🎉 You saved</span>
+              <span style="font-family:'DM Mono',monospace;font-weight:700;font-size:14px;color:var(--lime)" id="ob-savings-total">—</span>
+            </div>
+            <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:4px" id="ob-savings-breakdown"></div>
+          </div>
+          <div id="ob-wallet-progress-wrap" style="display:none;margin-top:6px">
+            <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-bottom:3px">
+              <span>Wallet covers this order</span>
+              <span id="ob-wallet-progress-pct">0%</span>
+            </div>
+            <div style="background:var(--card);border-radius:5px;height:7px;overflow:hidden">
+              <div id="ob-wallet-progress-bar" style="background:var(--lime);height:100%;width:0%;border-radius:5px;transition:width .3s ease"></div>
+            </div>
+          </div>
+        </div>
+        <div id="ob-wallet-note" style="display:none;font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);line-height:1.6;margin-top:4px">
+          ℹ Wallet balance shown is an estimate — the amount you actually owe is confirmed by BMF EggScore Limited when your order is verified.
+        </div>
+      </div>
+    </div><!-- /wizard-step-3 -->
+
+    <div class="wiz-nav" data-step-nav="3">
+      <button class="submit-btn wiz-btn-ghost" style="flex:0.6;margin-top:0" onclick="goToWizardStep(2)">← Back</button>
+      <button class="submit-btn" style="flex:1;margin-top:0" onclick="goToWizardStep(4)">Continue to Payment →</button>
+    </div>
+
+    <!-- STEP 4: PAYMENT METHOD -->
+    <div class="panel wizard-step" data-step="4" id="wizard-step-4">
+      <div class="panel-hdr">
+        <div class="panel-title">④ Payment Method</div>
+        <div class="panel-tag" id="pay-tag">choose how you'll pay</div>
+      </div>
+      <div class="panel-body">
+
+        <div class="security-box">
+          <div class="sb-hdr"><span class="sb-icon">🔐</span><span class="sb-title">Secure Ordering</span></div>
+          <div class="sb-body">Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong></div>
+        </div>
+
+        <div class="pay-options" id="pay-options">
+          <div class="pay-opt selected" data-pay="bank" onclick="selectPayment(this)">
+            <div class="po-icon">🏦</div>
+            <div class="po-name">Bank Transfer</div>
+            <div class="po-desc">Pay after confirmation</div>
+          </div>
+          <div class="pay-opt small-only locked" id="pay-ussd" data-pay="ussd" onclick="selectPayment(this)">
+            <div class="po-icon">📱</div>
+            <div class="po-name">USSD / *737#</div>
+            <div class="po-desc">≤ 30 crates only</div>
+          </div>
+          <div class="pay-opt" data-pay="cash" onclick="selectPayment(this)">
+            <div class="po-icon">💵</div>
+            <div class="po-name">Cash on Delivery</div>
+            <div class="po-desc">Pay on receipt</div>
+          </div>
+          <div class="pay-opt small-only locked" id="pay-paystack" data-pay="paystack" onclick="selectPayment(this)">
+            <div class="po-icon">💳</div>
+            <div class="po-name">Card Payment</div>
+            <div class="po-desc">≤ 30 crates only</div>
+          </div>
+        </div>
+
+        <div id="bank-details" class="bank-card">
+          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px">Payment details sent after confirmation</div>
+          <div class="bank-row"><span class="br-label">Bank</span><span class="br-val">First Bank Nigeria</span></div>
+          <div class="bank-row"><span class="br-label">Account Name</span><span class="br-val">BMF EggScore Limited</span></div>
+          <div class="bank-row"><span class="br-label">Account No.</span><span class="br-val">3012 345 678</span></div>
+          <div class="bank-row"><span class="br-label">Narration</span><span class="br-val" id="bank-narration" style="color:var(--blue)">Your order ref. — after submission</span></div>
+        </div>
+
+        <div id="payment-commitment-box" style="display:none;margin-top:12px;padding:12px 14px;
+          background:rgba(240,144,40,0.07);border:1px solid rgba(240,144,40,0.3);border-radius:8px">
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--amber);margin-bottom:6px">
+            ⏱ Large first order — payment confirmation needed sooner
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7;margin-bottom:10px" id="payment-commitment-text"></div>
+          <label style="display:flex;align-items:flex-start;gap:8px;font-family:'DM Mono',monospace;font-size:10px;color:var(--cream);cursor:pointer">
+            <input type="checkbox" id="payment-commitment-ack" style="margin-top:2px"/>
+            <span>I understand and will complete payment by the time stated above.</span>
+          </label>
+        </div>
+
+        <div id="ussd-details" style="display:none" class="bank-card">
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7">
+            Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>
+            Account: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>
+            Use your <strong style="color:var(--blue)">order reference</strong> as narration.
+          </div>
+        </div>
+
+        <div id="cash-details" style="display:none" class="bank-card">
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7">
+            Cash payment collected on delivery.<br/>
+            A BMF EggScore Limited sales rep will contact you to arrange delivery and collect payment.
+          </div>
+        </div>
+
+        <div id="paystack-section" style="display:none">
+          <div class="bank-card" style="margin-top:12px">
+            <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7;margin-bottom:12px">
+              Secure card payment processed by Paystack.<br/>
+              Available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.
+            </div>
+            <button class="submit-btn" id="paystack-btn" onclick="initPaystack()" style="background:var(--wa);margin-top:0">
+              💳 Pay Now via Paystack
+            </button>
+          </div>
+        </div>
+      </div>
+    </div><!-- /wizard-step-4 -->
+
+    <div class="wiz-nav" data-step-nav="4">
+      <button class="submit-btn wiz-btn-ghost" style="width:100%;margin-top:0" onclick="goToWizardStep(3)">← Back</button>
+    </div>
+
+    <!-- SUBMIT (part of step 4) -->
+    <div class="wizard-step" data-step="4" id="wizard-step-4-actions">
+      <div id="form-err" class="alert err" style="display:none">Please fill all required fields before submitting.</div>
+
+      <!-- Large first-time order, blocked by the new-customer cap —
+           deliberately a richer, warmer panel than the plain error
+           banner above. Standing on the policy while acknowledging
+           this is a real, substantial order worth fast-tracking, not
+           a generic rejection. -->
+      <div id="large-firsttimer-panel" style="display:none;background:var(--card);border:1px solid var(--amber);border-radius:10px;padding:16px 18px;margin-bottom:16px">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--cream);margin-bottom:8px">⏳ We see this is a big first order</div>
+        <div id="large-firsttimer-text" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:14px"></div>
+        <a id="large-firsttimer-wa-btn" href="#" target="_blank" style="display:block;text-align:center;background:var(--teal);color:#000;padding:12px;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;text-decoration:none">
+          💬 Message us now — we'll prioritize this
+        </a>
+      </div>
+
+      <div id="reservation-preview" style="display:none;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--violet);
+        background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.25);border-radius:7px;padding:10px 12px;margin-bottom:10px;line-height:1.7"></div>
+
+      <button class="submit-btn" id="main-submit-btn" onclick="submitOrder()">
+        🥚 Place Order
+      </button>
+
+    <button class="submit-btn" id="reserve-submit-btn" style="margin-top:8px;background:rgba(155,127,232,0.12);
+      border:1px solid rgba(155,127,232,0.4);color:var(--violet)" onclick="submitReservation()">
+      🕐 Reserve Instead — Hold This Order
+    </button>
+
+    <!-- WA FALLBACK -->
+    <a id="wa-fallback-link" href="#" class="wa-fallback" target="_blank">
+      <span>💬</span>
+      <span>Prefer WhatsApp? Send these details directly →</span>
+    </a>
+    </div><!-- /wizard-step-4-actions -->
+
+  </div><!-- /order-form-section -->
+
+  <!-- SUCCESS SCREEN -->
+  <div class="success-screen" id="success-screen">
+    <div class="ss-icon">✅</div>
+    <div class="ss-title">Order Received!</div>
+    <div class="ss-sub">Your order has been submitted to<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong></div>
+    <div class="ref-badge" id="success-ref">BEL-ORD-——</div>
+    <div class="ss-sub">Screenshot this reference. BMF EggScore Limited will confirm via WhatsApp shortly.</div>
+    <div class="ss-sub" id="success-trust-line" style="font-size:9.5px;color:var(--mist);margin-top:2px"></div>
+
+    <div class="payment-instructions" id="success-payment"></div>
+
+    <a id="success-wa-link" href="#" class="wa-fallback" target="_blank" style="margin-top:0">
+      <span>💬</span><span>Send your payment complaints via WhatsApp</span>
+    </a>
+
+    <button class="submit-btn" onclick="resetPortal()" style="margin-top:16px;background:var(--surface);border:1px solid var(--border);color:var(--cream)">
+      ↩ Place Another Order
+    </button>
+
+    <!-- FEEDBACK & POLICIES — relocated here deliberately. Previously
+         sat between the wizard and this screen, meaning the moment an
+         order was actually placed, there was no way back to it. Now it
+         only exists where a real, completed order exists to give
+         feedback about. -->
+    <div style="max-width:560px;margin:20px auto 0 auto;text-align:center">
+      <div style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--mist);margin-bottom:8px">
+        We can improve, happy to have your feedback
+      </div>
+      <button class="submit-btn wiz-btn-ghost" id="more-toggle-btn" style="width:auto;padding:8px 16px;font-size:11px;margin-top:0" onclick="toggleMoreSection()">
+        💬 Feedback &amp; Order Policies <span id="more-toggle-arrow">▾</span>
+      </button>
+    </div>
+
+    <div id="more-section" style="display:none">
+      <div class="panel" id="feedback-section" style="max-width:560px;margin:16px auto">
+        <div class="panel-hdr">
+          <div class="panel-title">💬 Share Feedback</div>
+          <div class="panel-tag">earns loyalty points</div>
+        </div>
+        <div class="panel-body">
+          <div id="fb-known-identity" style="display:none;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--teal);margin-bottom:10px;padding:8px 10px;background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.2);border-radius:6px">
+            ✓ Submitting as <strong id="fb-known-name" style="color:var(--cream)"></strong> · <span id="fb-known-phone"></span>
+            <a href="#" onclick="event.preventDefault();editFeedbackIdentity()" style="color:var(--blue);margin-left:6px">not you?</a>
+          </div>
+          <div class="form-group" style="margin-bottom:10px" id="fb-name-group">
+            <label class="form-label">Your Name / Business</label>
+            <input class="form-input" id="fb-name" placeholder="So we know who to thank"/>
+          </div>
+          <div class="form-group" style="margin-bottom:10px">
+            <label class="form-label">Rating</label>
+            <select class="form-select" id="fb-rating">
+              <option value="5">★★★★★ Excellent</option>
+              <option value="4">★★★★☆ Good</option>
+              <option value="3">★★★☆☆ Okay</option>
+              <option value="2">★★☆☆☆ Below expectations</option>
+              <option value="1">★☆☆☆☆ Poor</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label class="form-label">Your Feedback</label>
+            <textarea class="form-textarea" id="fb-text" placeholder="What's working, what isn't, what you'd like to see…" style="min-height:70px"></textarea>
+          </div>
+          <button class="submit-btn" onclick="submitFeedback()">Submit Feedback</button>
+          <div id="fb-status" style="display:none;margin-top:8px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--lime)"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="policies-section" style="max-width:560px;margin:0 auto 16px auto">
+        <div class="panel-hdr">
+          <div class="panel-title">📜 Our Order Policies</div>
+          <div class="panel-tag">honouring these builds your loyalty score</div>
+        </div>
+        <div class="panel-body" id="portal-policy-list" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust);line-height:1.9"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="portal-footer" id="portal-footer">BMF EggScore Limited · Nigeria 🇳🇬 · Orders processed securely</div>
+</div><!-- /portal-wrap -->
+
+<!-- VOLUME REQUEST MODAL -->
+<div class="vr-overlay" id="vr-overlay">
+  <div class="vr-modal">
+
+    <!-- Request form state -->
+    <div id="vr-form-state">
+      <div class="vr-hdr">
+        <div class="vr-title">Request a Larger Volume</div>
+        <button class="vr-close" onclick="closeVolumeRequestModal()">✕</button>
+      </div>
+      <div class="vr-sub">
+        Need more than what's currently shown as available? Tell us how much, and BMF EggScore Limited will reach out directly to confirm sourcing and timing — no need to split your order or call first.
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Crates Needed <span class="req">*</span></label>
+        <input class="form-input" type="number" id="vr-qty" placeholder="e.g. 1000" min="1"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Your Name / Business <span class="req">*</span></label>
+        <input class="form-input" id="vr-name" placeholder="e.g. Sagamu Junction Depot"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone Number <span class="req">*</span></label>
+        <input class="form-input" type="tel" id="vr-phone" placeholder="e.g. 0807 444 5555"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Needed By <span style="color:var(--mist)">(optional)</span></label>
+        <input class="form-input" type="date" id="vr-needed-by"/>
+      </div>
+      <div class="form-group" style="margin-bottom:18px">
+        <label class="form-label">Notes <span style="color:var(--mist)">(optional)</span></label>
+        <textarea class="form-input" id="vr-notes" placeholder="Any other detail that helps us plan…" style="min-height:54px;resize:vertical"></textarea>
+      </div>
+
+      <div id="vr-err" style="display:none;color:var(--red);font-family:'DM Mono',monospace;font-size:10px;margin-bottom:12px"></div>
+
+      <button class="submit-btn" onclick="submitVolumeRequest()">Send Volume Request</button>
+    </div>
+
+    <!-- Success state -->
+    <div id="vr-success-state" class="vr-success">
+      <div class="vr-success-icon">✅</div>
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--lime);margin-bottom:8px">Request Received</div>
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:18px">
+        BMF EggScore Limited will reach out shortly to confirm volume, pricing, and timing for your order.
+      </div>
+      <button class="submit-btn" onclick="closeVolumeRequestModal()" style="background:var(--surface);border:1px solid var(--border);color:var(--cream)">Close</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   PORTAL STATE
+═══════════════════════════════════════════════════════ */
+const ORDERS_KEY = 'feds_orders';
+const ERP_KEY    = 'feds_erp_data';
+const ORDERS_CH  = 'feds_orders_channel';
+const VOLREQ_KEY = 'feds_volume_requests';
+const VOLREQ_CH  = 'feds_volreq_channel';
+const PAYSTACK_THRESHOLD = 30; // crates
+
+/* ═══════════════════════════════════════════════════════
+   BRAND TRUST CONFIG — anti-clone / anti-spoof messaging
+   Single source of truth. canonicalDomain is a PLACEHOLDER
+   until a real domain is registered — update it here once
+   and every trust banner on this page picks up the change.
+   Keep this block identical to the copy in famad-erp.html.
+═══════════════════════════════════════════════════════ */
+const BRAND_TRUST = {
+  canonicalDomain:  'https://order.eggscore-PLACEHOLDER.ng', // TODO: replace once domain is registered
+  officialWhatsApp: '2348068371725', // BMF EggScore's established public WhatsApp line
+  verifyPathPrefix: '/verify/'
+};
+
+let portalState = {
+  crates: 10,
+  wizardStep: 1,
+  paymentMethod: 'bank',
+  matchedCustomer: null,
+  activePromo: null,
+  basePrice: 5700,
+  deliveryMode: 'deliver',   // always 'deliver' now — Self Collection retired, product comes to everyone
+  deliveryLevy: 0,           // ₦ per crate — flat rate, same for every delivery
+  deliveryTotal: 0,          // levy × crates
+};
+
+// Flat delivery rate — synced from the ERP's Distribution Pricing model
+// (the ceiling/sticker price). Zones are retired as a customer-facing
+// concept; this is the one number every delivery order sees.
+const DISTRIBUTION_PRICING_DEFAULTS = { ceilingPerCrate: 200 };
+function getFlatDeliveryRate() {
+  try {
+    const erp = JSON.parse(localStorage.getItem(ERP_KEY) || '{}');
+    return erp.distributionPricing?.ceilingPerCrate || DISTRIBUTION_PRICING_DEFAULTS.ceilingPerCrate;
+  } catch(e) { return DISTRIBUTION_PRICING_DEFAULTS.ceilingPerCrate; }
+}
+
+/* ── Load ERP data for stock / promos / customers ── */
+function loadERPData() {
+  try { return JSON.parse(localStorage.getItem(ERP_KEY)||'{}'); }
+  catch(e) { return {}; }
+}
+function loadOrders() {
+  try { return JSON.parse(localStorage.getItem(ORDERS_KEY)||'[]'); }
+  catch(e) { return []; }
+}
+// Real backend config — same fill-in-the-placeholder pattern as the
+// ERP's Supabase values. The portal key only ever grants order/event
+// creation, never read access to anyone else's data — see auth.postgres.js.
+const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
+const PORTAL_API_KEY = 'egs_f3f50dec2eb0893d5bc4ef108da8ddda772b26fda5ef92e6';
+
+async function saveOrder(order) {
+  let backendSucceeded = false;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({
+        customerName: order.customerName,
+        phone: order.phone,
+        location: order.location,
+        crates: order.crates,
+        eggPricePerCrate: order.pricePerCrate,
+        deliveryPerCrate: order.crates > 0 ? Math.round((order.deliveryTotal||0) / order.crates) : 0,
+        notes: order.notes,
+      }),
+    });
+    if(resp.ok) {
+      const realOrder = await resp.json();
+      order.ref = realOrder.ref; // the backend's ref is now the authoritative one
+      backendSucceeded = true;
+    }
+  } catch(networkErr) {
+    // Real network failure — this device may be offline, or the
+    // backend momentarily unreachable. Falling through to the local
+    // save below rather than losing the order outright; the customer
+    // still gets their reference number and a working confirmation
+    // screen, same as always.
+  }
+
+  // Kept as a local cache regardless of backend success — this
+  // session's own stock/reservation checks still read from here until
+  // those specific reads get migrated separately.
+  const orders = loadOrders();
+  orders.unshift(order);
+  localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+  try { new BroadcastChannel(ORDERS_CH).postMessage({type:'new_order',ref:order.ref}); }
+  catch(e){}
+
+  return backendSucceeded;
+}
+
+/* ── Init ── */
+/* ═══════════════════════════════════════════════════════
+   STEP WIZARD — one step visible at a time instead of one
+   long scroll. Existing panels/logic are untouched; this only
+   controls which panel is visible and validates before
+   advancing. Built in response to real customer feedback that
+   the order form was too long, especially on mobile.
+═══════════════════════════════════════════════════════ */
+function validateWizardStep(step) {
+  if(step === 1) {
+    const name = document.getElementById('c-name')?.value.trim();
+    const phone = document.getElementById('c-phone')?.value.trim();
+    const location = document.getElementById('c-location')?.value.trim();
+    if(!name || !phone || !location) return 'Please fill your name, phone, and location before continuing.';
+  }
+  if(step === 2) {
+    if(!portalState.crates || portalState.crates < 1) return 'Please select at least 1 crate before continuing.';
+  }
+  if(step === 3) {
+    // No zone sub-selection anymore — choosing "Deliver" is itself complete,
+    // the flat rate applies automatically.
+  }
+  return null;
+}
+
+function toggleMoreSection() {
+  const section = document.getElementById('more-section');
+  const arrow = document.getElementById('more-toggle-arrow');
+  if(!section) return;
+  const opening = section.style.display === 'none';
+  section.style.display = opening ? 'block' : 'none';
+  if(arrow) arrow.textContent = opening ? '▴' : '▾';
+  if(opening) prefillFeedbackIdentity();
+}
+
+// Pre-fills the feedback form from whatever identity is already known
+// this session — the Details step's name/phone if filled, or a matched
+// returning customer — so a customer who's already told us who they are
+// once isn't asked to type it again. Falls back to the plain editable
+// field, unchanged, when nothing is known yet.
+function prefillFeedbackIdentity() {
+  const name  = document.getElementById('c-name')?.value.trim()
+             || portalState.matchedCustomer?.name || '';
+  const phone = document.getElementById('c-phone')?.value.trim() || '';
+
+  const knownBox  = document.getElementById('fb-known-identity');
+  const nameGroup = document.getElementById('fb-name-group');
+  const nameInput = document.getElementById('fb-name');
+  if(!knownBox || !nameGroup || !nameInput) return;
+
+  if(name) {
+    nameInput.value = name; // always kept current, even while the read-only view is showing
+    document.getElementById('fb-known-name').textContent = name;
+    document.getElementById('fb-known-phone').textContent = phone ? phone : 'no phone on file yet';
+    knownBox.style.display  = 'block';
+    nameGroup.style.display = 'none';
+  } else {
+    knownBox.style.display  = 'none';
+    nameGroup.style.display = 'block';
+  }
+}
+
+// "Not you?" — lets someone override a wrong match or a different
+// person giving feedback on the same device, without losing the
+// pre-filled value entirely (it stays in the input, just editable).
+function editFeedbackIdentity() {
+  document.getElementById('fb-known-identity').style.display = 'none';
+  document.getElementById('fb-name-group').style.display = 'block';
+  document.getElementById('fb-name')?.focus();
+}
+
+function goToWizardStep(target) {
+  // Validate every step between where we are and where we're going,
+  // forward only — going Back never needs to re-validate.
+  if(target > portalState.wizardStep) {
+    for(let s = portalState.wizardStep; s < target; s++) {
+      const err = validateWizardStep(s);
+      if(err) {
+        const errEl = document.getElementById('form-err');
+        if(errEl) { errEl.style.display = 'flex'; errEl.textContent = err; }
+        return;
+      }
+    }
+  }
+  const errEl = document.getElementById('form-err');
+  if(errEl) errEl.style.display = 'none';
+
+  portalState.wizardStep = target;
+
+  document.querySelectorAll('.wizard-step').forEach(el => {
+    el.classList.toggle('active', el.dataset.step === String(target));
+  });
+  document.querySelectorAll('.wiz-dot-wrap').forEach(el => {
+    const n = parseInt(el.dataset.wiz, 10);
+    el.classList.toggle('active', n === target);
+    el.classList.toggle('done', n < target);
+  });
+  document.querySelectorAll('.wiz-nav').forEach(el => {
+    el.style.display = el.dataset.stepNav === String(target) ? 'flex' : 'none';
+  });
+
+  document.getElementById('wizard-indicator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Populates the footer and success-screen trust lines from BRAND_TRUST
+// so there's exactly one place to update once a real domain exists —
+// nothing in the HTML itself needs to change later.
+function renderTrustFooter() {
+  const footerEl = document.getElementById('portal-footer');
+  if(footerEl) {
+    footerEl.innerHTML = `BMF EggScore Limited · Nigeria 🇳🇬 · Orders processed securely<br>
+      <span style="opacity:0.8">Only trust orders at <strong>${escapeHtmlPortal(BRAND_TRUST.canonicalDomain)}</strong> —
+      unsure about a link? WhatsApp us: ${escapeHtmlPortal(BRAND_TRUST.officialWhatsApp)}</span>`;
+  }
+  const successTrustEl = document.getElementById('success-trust-line');
+  if(successTrustEl) {
+    successTrustEl.textContent =
+      `This order was placed at ${BRAND_TRUST.canonicalDomain} — screenshot this reference and this page. ` +
+      `If anyone contacts you from a different link claiming to be EggScore, do not pay them.`;
+  }
+}
+
+// Minimal local escaper — kept separate from any ERP-side helper since
+// this file has no dependency on famad-erp.html.
+function escapeHtmlPortal(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// Was only ever computed once, at initial page load — placing an
+// order never triggered a recalculation, so the ticker kept showing
+// whatever was true when the page first opened, no matter how many
+// orders followed in the same session. Pulled out into its own
+// function specifically so it can be re-run after every order, not
+// just once.
+function refreshAvailableStock() {
+  const erp   = loadERPData();
+  const stock = erp.inventory?.main ?? 0;
+  const orders    = loadOrders();
+  const committed = orders
+    .filter(o => o.status === 'pending' || o.status === 'confirmed' || o.status === 'reserved')
+    .reduce((sum, o) => sum + (o.crates || 0), 0);
+  const available = Math.max(0, stock - committed);
+  portalState.availableStock = available;
+  portalState.committedStock = committed;
+  portalState.physicalStock  = stock;
+  return { stock, committed, available };
+}
+
+// Was likewise only ever run once, from inside initPortal() — the
+// visible "Stock Available" number and the committed-orders note never
+// got touched again after that, even once refreshAvailableStock()
+// recalculates fresher numbers. Pulled out so both can be refreshed
+// together, anywhere they're needed.
+function renderAvailableStockDisplay() {
+  const committed = portalState.committedStock || 0;
+  const available = portalState.availableStock || 0;
+
+  const avail  = document.getElementById('avail-display');
+  const maxEl  = document.getElementById('max-display');
+  const volReqCount = document.getElementById('vol-request-stock-count');
+  if(avail) {
+    avail.textContent = available;
+    avail.className   = 'st-avail ' + (available > 200 ? 'good' : available > 50 ? 'low' : 'none');
+  }
+  if(volReqCount) volReqCount.textContent = available.toLocaleString() + ' crates';
+  if(maxEl) maxEl.textContent = 'Max: ' + available + ' crates available to order';
+
+  // Show committed note if any pending orders are holding stock
+  const noteId  = 'committed-note';
+  let   noteEl  = document.getElementById(noteId);
+  if(committed > 0) {
+    if(!noteEl) {
+      noteEl    = document.createElement('div');
+      noteEl.id = noteId;
+      noteEl.style.cssText =
+        "font-family:'DM Mono',monospace;font-size:9px;color:var(--amber);margin-top:4px";
+      avail?.parentElement?.appendChild(noteEl);
+    }
+    noteEl.textContent = committed + ' crates held for pending orders';
+  } else if(noteEl) {
+    noteEl.textContent = '';
+  }
+}
+
+function initPortal() {
+  const erp   = loadERPData();
+  const { stock, committed, available } = refreshAvailableStock();
+
+  renderPortalPolicies();
+  renderTrustFooter();
+
+  // ── Read current selling price from ERP ──
+  const erpPrice = erp.currentSellingPrice;
+  if(erpPrice && erpPrice > 0) portalState.basePrice = erpPrice;
+  if(!erpPrice && erp.sales?.length) portalState.basePrice = erp.sales[0].price || 5700;
+
+  // ── Identify active FIFO batch ──
+  const batches     = erp.batches || [];
+  const activeBatch = batches
+    .filter(b => b.remaining > 0)
+    .sort((a,b) => a.date.localeCompare(b.date))[0] || null;
+
+  renderAvailableStockDisplay();
+
+  // ── Price display ──
+  const priceEl     = document.getElementById('price-display');
+  const batchNoteEl = document.getElementById('portal-batch-note');
+  if(priceEl) priceEl.textContent = '₦' + portalState.basePrice.toLocaleString() + '/crate';
+  if(activeBatch && batchNoteEl) {
+    batchNoteEl.textContent   = activeBatch.supplier + ' · Batch ' + activeBatch.id;
+    batchNoteEl.style.display = 'block';
+  }
+
+  // ── Active promos — respect validity date ──
+  const today  = new Date().toISOString().split('T')[0];
+  const promos = (erp.promotions || []).filter(p =>
+    p.active && (!p.until || p.until === '—' || p.until >= today)
+  );
+  if(promos.length > 0) {
+    const p = promos[0];
+    portalState.activePromo = p;
+    const banner     = document.getElementById('promo-banner');
+    const bannerText = document.getElementById('promo-banner-text');
+    if(banner && bannerText) {
+      banner.style.display = 'flex';
+      bannerText.textContent =
+        `🎯 ${p.name} — ₦${p.discount}/crate off orders ≥ ${p.minCrates} crates. Valid until ${p.until}`;
+    }
+  }
+
+  updateOrderCalc();
+  updateWAFallback();
+}
+
+/* ── A/B test scaffold: "one more crate" nudge ────────────────
+   Deterministic bucket from phone number so a returning customer
+   sees the same variant across visits without needing a backend.
+   'A' = nudge shown, 'B' = control (nudge suppressed, but eligibility
+   still logged so we get a like-for-like conversion comparison).
+   This is infrastructure, not a finished analytics dashboard — Bob
+   can query getNudgeABResults() from the console once real traffic
+   accumulates, or we build a proper report module once there's data
+   worth reporting on.
+──────────────────────────────────────────────────────────────*/
+const AB_LOG_KEY = 'feds_ab_wallet_nudge';
+
+function getABBucket(phone) {
+  if(!phone) return 'A'; // no phone yet — default to shown so nothing is lost pre-identification
+  let hash = 0;
+  for(let i = 0; i < phone.length; i++) hash = (hash * 31 + phone.charCodeAt(i)) & 0xffffffff;
+  return (Math.abs(hash) % 2 === 0) ? 'A' : 'B';
+}
+
+function loadABLog() {
+  try { return JSON.parse(localStorage.getItem(AB_LOG_KEY) || '[]'); } catch(e) { return []; }
+}
+function saveABLog(log) {
+  try { localStorage.setItem(AB_LOG_KEY, JSON.stringify(log)); } catch(e) {}
+}
+
+// Logs the FIRST time a given order-in-progress becomes nudge-eligible —
+// once per phone+targetCrates, so resizing the stepper back and forth
+// doesn't inflate impression counts.
+function logNudgeImpression(phone, variant, targetCrates) {
+  const log = loadABLog();
+  const already = log.find(e => e.phone === phone && e.targetCrates === targetCrates && e.type === 'impression');
+  if(already) return;
+  log.unshift({ type:'impression', phone, variant, targetCrates, ts: new Date().toISOString() });
+  saveABLog(log);
+}
+
+// Called at submitOrder() — records whether this specific submission
+// met or exceeded the nudge target, for whichever variant the customer
+// was in (including 'B', where the offer was never shown).
+function logNudgeOutcome(phone, variant, targetCrates, finalCrates) {
+  if(!targetCrates) return; // never became eligible this session — nothing to log
+  const log = loadABLog();
+  log.unshift({
+    type: 'outcome', phone, variant, targetCrates, finalCrates,
+    converted: finalCrates >= targetCrates, ts: new Date().toISOString(),
+  });
+  saveABLog(log);
+}
+
+// Bob can call this from the console (or we can surface it in a module
+// later): getNudgeABResults() → { A: {impressions, conversions, rate}, B: {...} }
+function getNudgeABResults() {
+  const log = loadABLog();
+  const outcomes = log.filter(e => e.type === 'outcome');
+  const summarize = variant => {
+    const rows = outcomes.filter(e => e.variant === variant);
+    const conversions = rows.filter(e => e.converted).length;
+    return { eligible: rows.length, conversions, rate: rows.length ? Math.round((conversions/rows.length)*100) + '%' : '—' };
+  };
+  return { A_nudgeShown: summarize('A'), B_control: summarize('B') };
+}
+
+/* ── Progressive volume pricing (mirrors the ERP's adaptive engine) ──
+   The portal never sees batch cost — it only needs the three knobs
+   the ERP publishes (priceFloor, targetMargin, volumePricing.halfLife)
+   plus the headline currentSellingPrice, which already embeds the
+   ceiling margin. Discount per crate = ceiling − margin(crates).
+────────────────────────────────────────────────────────────────*/
+function getProgressiveMargin(erp, crates) {
+  const floor    = erp.priceFloor   || 300;
+  const ceiling  = erp.targetMargin || 500;
+  const halfLife = erp.volumePricing?.halfLife || 30;
+  const k = halfLife / Math.LN2;
+  return floor + (ceiling - floor) * Math.exp(-crates / k);
+}
+function getProgressivePricePerCrate(erp, crates) {
+  const ceiling  = erp.targetMargin || 500;
+  const margin   = getProgressiveMargin(erp, crates);
+  const discount = Math.max(0, Math.round(ceiling - margin));
+  return Math.max(0, portalState.basePrice - discount);
+}
+function getProgressiveOrderTotal(erp, crates) {
+  return crates * getProgressivePricePerCrate(erp, crates);
+}
+// Current delivery levy per crate, based on whatever the customer has
+// selected so far (0 for self-collection or before a zone is chosen).
+function getCurrentDeliveryLevyPerCrate() {
+  return getFlatDeliveryRate();
+}
+// Total cost INCLUDING delivery at the currently-selected delivery
+// preference — this is what the customer actually pays, so it's what
+// wallet-coverage and the nudge threshold should be measured against.
+// Falls back to egg-only automatically when delivery is unknown/collect
+// (levy is 0), so this is a strict superset of the egg-only calc, never
+// a regression for customers who haven't picked a zone yet.
+function getTotalOrderCostForCrates(erp, crates) {
+  return getProgressiveOrderTotal(erp, crates) + crates * getCurrentDeliveryLevyPerCrate();
+}
+// Largest crate count whose progressive total still fits the budget.
+// Total cost is strictly increasing in crates (proven for this curve),
+// so a simple binary search is safe and exact.
+function getCratesForBudget(erp, balance) {
+  if(balance <= 0) return 0;
+  let lo = 0, hi = 20000;
+  while(lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if(getProgressiveOrderTotal(erp, mid) <= balance) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+// Same as above, but against total cost (egg + delivery) — used by the
+// live nudge/breakdown calc once delivery preference is known.
+function getCratesForBudgetTotal(erp, balance) {
+  if(balance <= 0) return 0;
+  let lo = 0, hi = 20000;
+  while(lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if(getTotalOrderCostForCrates(erp, mid) <= balance) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+/* ── Reservation policy — mirrors the ERP's adaptive engine exactly.
+   Portal only needs erp.reservationSettings, erp.inventory, and erp.orders
+   (via loadOrders(), same key) — all already shared through the whole-
+   STATE sync, no new wiring required. ── */
+function getPortalStockVelocity(erp) {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  const orders = loadOrders();
+  const closed = ['fulfilled','rejected','cancelled','expired'];
+  const committedLast24h = orders
+    .filter(o => !closed.includes(o.status) && new Date(o.date + 'T' + (o.time || '00:00')).getTime() >= cutoff)
+    .reduce((a, o) => a + (o.crates || 0), 0);
+  const available = erp.inventory?.main || 0;
+  const denom = committedLast24h + available;
+  return denom > 0 ? committedLast24h / denom : 0;
+}
+function getPortalReservationWindowHours(erp, customerType) {
+  const s = erp.reservationSettings || { newBaselineHours:6, returningBaselineHours:24, newFloorHours:1, returningFloorHours:4, velocityHalfPoint:0.3 };
+  const baseline = customerType === 'returning' ? s.returningBaselineHours : s.newBaselineHours;
+  const floor    = customerType === 'returning' ? s.returningFloorHours    : s.newFloorHours;
+  const velocity = getPortalStockVelocity(erp);
+  const k = s.velocityHalfPoint / Math.LN2;
+  const hours = floor + (baseline - floor) * Math.exp(-velocity / k);
+  return Math.round(hours * 10) / 10;
+}
+// Returning = has at least one completed sale on record — a purchase,
+// not just a recognised name. Matches the ERP's exact definition.
+function isPortalReturningCustomer(erp, customerName) {
+  return (erp.sales || []).some(s => s.customer === customerName);
+}
+// Strips formatting so different phone formats normalize to the same
+// 10-digit core — mirrors the ERP's exact definition.
+function normalizePhone(phone) {
+  let digits = (phone || '').replace(/\D/g, '');
+  if(digits.startsWith('234')) digits = digits.slice(3);
+  if(digits.startsWith('0')) digits = digits.slice(1);
+  return digits;
+}
+
+// Checks by PHONE, not just name — a name is free to retype, a phone
+// number is real friction. Still checks name too, since either matching
+// is grounds to say "you already have one."
+function hasActiveReservation(customerName, phone) {
+  const normPhone = normalizePhone(phone);
+  return loadOrders().some(o => o.status === 'reserved' &&
+    (o.customerName === customerName || (normPhone && normalizePhone(o.phone) === normPhone)));
+}
+
+function isPhoneBlocklisted(phone, erp) {
+  const normalized = normalizePhone(phone);
+  if(!normalized) return false;
+  return (erp.reservationBlocklist || []).some(b => normalizePhone(b.phone) === normalized);
+}
+
+// Bounds maximum damage per identity — no ceiling for a proven customer,
+// capped for anyone without real purchase history, however many fake
+// names get tried.
+function getMaxReservationCrates(erp, customerName) {
+  if(isPortalReturningCustomer(erp, customerName)) return Infinity;
+  const s = erp.reservationAbuseSettings || { newCustomerMaxCrates: 50 };
+  return s.newCustomerMaxCrates;
+}
+
+// Mirrors the ERP's exact adaptive formula — same shape as the reservation
+// window, aimed the same direction Bob asked for: slow day → tolerant,
+// real demand showing up → compresses toward the floor.
+function getAdaptivePaymentCommitmentWindow(erp) {
+  const hw = erp.holdWindows?.firstTimeLargeVolume || { floorHours: 1, ceilingHours: 3 };
+  const velocity = getPortalStockVelocity(erp);
+  const halfPoint = erp.reservationSettings?.velocityHalfPoint || 0.3;
+  const k = halfPoint / Math.LN2;
+  const decideHours = hw.floorHours + (hw.ceilingHours - hw.floorHours) * Math.exp(-velocity / k);
+  return Math.round(decideHours * 10) / 10;
+}
+
+// Shows/hides the explicit payment-commitment requirement — only for the
+// exact risk combination this exists for: first-time, large volume, and
+// bank transfer specifically (the one method where payment can be
+// asserted without immediately landing). Called whenever name, crates,
+// or payment method changes.
+function updatePaymentCommitmentBox() {
+  const box = document.getElementById('payment-commitment-box');
+  const textEl = document.getElementById('payment-commitment-text');
+  const ackEl = document.getElementById('payment-commitment-ack');
+  if(!box || !textEl) return;
+
+  const name = document.getElementById('c-name')?.value.trim();
+  if(!name || portalState.paymentMethod !== 'bank') { box.style.display = 'none'; return; }
+
+  const erp = loadERPData();
+  const returning = isPortalReturningCustomer(erp, name);
+  const threshold = getMaxReservationCrates(erp, name); // Infinity for returning customers
+  if(returning || portalState.crates < threshold) { box.style.display = 'none'; return; }
+
+  const hours = getAdaptivePaymentCommitmentWindow(erp);
+  const deadline = new Date(Date.now() + hours * 3600000);
+  box.style.display = 'block';
+  box.dataset.deadline = deadline.toISOString();
+  textEl.innerHTML = `As a first-time order at this size, we'll need payment confirmed by
+    <strong style="color:var(--cream)">${deadline.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</strong>
+    (${hours}h from now — adjusts daily with how fast stock is moving). Unconfirmed orders past this point will be released back to available stock.`;
+  if(ackEl) ackEl.checked = false;
+}
+
+// Looks up an entered referral code against known customers' own codes
+// (already shared via the whole-STATE sync — no new channel needed).
+// Returns the referring customer's name, or null if the code doesn't
+// match anyone. A customer can't refer themselves.
+function resolveReferralCode(code, ownName) {
+  if(!code) return null;
+  const erp = loadERPData();
+  const match = (erp.customers || []).find(c => c.referralCode === code.trim().toUpperCase());
+  if(!match) return null;
+  if(match.name === ownName) return null;
+  return match.name;
+}
+
+function checkReferralCode() {
+  const code = document.getElementById('c-referral-code')?.value.trim();
+  const ownName = document.getElementById('c-name')?.value.trim();
+  const msgEl = document.getElementById('referral-check-msg');
+  if(!msgEl) return;
+  if(!code) { msgEl.style.display = 'none'; return; }
+
+  const referrer = resolveReferralCode(code, ownName);
+  msgEl.style.display = 'block';
+  if(referrer) {
+    msgEl.style.color = 'var(--lime)';
+    msgEl.textContent = `✓ Recognised — you were referred by ${referrer}.`;
+  } else {
+    msgEl.style.color = 'var(--amber)';
+    msgEl.textContent = `⚠ Code not recognised — order will still go through, just without the referral credit.`;
+  }
+}
+
+/* ── Feedback — own localStorage channel, same convention as orders ── */
+const FEEDBACK_KEY = 'feds_feedback';
+function loadFeedbackSubmissions() {
+  try { return JSON.parse(localStorage.getItem(FEEDBACK_KEY) || '[]'); } catch(e) { return []; }
+}
+function saveFeedbackSubmissions(subs) {
+  try { localStorage.setItem(FEEDBACK_KEY, JSON.stringify(subs)); } catch(e) {}
+}
+function submitFeedback() {
+  const name   = document.getElementById('fb-name')?.value.trim();
+  const rating = parseInt(document.getElementById('fb-rating')?.value, 10);
+  const text   = document.getElementById('fb-text')?.value.trim();
+  const statusEl = document.getElementById('fb-status');
+  if(!name || !text) {
+    if(statusEl) { statusEl.style.display='block'; statusEl.style.color='var(--red)'; statusEl.textContent='⚠ Please add your name and a note before submitting.'; }
+    return;
+  }
+  const subs = loadFeedbackSubmissions();
+  subs.unshift({
+    id: 'fb' + Date.now() + Math.floor(Math.random()*1000), customerName: name,
+    phone: document.getElementById('c-phone')?.value.trim() || '',
+    rating: isNaN(rating) ? 5 : rating, text, submittedAt: new Date().toISOString(),
+    flaggedImpactful: false,
+  });
+  saveFeedbackSubmissions(subs);
+  document.getElementById('fb-text').value = '';
+  if(statusEl) { statusEl.style.display='block'; statusEl.style.color='var(--lime)'; statusEl.textContent='✓ Thank you — your feedback has been recorded and earns loyalty points.'; }
+}
+
+/* ── Published order policies — informational, feeds the respect score ── */
+function renderPortalPolicies() {
+  const el = document.getElementById('portal-policy-list');
+  if(!el) return;
+  const erp = loadERPData();
+  const policies = erp.orderPolicies || [];
+  el.innerHTML = policies.length === 0
+    ? 'No policies published yet.'
+    : policies.map(p => `• ${escapeHtmlPortal(p.text)}`).join('<br>');
+}
+
+/* ── My Loyalty — portal-side mirror of the ERP's loyalty engine.
+   Duplicated rather than shared, same convention as progressive pricing
+   and reservations — the portal is a separate script context and only
+   has read access to the synced ERP data, never its functions. ── */
+function getPortalQuarterKey(dateStr) {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-Q${Math.floor(d.getMonth()/3)+1}`;
+}
+function computePortalLoyaltyProfile(erp, customerName) {
+  const ly = erp.loyaltySettings || {
+    pointsPerReferral:10, referralCapPerQuarter:40, feedbackFormPoints:5, feedbackImpactfulBonus:10, feedbackCapPerQuarter:30,
+    commThirtyMinPoints:4, commOneHourPoints:2, commOneDayPoints:1, respectNoIncidentPoints:5, respectPerPolicyPoints:1,
+    loyaltyLevelThresholds: { silver:20, gold:45, platinum:70 },
+  };
+  const orders = loadOrders();
+
+  // Advocacy — converted (fulfilled) referrals only, capped per quarter
+  const referred = orders.filter(o => o.referredByCustomerName === customerName && o.status === 'fulfilled');
+  const advByQ = {};
+  referred.forEach(o => { const q = getPortalQuarterKey(o.date); advByQ[q] = (advByQ[q]||0) + ly.pointsPerReferral; });
+  const advocacy = Object.values(advByQ).reduce((a,p) => a + Math.min(ly.referralCapPerQuarter, p), 0);
+
+  // Feedback — capped per quarter
+  const subs = loadFeedbackSubmissions().filter(f => f.customerName === customerName);
+  const fbByQ = {};
+  subs.forEach(f => {
+    const q = getPortalQuarterKey(f.submittedAt);
+    const pts = ly.feedbackFormPoints + (f.flaggedImpactful ? ly.feedbackImpactfulBonus : 0);
+    fbByQ[q] = (fbByQ[q]||0) + pts;
+  });
+  const feedback = Object.values(fbByQ).reduce((a,p) => a + Math.min(ly.feedbackCapPerQuarter, p), 0);
+
+  // Communication — reservation response speed
+  const resolved = orders.filter(o => o.customerName === customerName && o.reservationCustomerType && (o.convertedAt || o.cancelledAt) && o.reservedAt);
+  const communication = resolved.reduce((total, o) => {
+    const actedAt = o.convertedAt || o.cancelledAt;
+    const minutes = (new Date(actedAt).getTime() - new Date(o.reservedAt).getTime()) / 60000;
+    if(minutes <= 30) return total + ly.commThirtyMinPoints;
+    if(minutes <= 60) return total + ly.commOneHourPoints;
+    if(minutes <= 1440) return total + ly.commOneDayPoints;
+    return total;
+  }, 0);
+
+  // Respect — quarterly records
+  const records = (erp.respectRecords || []).filter(r => r.customerName === customerName);
+  const respect = records.reduce((total, r) => {
+    let pts = r.noIncidentFlag ? ly.respectNoIncidentPoints : 0;
+    pts += (r.policiesAdhered?.length || 0) * ly.respectPerPolicyPoints;
+    return total + pts;
+  }, 0);
+
+  const scSettings = erp.scorecardSettings || { relationshipTagPoints: { advocacy:15, feedback:12, product_trial:8, respectful_conduct:6, communication:6 } };
+  const manualTags = (erp.relationshipTags || []).filter(t => t.customerName === customerName)
+    .reduce((a,t) => a + (scSettings.relationshipTagPoints[t.type] || 0), 0);
+
+  const totalPoints = advocacy + feedback + communication + respect + manualTags;
+  const t = ly.loyaltyLevelThresholds;
+  const level = totalPoints >= t.platinum ? 'Platinum' : totalPoints >= t.gold ? 'Gold' : totalPoints >= t.silver ? 'Silver' : 'Bronze';
+  const cust = (erp.customers || []).find(c => c.name === customerName);
+
+  return {
+    referralCode: cust?.referralCode || null,
+    totalOrders: (erp.sales || []).filter(s => s.customer === customerName).length,
+    loyaltyPoints: totalPoints, loyaltyLevel: level,
+    breakdown: { advocacy, feedback, communication, respect, other: manualTags },
+  };
+}
+
+function renderMyLoyaltyPanel(customerName) {
+  const panel = document.getElementById('my-loyalty-panel');
+  if(!panel) return;
+  const erp = loadERPData();
+  const profile = computePortalLoyaltyProfile(erp, customerName);
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--sun)">🏅 Your Loyalty: ${profile.loyaltyLevel}</span>
+      <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--sun)">${profile.loyaltyPoints} pts</span>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--dust);line-height:1.8">
+      Advocacy ${profile.breakdown.advocacy} · Feedback ${profile.breakdown.feedback} ·
+      Communication ${profile.breakdown.communication} · Respect ${profile.breakdown.respect}
+    </div>
+    ${profile.referralCode ? `
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:8px;padding-top:8px;border-top:1px solid rgba(240,180,40,0.15)">
+      Your referral code: <strong style="color:var(--sun)">${profile.referralCode}</strong> — share it, earn points when they buy.
+    </div>` : `
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:8px">
+      Your referral code will appear after your first order.
+    </div>`}
+  `;
+}
+
+function getPortalWalletBalance(erp, customerName) {
+  const txns = erp.walletTransactions || [];
+  return txns.filter(t => t.customerName === customerName).reduce((a, t) => {
+    if(t.type === 'credit') return a + t.amount;
+    if(t.type === 'applied' || t.type === 'refund_pending') return a - t.amount;
+    return a;
+  }, 0);
+}
+
+/* ── Customer lookup ── */
+function lookupCustomer() {
+  const name = document.getElementById('c-name')?.value.trim().toLowerCase();
+  if(!name || name.length < 3) { hideMatch(); return; }
+  const erp = loadERPData();
+  const custs = erp.customers || [];
+  const match = custs.find(c => c.name.toLowerCase().includes(name) || (c.contact||'').toLowerCase().includes(name));
+  if(match) showMatch(match);
+  else hideMatch();
+}
+
+function lookupByCode() {
+  const code = document.getElementById('c-code')?.value.trim();
+  if(!code) return;
+  const erp = loadERPData();
+  const custs = erp.customers || [];
+  const idx = custs.findIndex(c => c.id === code || ('BEL-C' + (custs.indexOf(c)+1).toString().padStart(3,'0')) === code || ('EGS-C' + (custs.indexOf(c)+1).toString().padStart(3,'0')) === code || ('FEDS-C' + (custs.indexOf(c)+1).toString().padStart(3,'0')) === code);
+  if(idx >= 0) {
+    const c = custs[idx];
+    showMatch(c);
+    document.getElementById('c-name').value = c.name;
+    document.getElementById('c-phone').value = c.phone !== '—' ? c.phone : '';
+    document.getElementById('c-location').value = c.location;
+  }
+}
+
+function showMatch(c) {
+  portalState.matchedCustomer = c;
+  const box = document.getElementById('customer-match-box');
+  const nm  = document.getElementById('match-name');
+  const loy = document.getElementById('match-loyalty');
+  if(box){ box.style.display='flex'; }
+  if(nm)  nm.textContent = c.name;
+  if(loy) loy.textContent = c.loyalty + ' loyalty';
+
+  // ── Price change notice — informs returning customers of price moves ──
+  checkPriceChangeSinceLastOrder(c.name);
+
+  // ── Wallet balance notice — thanks the customer and shows what it buys ──
+  renderWalletNotice(c.name);
+  renderMyLoyaltyPanel(c.name);
+  updateOrderCalc();
+}
+function hideMatch() {
+  portalState.matchedCustomer = null;
+  const box = document.getElementById('customer-match-box');
+  if(box) box.style.display = 'none';
+  const note = document.getElementById('price-change-notice');
+  if(note) note.style.display = 'none';
+  const wnote = document.getElementById('wallet-notice');
+  if(wnote) wnote.style.display = 'none';
+  const loyaltyPanel = document.getElementById('my-loyalty-panel');
+  if(loyaltyPanel) loyaltyPanel.style.display = 'none';
+  updateOrderCalc();
+}
+
+/* ── Wallet balance notice ───────────────────────────────────
+   Fires the moment a returning customer is recognised. Purely
+   informational here — the live drawdown preview lives in
+   updateOrderCalc(). Nothing here changes what the customer owes;
+   it's the ERP, via the Orders Inbox "Apply wallet credit" button,
+   that ever actually moves wallet money.
+─────────────────────────────────────────────────────────────*/
+function renderWalletNotice(customerName) {
+  const notice = document.getElementById('wallet-notice');
+  if(!notice) return;
+  const erp = loadERPData();
+  const balance = getPortalWalletBalance(erp, customerName);
+  if(balance <= 0) { notice.style.display = 'none'; return; }
+  const price = portalState.basePrice;
+  const hasDelivery = getCurrentDeliveryLevyPerCrate() > 0;
+  const crates = getCratesForBudgetTotal(erp, balance); // progressive AND delivery-aware once a zone is picked
+  notice.style.display = 'block';
+  notice.innerHTML = `💰 <strong>${escapeHtmlPortal(customerName)}</strong> — you have a wallet balance of <strong>₦${balance.toLocaleString()}</strong> with us —
+    thank you for trusting BMF EggScore Limited with it. At today's starting price of ₦${price.toLocaleString()}/crate
+    (less per crate the more you order${hasDelivery ? ', delivery included' : ''}), that's good for about ${crates} crate${crates === 1 ? '' : 's'} whenever you're ready.`;
+}
+
+function escapeHtmlPortal(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── Price change notice for returning customers ─────────────
+   Compares the current selling price against the price the
+   customer paid on their most recent order. If different,
+   shows the reason from Price Management's note field —
+   transparent communication, no surprises at checkout.
+─────────────────────────────────────────────────────────── */
+function checkPriceChangeSinceLastOrder(customerName) {
+  const note = document.getElementById('price-change-notice');
+  if(!note) return;
+
+  const erp = loadERPData();
+  const currentPrice = erp.currentSellingPrice || portalState.basePrice;
+
+  // Find this customer's most recent sale (by date)
+  const lastSale = (erp.sales || [])
+    .filter(s => s.customer === customerName)
+    .sort((a,b) => b.date.localeCompare(a.date))[0];
+
+  if(!lastSale || !lastSale.price) { note.style.display = 'none'; return; }
+
+  const lastPrice = lastSale.price;
+  if(lastPrice === currentPrice) { note.style.display = 'none'; return; }
+
+  const history = erp.priceHistory || [];
+  // How many price changes actually happened between HER last purchase
+  // and today — not just the single most recent one. The stored reason
+  // for the latest change was correctly computed for its own one-step
+  // transition at the time, but only validly explains a customer's ENTIRE
+  // gap when there's exactly one step in between. With several changes
+  // since her last order, showing that one reason as if it explains the
+  // whole movement is misleading — it might even point the opposite
+  // direction from what she's actually experiencing, since her reference
+  // point and the reason's reference point aren't the same moment.
+  const changesSinceHerOrder = history.filter(h => h.setAt > lastSale.date).length;
+
+  const relevantChange = (history[0]?.price === currentPrice) ? history[0] : null;
+  // Structured category (guaranteed consistent with direction, enforced at
+  // entry in the ERP) + optional free-text detail — mirrors PRICE_REASON_CATEGORIES.
+  const PORTAL_REASON_LABELS = {
+    input_cost_up: 'Production input costs increased', input_cost_down: 'Production input costs dropped',
+    market_competitive: 'Market / competitive price adjustment', supply_demand: 'Supply and demand shift',
+    strategic_promo: 'Strategic or promotional adjustment', other: 'Other',
+  };
+  const categoryLabel = relevantChange?.reasonCategory ? PORTAL_REASON_LABELS[relevantChange.reasonCategory] : null;
+  const latestReason = categoryLabel
+    ? categoryLabel + (relevantChange.note ? ` — ${relevantChange.note}` : '')
+    : (relevantChange?.note || null);
+
+  const direction = currentPrice > lastPrice ? 'increased' : 'decreased';
+  const icon      = currentPrice > lastPrice ? '📈' : '📉';
+  const diff      = Math.abs(currentPrice - lastPrice);
+
+  // Multiple steps since her order → frame the reason as describing only
+  // the latest step, never as if it explains the whole gap from her price.
+  // Single step (or no traceable reason at all) → existing behaviour.
+  let reasonLine = '';
+  if(changesSinceHerOrder > 1 && latestReason) {
+    reasonLine = `<br><span style="color:var(--dust)">Price has adjusted ${changesSinceHerOrder} times since your last order — most recent change: ${latestReason}</span>`;
+  } else if(latestReason) {
+    reasonLine = `<br><span style="color:var(--dust)">Reason: ${latestReason}</span>`;
+  }
+
+  note.style.display = 'block';
+  note.innerHTML =
+    `${icon} <strong>Price update:</strong> Since your last order `
+    + `(₦${lastPrice.toLocaleString()}/crate), our price has ${direction} `
+    + `to <strong>₦${currentPrice.toLocaleString()}/crate</strong> `
+    + `(₦${diff.toLocaleString()} ${direction === 'increased' ? 'more' : 'less'} per crate)`
+    + reasonLine;
+}
+
+/* ── Crate stepper ── */
+// Re-reads live stock/committed/price — called before any crate change,
+// whether from the +/- buttons, direct typing, or a quick-jump button.
+function refreshStockAndPrice() {
+  const erp   = loadERPData();
+  const stock = erp.inventory?.main ?? 999;
+
+  const orders    = loadOrders();
+  const committed = orders
+    .filter(o => o.status === 'pending' || o.status === 'confirmed' || o.status === 'reserved')
+    .reduce((sum, o) => sum + (o.crates || 0), 0);
+  const available = Math.max(0, stock - committed);
+
+  portalState.availableStock = available;
+  portalState.committedStock = committed;
+  portalState.physicalStock  = stock;
+
+  const latestPrice = erp.currentSellingPrice || portalState.basePrice;
+  if(latestPrice !== portalState.basePrice) {
+    portalState.basePrice = latestPrice;
+    const priceEl = document.getElementById('price-display');
+    if(priceEl) priceEl.textContent = '₦' + latestPrice.toLocaleString() + '/crate';
+  }
+  return available;
+}
+
+// Single source of truth for setting crates, from any input method.
+// Clamps to [1, available] and re-renders everything downstream.
+function setCratesValue(value) {
+  const available = refreshStockAndPrice();
+  let v = Math.round(Number(value));
+  if(isNaN(v) || v < 1) v = 1;
+  v = Math.min(available > 0 ? available : v, v);
+  portalState.crates = v;
+  const disp = document.getElementById('crate-display');
+  if(disp) disp.value = v;
+  updateOrderCalc();
+  updateWAFallback();
+}
+
+// +/- buttons — same shared path, just relative to the current value.
+function adjustCrates(delta) {
+  setCratesValue(portalState.crates + delta);
+}
+
+// Typing a number directly and tabbing/clicking away, or hitting Enter.
+function onCrateInputChange(el) {
+  setCratesValue(el.value);
+}
+
+function updateOrderCalc() {
+  const erp     = loadERPData();
+  const stock   = erp.inventory?.main ?? 0;
+  const available = portalState.availableStock ?? stock;
+  const crates  = portalState.crates;
+  const promo   = portalState.activePromo;
+  const base    = portalState.basePrice; // headline/ceiling price — shown in the stock ticker, unaffected by volume
+
+  // Promo discount on egg price only
+  let promoDiscount = 0;
+  if(promo && crates >= promo.minCrates) promoDiscount = promo.discount || 0;
+
+  // ── Progressive volume price for THIS order's crate count. Margin
+  // decays from the ceiling toward the floor as crates grows — see
+  // getProgressivePricePerCrate(). This is the base the promo discount
+  // and nudge then stack on top of, per the agreed three-layer model. ──
+  const progressivePrice = getProgressivePricePerCrate(erp, crates);
+
+  // ── "One more crate" nudge — computed here (before totals) so that if
+  // the customer actually takes it, the 10% really comes off the price.
+  // Shortfall uses the AGGREGATE cost of one more crate — egg price AND
+  // delivery, once a delivery preference is known — since that's the
+  // real total the customer is measuring their wallet against. Only
+  // applies when crates lands EXACTLY on the nudge target — buying
+  // beyond that is just a normal larger order riding the curve. ──
+  const custNameForWallet = portalState.matchedCustomer?.name;
+  const walletBalanceEarly = custNameForWallet ? getPortalWalletBalance(erp, custNameForWallet) : 0;
+  const levyPerCrateEarly = getCurrentDeliveryLevyPerCrate();
+  let nudgeDiscountTotal = 0, nudgeTargetCrates = null, nudgeShortfall = 0, nudgeEligibleNow = false;
+  if(walletBalanceEarly > 0 && base > 0) {
+    const fullCratesCovered = getCratesForBudgetTotal(erp, walletBalanceEarly);
+    const nextCrateTotal    = getTotalOrderCostForCrates(erp, fullCratesCovered + 1);
+    const shortfall         = nextCrateTotal - walletBalanceEarly;
+    const marginalCrateCost = getProgressivePricePerCrate(erp, fullCratesCovered + 1) + levyPerCrateEarly;
+    if(fullCratesCovered > 0 && shortfall > 0 && shortfall < marginalCrateCost) {
+      nudgeTargetCrates = fullCratesCovered + 1;
+      nudgeShortfall    = shortfall;
+      nudgeEligibleNow  = (crates === fullCratesCovered); // eligible to SEE the offer at this crate count
+      if(crates === nudgeTargetCrates) nudgeDiscountTotal = Math.round(shortfall * 0.1); // TOOK the offer
+    }
+  }
+
+  const eggPriceNet  = Math.max(0, progressivePrice - promoDiscount);
+
+  // ── Delivery is now always included, blended straight into the
+  // per-crate price shown to the customer — per Bob's instruction,
+  // there is no separate delivery line anywhere on the portal. The
+  // underlying split (egg vs delivery) is still tracked internally
+  // (see order object construction) purely for BEL's own accounting,
+  // never surfaced here. ──
+  const deliveryPerCrate = getCurrentDeliveryLevyPerCrate();
+  const blendedPricePerCrate = eggPriceNet + deliveryPerCrate;
+  const eggSubtotal  = Math.max(0, crates * blendedPricePerCrate - nudgeDiscountTotal);
+  portalState.deliveryLevy  = deliveryPerCrate;
+  portalState.deliveryTotal = crates * deliveryPerCrate; // kept for internal order construction only
+
+  const grandTotal = eggSubtotal;
+  portalState.nudgeDiscountApplied = nudgeDiscountTotal; // read by submitOrder()
+
+  // ── Stock ticker price display — always the flat headline/ceiling
+  // price, since it's quoted before the customer has picked a quantity ──
+  const priceEl = document.getElementById('price-display');
+  if(priceEl) priceEl.textContent = '₦' + (base + getFlatDeliveryRate()).toLocaleString() + '/crate';
+
+  // ── Max display — available balance not physical stock ──
+  const maxEl = document.getElementById('max-display');
+  if(maxEl) {
+    const committed = portalState.committedStock || 0;
+    maxEl.textContent = committed > 0
+      ? `Max: ${available} crates (${committed} held for pending orders)`
+      : `Max: ${available} crates available`;
+  }
+
+  // ── Order Breakdown rows — one blended price throughout, no
+  // separate delivery line ──
+  setText('ob-egg-price',    '₦' + blendedPricePerCrate.toLocaleString() + '/crate');
+  setText('ob-crates',       crates + (crates === 1 ? ' crate' : ' crates'));
+  setText('ob-egg-subtotal', '₦' + eggSubtotal.toLocaleString());
+  setText('ob-total',        '₦' + grandTotal.toLocaleString());
+
+  // ── Savings — vs the ceiling/standard rate (`base`), the real number a
+  // small first-time order would pay. Nothing invented here: same figures
+  // already computed above for the other breakdown rows, just the
+  // difference. Captures volume discount + promo + nudge together (all
+  // real reductions off the standard rate), with volume and promo shown
+  // separately below the headline for transparency. ──
+  const savingsRow   = document.getElementById('ob-savings-row');
+  const savingsTotal = document.getElementById('ob-savings-total');
+  const savingsBreak = document.getElementById('ob-savings-breakdown');
+  if(savingsRow && savingsTotal && savingsBreak) {
+    const ceilingEggCost = crates * base;
+    const totalSavings    = Math.max(0, ceilingEggCost - (eggSubtotal - crates * deliveryPerCrate));
+    const volumeSavings   = Math.max(0, crates * (base - progressivePrice));
+    const promoSavings    = Math.max(0, crates * promoDiscount);
+    // A minimum threshold matters here — the curve decays continuously,
+    // so even a single crate technically earns a few naira of discount.
+    // Showing "You saved ₦5!" looks silly and undercuts the credibility
+    // of the number on a genuinely large order. Only surface it once
+    // it's a real, celebratable amount.
+    if(totalSavings >= 50 && crates > 0) {
+      savingsRow.style.display = 'block';
+      savingsTotal.textContent = '₦' + totalSavings.toLocaleString();
+      const parts = [];
+      if(volumeSavings > 0) parts.push(`₦${volumeSavings.toLocaleString()} from volume`);
+      if(promoSavings > 0)  parts.push(`₦${promoSavings.toLocaleString()} from the promo`);
+      if(nudgeDiscountTotal > 0) parts.push(`₦${nudgeDiscountTotal.toLocaleString()} from the wallet nudge`);
+      // Stated as "of that total, X came from..." rather than a bare list —
+      // a bare "A + B" list invited readers to independently recompute A
+      // from the one visible per-crate price and then add B again on top,
+      // double-counting since that visible price already nets out both.
+      savingsBreak.textContent = `That's ₦${base.toLocaleString()}/crate (standard rate) vs what you're actually paying` +
+        (parts.length ? ` — of this total, ${parts.join(' and ')}.` : '.');
+    } else {
+      savingsRow.style.display = 'none';
+    }
+  }
+
+  // Promo row
+  const promoRow = document.getElementById('ob-promo-row');
+  const promoVal = document.getElementById('ob-promo-val');
+  if(promoRow && promoVal) {
+    promoRow.style.display = promoDiscount > 0 ? 'flex' : 'none';
+    if(promoDiscount > 0)
+      promoVal.textContent = `−₦${(promoDiscount * crates).toLocaleString()} (${promo.name})`;
+  }
+
+  // ── Wallet drawdown preview — live, advisory only. Real application
+  // happens in the ERP (Orders Inbox → Apply wallet credit) so a client-
+  // side number can never move real money. ──
+  const walletRow   = document.getElementById('ob-wallet-row');
+  const walletVal    = document.getElementById('ob-wallet-val');
+  const balanceRow   = document.getElementById('ob-balance-row');
+  const balanceVal   = document.getElementById('ob-balance-val');
+  const walletNote    = document.getElementById('ob-wallet-note');
+  const totalLabel    = document.getElementById('ob-total-label');
+  const walletBalance = walletBalanceEarly;
+  const walletApplied = Math.min(walletBalance, grandTotal);
+  const balanceToPay  = Math.max(0, grandTotal - walletApplied);
+
+  if(walletRow && walletVal && balanceRow && balanceVal) {
+    const showWallet = walletApplied > 0;
+    walletRow.style.display  = showWallet ? 'flex' : 'none';
+    balanceRow.style.display = showWallet ? 'flex' : 'none';
+    if(totalLabel) totalLabel.textContent = showWallet ? 'Order total' : 'Total Payable';
+    if(walletNote) walletNote.style.display = showWallet ? 'block' : 'none';
+    if(showWallet) {
+      walletVal.textContent  = `−₦${walletApplied.toLocaleString()}`;
+      balanceVal.textContent = '₦' + balanceToPay.toLocaleString();
+    }
+  }
+
+  // ── Gamified coverage bar — % of THIS order the wallet balance covers ──
+  const progWrap = document.getElementById('ob-wallet-progress-wrap');
+  const progBar  = document.getElementById('ob-wallet-progress-bar');
+  const progPct  = document.getElementById('ob-wallet-progress-pct');
+  if(progWrap && progBar && progPct) {
+    if(walletBalance > 0 && grandTotal > 0) {
+      const pct = Math.min(100, Math.round((walletBalance / grandTotal) * 100));
+      progWrap.style.display = 'block';
+      progBar.style.width = pct + '%';
+      progBar.style.background = pct >= 100 ? 'var(--lime)' : 'var(--teal)';
+      progPct.textContent = pct + '%' + (pct >= 100 ? ' — fully covered! 🎉' : '');
+    } else {
+      progWrap.style.display = 'none';
+    }
+  }
+
+  // ── "One more crate" nudge display — eligibility/discount were already
+  // computed above (before totals), so what this shows matches what the
+  // customer is actually charged. The offer is shown to EVERYONE — no
+  // A/B suppression. There's no real traffic yet to learn from an
+  // experiment, and a silently-suppressed proactive offer directly
+  // undercuts the "feels thoughtful, not cold" goal this feature exists
+  // for. Impressions/outcomes are still logged quietly in the background
+  // in case a real A/B test is worth running later, once there's volume. ──
+  const nudgeEl  = document.getElementById('wallet-nudge');
+  const phoneVal = document.getElementById('c-phone')?.value.trim() || '';
+  const variant  = getABBucket(phoneVal);
+  portalState.abNudgeVariant = variant;
+  portalState.abNudgeTargetCrates = nudgeTargetCrates;
+  if(nudgeEl) {
+    nudgeEl.style.display = 'none';
+    if(nudgeTargetCrates) {
+      if(crates === nudgeTargetCrates) {
+        // They took it — confirm, don't keep dangling a "you could get 10% off" offer they already have
+        nudgeEl.style.display = 'block';
+        nudgeEl.innerHTML = `✓ Nice — that extra crate is yours at 10% off the gap. ₦${nudgeDiscountTotal.toLocaleString()} saved.`;
+      } else if(nudgeEligibleNow) {
+        logNudgeImpression(phoneVal, variant, nudgeTargetCrates);
+        nudgeEl.style.display = 'block';
+        nudgeEl.innerHTML = `🎯 Add 1 more crate — we'll take 10% off the ₦${nudgeShortfall.toLocaleString()} gap,
+            so it only costs you ₦${Math.round(nudgeShortfall * 0.9).toLocaleString()} more.`;
+      }
+    }
+  }
+
+  // Discount alert badge (below stepper)
+  const discEl    = document.getElementById('discount-applied');
+  const discDetail= document.getElementById('discount-detail');
+  if(discEl && discDetail) {
+    discEl.style.display = promoDiscount > 0 ? 'flex' : 'none';
+    if(promoDiscount > 0)
+      discDetail.textContent =
+        `₦${promoDiscount}/crate off (${promo.name}) — saving ₦${(promoDiscount * crates).toLocaleString()}`;
+  }
+
+  // Order tag header
+  const tag = document.getElementById('order-tag');
+  if(tag) tag.textContent =
+    crates + ' crate' + (crates !== 1 ? 's' : '') + ' · ₦' + grandTotal.toLocaleString();
+
+  // Promo note in ticker
+  const promoNote = document.getElementById('promo-price-note');
+  if(promoNote) {
+    promoNote.style.display = promoDiscount > 0 ? 'block' : 'none';
+    if(promoDiscount > 0)
+      promoNote.textContent = `Volume discount promo: ₦${blendedPricePerCrate.toLocaleString()}/crate for you`;
+  }
+
+  // Stock warning — uses available balance already computed above
+  const sw = document.getElementById('stock-warn');
+  if(sw) {
+    sw.style.display = crates > available ? 'flex' : 'none';
+    sw.textContent   = crates > available
+      ? `⚠ Only ${available} crates available to order right now (${portalState.committedStock||0} held for pending orders).`
+      : '';
+  }
+
+  // Paystack lock — card payment restricted to small orders
+  const pps = document.getElementById('pay-paystack');
+  if(pps) {
+    if(crates > PAYSTACK_THRESHOLD) {
+      pps.classList.add('locked');
+      if(portalState.paymentMethod === 'paystack') {
+        portalState.paymentMethod = 'bank';
+        selectPaymentByKey('bank');
+      }
+    } else {
+      pps.classList.remove('locked');
+    }
+  }
+
+  // USSD lock — *737#-style mobile prompts are a small-transaction rail,
+  // not intended for six-figure wholesale orders. Same threshold as card.
+  const ussdOpt = document.getElementById('pay-ussd');
+  if(ussdOpt) {
+    if(crates > PAYSTACK_THRESHOLD) {
+      ussdOpt.classList.add('locked');
+      if(portalState.paymentMethod === 'ussd') {
+        portalState.paymentMethod = 'bank';
+        selectPaymentByKey('bank');
+      }
+    } else {
+      ussdOpt.classList.remove('locked');
+    }
+  }
+
+  // ── Reservation live preview — shown once a name is entered, updates as
+  // crates/customer recognition change. Purely informational; the real
+  // window is computed again at submission time. ──
+  const nameVal = document.getElementById('c-name')?.value.trim() || '';
+  const resvPreview = document.getElementById('reservation-preview');
+  const resvBtn = document.getElementById('reserve-submit-btn');
+  if(resvPreview && resvBtn) {
+    if(!nameVal) {
+      resvPreview.style.display = 'none';
+      resvBtn.disabled = false; resvBtn.style.opacity = '1';
+    } else if(hasActiveReservation(nameVal, phoneVal)) {
+      resvPreview.style.display = 'block';
+      resvPreview.innerHTML = `⚠ You already have an active reservation — only one at a time. WhatsApp/SMS us if you need to adjust it.`;
+      resvBtn.disabled = true; resvBtn.style.opacity = '0.5';
+    } else {
+      const returning = isPortalReturningCustomer(erp, nameVal);
+      const windowHours = getPortalReservationWindowHours(erp, returning ? 'returning' : 'new');
+      const maxCrates = getMaxReservationCrates(erp, nameVal);
+      resvPreview.style.display = 'block';
+      if(crates > maxCrates) {
+        resvPreview.innerHTML = `⚠ First-time reservations are capped at <strong>${maxCrates} crates</strong> until a purchase is completed.
+          Reduce your quantity, or contact us on WhatsApp for a larger first order.`;
+        resvBtn.disabled = true; resvBtn.style.opacity = '0.5';
+      } else {
+        resvPreview.innerHTML = `🕐 Reserving now holds ${crates} crates for <strong>${windowHours}h</strong>
+          (${returning ? 'returning' : 'new'} customer rate — adjusts daily with how fast stock is moving).
+          No payment needed until you confirm.`;
+        resvBtn.disabled = false; resvBtn.style.opacity = '1';
+      }
+    }
+  }
+
+  updatePaymentCommitmentBox();
+}
+
+/* ── Payment selection ── */
+function selectPayment(el) {
+  const key = el.dataset.pay;
+  if(key==='paystack' && portalState.crates > PAYSTACK_THRESHOLD) {
+    alert('Card payment is only available for orders of 1–30 crates.\nFor larger orders please use Bank Transfer.');
+    return;
+  }
+  if(key==='ussd' && portalState.crates > PAYSTACK_THRESHOLD) {
+    alert('USSD payment is only available for orders of 1–30 crates.\nFor larger orders please use Bank Transfer.');
+    return;
+  }
+  selectPaymentByKey(key);
+}
+function selectPaymentByKey(key) {
+  document.querySelectorAll('.pay-opt').forEach(o=>o.classList.remove('selected'));
+  const target = document.querySelector(`[data-pay="${key}"]`);
+  if(target) target.classList.add('selected');
+  portalState.paymentMethod = key;
+  // Show/hide detail panels
+  document.getElementById('bank-details').style.display   = key==='bank'   ? 'block' : 'none';
+  document.getElementById('ussd-details').style.display   = key==='ussd'   ? 'block' : 'none';
+  document.getElementById('cash-details').style.display   = key==='cash'   ? 'block' : 'none';
+  document.getElementById('paystack-section').style.display = key==='paystack' ? 'block' : 'none';
+  updatePaymentCommitmentBox();
+  const pt = document.getElementById('pay-tag');
+  if(pt){ const labels={bank:'Bank Transfer',ussd:'USSD *737#',cash:'Cash on Delivery',paystack:'Card via Paystack'}; pt.textContent=labels[key]||key; }
+}
+
+/* ── WA Fallback link — updates as customer fills the form ── */
+function updateWAFallback() {
+  const name     = document.getElementById('c-name')?.value     || '—';
+  const phone    = document.getElementById('c-phone')?.value    || '—';
+  const location = document.getElementById('c-location')?.value || '—';
+  const notes    = document.getElementById('c-notes')?.value    || '';
+  const crates   = portalState.crates;
+  const erp      = loadERPData();
+  const base     = getProgressivePricePerCrate(erp, crates);
+  const promo    = portalState.activePromo;
+
+  // Promo line
+  const promoDiscount = promo && crates >= promo.minCrates ? promo.discount : 0;
+  const deliveryPerCrate = getCurrentDeliveryLevyPerCrate();
+  const eggPrice      = base - promoDiscount + deliveryPerCrate; // blended — no separate delivery line anywhere
+  const eggSubtotal   = crates * eggPrice;
+  const grandTotal    = eggSubtotal;
+
+  const promoLine = promoDiscount > 0
+    ? `\n🎯 *Promo:* ${promo.name} — ₦${promoDiscount.toLocaleString()}/crate off` : '';
+
+  const msg =
+    `Hello BMF EggScore Limited 👋,\n\n` +
+    `I would like to place an egg order.\n\n` +
+    `👤 *Name:* ${name}\n` +
+    `📞 *Phone:* ${phone}\n` +
+    `📍 *Location:* ${location}\n` +
+    `📦 *Crates:* ${crates}\n` +
+    `🥚 *Price:* ₦${eggPrice.toLocaleString()}/crate\n` +
+    `🥚 *Subtotal:* ₦${eggSubtotal.toLocaleString()}\n` +
+    `${promoLine}\n` +
+    `💰 *Total payable:* ₦${grandTotal.toLocaleString()}\n` +
+    (notes ? `\n📝 *Notes:* ${notes}\n` : '') +
+    `\nPlease confirm availability and proceed.\n\nThank you!`;
+
+  const link = `https://wa.me/2348068371725?text=${encodeURIComponent(msg)}`;
+  const el   = document.getElementById('wa-fallback-link');
+  if(el) el.href = link;
+}
+
+/* ── Generate order reference — BEL-ORD-YYMMDD-HHMMSS ── */
+function genRef() {
+  const now = new Date();
+  const yy  = String(now.getFullYear()).slice(2);
+  const mm  = String(now.getMonth() + 1).padStart(2, '0');
+  const dd  = String(now.getDate()).padStart(2, '0');
+  const hh  = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const ss  = String(now.getSeconds()).padStart(2, '0');
+  return `BEL-ORD-${yy}${mm}${dd}-${hh}${min}${ss}`;
+}
+
+function genVolReqRef() {
+  const now = new Date();
+  const yy  = String(now.getFullYear()).slice(2);
+  const mm  = String(now.getMonth() + 1).padStart(2, '0');
+  const dd  = String(now.getDate()).padStart(2, '0');
+  const hh  = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const ss  = String(now.getSeconds()).padStart(2, '0');
+  return `BEL-VOL-${yy}${mm}${dd}-${hh}${min}${ss}`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   VOLUME REQUEST
+   For customers whose need exceeds shown stock and who
+   choose not to fragment their order — captures intent
+   that would otherwise leave silently, with zero record.
+   Always-visible prompt sits directly under the stock
+   figure, not gated behind any form interaction.
+═══════════════════════════════════════════════════════ */
+function loadVolumeRequests() {
+  try { return JSON.parse(localStorage.getItem(VOLREQ_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function saveVolumeRequest(req) {
+  const reqs = loadVolumeRequests();
+  reqs.unshift(req);
+  localStorage.setItem(VOLREQ_KEY, JSON.stringify(reqs));
+}
+
+function openVolumeRequestModal() {
+  document.getElementById('vr-form-state').style.display = 'block';
+  document.getElementById('vr-success-state').classList.remove('active');
+  document.getElementById('vr-err').style.display = 'none';
+
+  // Pre-fill quantity with the customer's intended order size if they'd
+  // already started entering one, so they don't have to retype it.
+  const currentCrates = portalState.crates || '';
+  document.getElementById('vr-qty').value = currentCrates > (portalState.availableStock||0) ? currentCrates : '';
+  document.getElementById('vr-name').value  = document.getElementById('c-name')?.value || '';
+  document.getElementById('vr-phone').value = document.getElementById('c-phone')?.value || '';
+  document.getElementById('vr-needed-by').value = '';
+  document.getElementById('vr-notes').value = '';
+
+  document.getElementById('vr-overlay').classList.add('active');
+}
+
+function closeVolumeRequestModal() {
+  document.getElementById('vr-overlay').classList.remove('active');
+}
+
+function submitVolumeRequest() {
+  const qty      = parseInt(document.getElementById('vr-qty')?.value) || 0;
+  const name     = document.getElementById('vr-name')?.value.trim() || '';
+  const phone    = document.getElementById('vr-phone')?.value.trim() || '';
+  const neededBy = document.getElementById('vr-needed-by')?.value || '';
+  const notes    = document.getElementById('vr-notes')?.value.trim() || '';
+  const errEl    = document.getElementById('vr-err');
+
+  if(qty <= 0) {
+    errEl.textContent = '⚠ Enter the number of crates you need.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(!name) {
+    errEl.textContent = '⚠ Enter your name or business name.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(!phone || phone.replace(/\D/g,'').length < 10) {
+    errEl.textContent = '⚠ Enter a valid phone number so we can reach you.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  const ref = genVolReqRef();
+  const now = new Date();
+
+  const request = {
+    ref,
+    date: now.toISOString().split('T')[0],
+    time: now.toTimeString().slice(0,5),
+    customerName: name,
+    phone,
+    qtyRequested: qty,
+    stockAvailableAtRequest: portalState.availableStock || 0,
+    // Also capture the committed (held) crates and gross physical stock at
+    // submission time — not page-load time. This gives the ERP the full
+    // picture: what the customer saw (gross), what was actually free
+    // (available), and what was already committed to other pending orders
+    // (committed). The gap calculation in the ERP uses availableAtRequest,
+    // but the footnote shows all three so Bob knows the exact position.
+    committedAtRequest: portalState.committedStock || 0,
+    physicalStockAtRequest: portalState.physicalStock || 0,
+    submittedAt: now.toISOString(), // precise submission timestamp, not just date+time string
+    neededBy: neededBy || null,
+    notes,
+    status: 'new',
+    source: 'portal',
+  };
+
+  saveVolumeRequest(request);
+
+  try { new BroadcastChannel(VOLREQ_CH).postMessage({type:'new_volume_request', ref}); }
+  catch(e) {}
+
+  // Show success state
+  document.getElementById('vr-form-state').style.display = 'none';
+  document.getElementById('vr-success-state').classList.add('active');
+}
+
+/* ── Submit order ── */
+// A large first-timer hitting the cap is a genuinely different event
+// from a routine modest overflow — worth a real record and an
+// immediate staff alert, not just a sentence the customer reads alone.
+function recordAndAlertLargeFirstTimer({ name, phone, location, crates, cap }) {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(2), mm = String(now.getMonth()+1).padStart(2,'0'),
+        dd = String(now.getDate()).padStart(2,'0'), hh = String(now.getHours()).padStart(2,'0'),
+        mi = String(now.getMinutes()).padStart(2,'0'), ss = String(now.getSeconds()).padStart(2,'0');
+  const ref = `BEL-LFT-${yy}${mm}${dd}-${hh}${mi}${ss}`;
+
+  const KEY = 'feds_large_firsttimer_alerts';
+  let alerts = [];
+  try { alerts = JSON.parse(localStorage.getItem(KEY)) || []; } catch(e) {}
+  alerts.unshift({ ref, name, phone, location, crates, cap, at: now.toISOString(), status: 'new' });
+  localStorage.setItem(KEY, JSON.stringify(alerts));
+
+  // Real-time nudge if the ERP tab happens to be open right now — same
+  // channel and pattern already used for ordinary new-order alerts, so
+  // it needs no new listener infrastructure on the ERP side beyond one
+  // more message type.
+  try { new BroadcastChannel(ORDERS_CH).postMessage({ type:'large_firsttimer_blocked', ref, name, crates, cap }); } catch(e) {}
+}
+
+function showLargeFirstTimerPanel({ name, phone, location, crates, cap }) {
+  const panel  = document.getElementById('large-firsttimer-panel');
+  const textEl = document.getElementById('large-firsttimer-text');
+  const waBtn  = document.getElementById('large-firsttimer-wa-btn');
+  const errEl  = document.getElementById('form-err');
+  if(!panel || !textEl || !waBtn) return;
+  if(errEl) errEl.style.display = 'none'; // this replaces the plain banner, doesn't sit alongside it
+
+  textEl.textContent =
+    `You're trying to reserve ${crates} crates as a first-time customer — well above our standard ${cap}-crate ` +
+    `new-customer limit. That limit exists to protect genuine buyers like you from a small number of people who ` +
+    `abuse free reservations — it isn't a judgment on you specifically. Because this looks like a real, substantial ` +
+    `order, we'd rather fast-track proper verification than make you wait on a form. Message us directly below and ` +
+    `we'll prioritize getting your full order confirmed.`;
+
+  const waMessage =
+    `Hi EggScore, I'm ${name} from ${location}, phone ${phone}. I tried to reserve ${crates} crates as a first-time ` +
+    `customer but hit your ${cap}-crate limit. I'd like to place this full order — please help me get verified quickly.`;
+  waBtn.href = `https://wa.me/${BRAND_TRUST.officialWhatsApp}?text=${encodeURIComponent(waMessage)}`;
+  panel.style.display = 'block';
+}
+
+async function submitReservation() {
+  const name     = document.getElementById('c-name')?.value.trim();
+  const phone    = document.getElementById('c-phone')?.value.trim();
+  const location = document.getElementById('c-location')?.value.trim();
+  const notes    = document.getElementById('c-notes')?.value.trim() || '';
+  const errEl    = document.getElementById('form-err');
+
+  if(!name || !phone || !location || portalState.crates < 1) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent='Please fill all required fields before reserving.'; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
+  if(hasActiveReservation(name, phone)) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent='You already have an active reservation — only one at a time. WhatsApp/SMS us to adjust it.'; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
+  if(errEl) errEl.style.display='none';
+
+  const erp = loadERPData();
+
+  // Deliberately generic — never confirms detection to whoever's asking.
+  // A genuinely wrongly-blocked customer still has a real path forward
+  // (WhatsApp), same message a dozen other failures would show.
+  if(isPhoneBlocklisted(phone, erp)) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent='This reservation could not be completed. Please contact us on WhatsApp to place your order directly.'; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
+
+  const stock     = erp.inventory?.main ?? 0;
+  const orders    = loadOrders();
+  const committed = orders
+    .filter(o => (o.status==='pending'||o.status==='confirmed'||o.status==='reserved') && o.ref !== undefined)
+    .reduce((sum,o) => sum + (o.crates||0), 0);
+  const available = Math.max(0, stock - committed);
+
+  if(portalState.crates > available) {
+    if(errEl) {
+      errEl.style.display = 'flex';
+      errEl.textContent   = available > 0
+        ? `Only ${available} crates available right now (${committed} held for other pending/reserved orders). Please reduce your quantity.`
+        : `No crates available at this time. Please check back shortly or order via WhatsApp.`;
+    }
+    window.scrollTo({top:0, behavior:'smooth'});
+    return;
+  }
+
+  // Bounds maximum damage per identity — no ceiling once there's a real
+  // purchase on record, capped until then, however many names get tried.
+  const maxCrates = getMaxReservationCrates(erp, name);
+  if(portalState.crates > maxCrates) {
+    const LARGE_FIRST_TIMER_THRESHOLD = 100; // a genuinely different situation from a routine modest overflow
+    if(portalState.crates >= LARGE_FIRST_TIMER_THRESHOLD) {
+      recordAndAlertLargeFirstTimer({ name, phone, location, crates: portalState.crates, cap: maxCrates });
+      showLargeFirstTimerPanel({ name, phone, location, crates: portalState.crates, cap: maxCrates });
+    } else if(errEl) {
+      errEl.style.display = 'flex';
+      errEl.textContent   = `First-time reservations are capped at ${maxCrates} crates. Complete a purchase to unlock full volume, or contact us on WhatsApp for a larger first order.`;
+    }
+    window.scrollTo({top:0, behavior:'smooth'});
+    return;
+  }
+
+  const returning    = isPortalReturningCustomer(erp, name);
+  const customerType = returning ? 'returning' : 'new';
+  const windowHours  = getPortalReservationWindowHours(erp, customerType);
+
+  const ref              = genRef();
+  const promo            = portalState.activePromo;
+  const promoDiscount    = promo && portalState.crates >= promo.minCrates ? promo.discount : 0;
+  const progressivePrice = getProgressivePricePerCrate(erp, portalState.crates);
+  const eggPrice          = Math.max(0, progressivePrice - promoDiscount);
+  const eggSubtotal       = portalState.crates * eggPrice; // no nudge discount on reservations — that offer is for immediate purchase
+  const deliveryTotal     = portalState.deliveryTotal || 0;
+  const grandTotal        = eggSubtotal + deliveryTotal;
+
+  const order = {
+    ref,
+    date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),
+    customerName: name, phone, location, notes,
+    crates: portalState.crates,
+    pricePerCrate: eggPrice, lockedPrice: eggPrice, eggSubtotal,
+    headlinePrice: portalState.basePrice,
+    progressiveDiscount: Math.max(0, portalState.basePrice - progressivePrice),
+    deliveryMode: portalState.deliveryMode,
+    deliveryLevy: portalState.deliveryLevy || 0,
+    deliveryTotal, grandTotal,
+    promoApplied: promo ? promo.name : null, promoDiscount,
+    loyaltyTier: portalState.matchedCustomer?.loyalty || 'New',
+    referredByCustomerName: resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
+    status: 'reserved',
+    source: 'portal',
+    reservationCustomerType: customerType,
+    reservationWindowHours: windowHours,
+    reservedAt: new Date().toISOString(),
+    reservationExpiresAt: new Date(Date.now() + windowHours * 3600000).toISOString(),
+  };
+
+  await saveOrder(order);
+  showSuccess(order);
+}
+
+async function submitOrder() {
+  const name     = document.getElementById('c-name')?.value.trim();
+  const phone    = document.getElementById('c-phone')?.value.trim();
+  const location = document.getElementById('c-location')?.value.trim();
+  const notes    = document.getElementById('c-notes')?.value.trim() || '';
+  const errEl    = document.getElementById('form-err');
+
+  if(!name || !phone || !location || portalState.crates < 1) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent='Please fill all required fields before submitting.'; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
+
+  if(errEl) errEl.style.display='none';
+
+  // ── Re-compute available balance at submission time ──
+  // Catches any new orders placed between page load and submission
+  const erp        = loadERPData();
+
+  // Same generic message as the reservation path — never confirms
+  // detection, and a wrongly-blocked genuine customer still has WhatsApp.
+  if(isPhoneBlocklisted(phone, erp)) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent='This order could not be completed. Please contact us on WhatsApp to place your order directly.'; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
+
+  const stock      = erp.inventory?.main ?? 0;
+  const orders     = loadOrders();
+  const committed  = orders
+    .filter(o => (o.status==='pending'||o.status==='confirmed'||o.status==='reserved') && o.ref !== undefined)
+    .reduce((sum,o) => sum + (o.crates||0), 0);
+  const available  = Math.max(0, stock - committed);
+
+  if(portalState.crates > available) {
+    if(errEl) {
+      errEl.style.display = 'flex';
+      errEl.textContent   = available > 0
+        ? `Only ${available} crates available right now (${committed} held for other pending orders). Please reduce your quantity.`
+        : `No crates available at this time. Please check back shortly or order via WhatsApp.`;
+    }
+    window.scrollTo({top:0, behavior:'smooth'});
+    return;
+  }
+
+  // First-time + large-volume + bank transfer — the exact condition the
+  // commitment box exists for. Require the explicit acknowledgment before
+  // letting the order through; this is the "firm confirmation" itself,
+  // not just a shorter silent countdown the customer never agreed to.
+  const commitmentBox = document.getElementById('payment-commitment-box');
+  let paymentCommitmentDeadline = null;
+  if(commitmentBox && commitmentBox.style.display !== 'none') {
+    const ackEl = document.getElementById('payment-commitment-ack');
+    if(!ackEl?.checked) {
+      if(errEl) { errEl.style.display='flex'; errEl.textContent='Please confirm the payment commitment above before submitting.'; }
+      commitmentBox.scrollIntoView({behavior:'smooth', block:'center'});
+      return;
+    }
+    paymentCommitmentDeadline = commitmentBox.dataset.deadline || null;
+  }
+
+  if(portalState.paymentMethod === 'paystack') { initPaystack(); return; }
+
+  const ref          = genRef();
+  const promo        = portalState.activePromo;
+  const promoDiscount= promo && portalState.crates >= promo.minCrates ? promo.discount : 0;
+  const progressivePrice = getProgressivePricePerCrate(erp, portalState.crates);
+  const eggPrice     = Math.max(0, progressivePrice - promoDiscount);
+  // Nudge discount — recomputed here rather than trusted from portalState,
+  // but using the SAME rule updateOrderCalc() just displayed, so what the
+  // customer was shown is exactly what they're charged.
+  const nudgeDiscountTotal = (portalState.abNudgeTargetCrates && portalState.crates === portalState.abNudgeTargetCrates)
+    ? (portalState.nudgeDiscountApplied || 0) : 0;
+  const eggSubtotal  = Math.max(0, portalState.crates * eggPrice - nudgeDiscountTotal);
+  const deliveryTotal= portalState.deliveryTotal || 0;
+  const grandTotal   = eggSubtotal + deliveryTotal;
+
+  // Advisory only — what the customer was SHOWN on the portal. The ERP
+  // always re-derives the real wallet balance before ever applying it;
+  // this is never trusted as an instruction to move money.
+  const walletBalanceAtOrder = portalState.matchedCustomer
+    ? getPortalWalletBalance(erp, portalState.matchedCustomer.name) : 0;
+
+  // A/B outcome — logged regardless of variant, so 'B' (control) gives a
+  // real conversion baseline to compare 'A' against.
+  logNudgeOutcome(phone, portalState.abNudgeVariant, portalState.abNudgeTargetCrates, portalState.crates);
+
+  const order = {
+    ref,
+    date:           new Date().toISOString().split('T')[0],
+    time:           new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),
+    customerName:   name,
+    phone, location, notes,
+    crates:         portalState.crates,
+    // ── Separated revenue fields ──
+    pricePerCrate:  eggPrice,           // egg price only
+    lockedPrice:    eggPrice,           // locked at order creation — honoured at fulfilment
+    eggSubtotal,                        // egg revenue
+    headlinePrice:  portalState.basePrice,        // ceiling price before any volume/promo/nudge discount
+    progressiveDiscount: Math.max(0, portalState.basePrice - progressivePrice), // audit — volume-curve discount alone
+    nudgeDiscountApplied: nudgeDiscountTotal, // audit trail — 0 unless they took the "one more crate" offer
+    deliveryMode:   portalState.deliveryMode,
+    deliveryLevy:   portalState.deliveryLevy || 0,
+    deliveryTotal,                      // delivery revenue — separate
+    grandTotal,                         // total payable
+    // ──
+    paymentMethod:  portalState.paymentMethod,
+    promoApplied:   promo ? promo.name : null,
+    promoDiscount,
+    loyaltyTier:    portalState.matchedCustomer?.loyalty || 'New',
+    referredByCustomerName: resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
+    paymentCommitmentDeadline, // set only for first-time/large-volume/bank-transfer orders — the customer's own stated deadline
+    status:         'pending',
+    source:         'portal',
+    walletBalanceAtOrder, // advisory — see note above
+  };
+
+  await saveOrder(order);
+  showSuccess(order);
+}
+
+/* ── Paystack handler ── */
+function initPaystack() {
+  const name  = document.getElementById('c-name')?.value.trim();
+  const phone = document.getElementById('c-phone')?.value.trim();
+  const email = `${phone.replace(/\D/g,'')}@bmfeggscore.ng`;
+  const promo = portalState.activePromo;
+  const disc  = promo && portalState.crates >= promo.minCrates ? promo.discount : 0;
+  const price = (portalState.basePrice - disc) * portalState.crates;
+  const ref   = genRef();
+
+  if(typeof PaystackPop === 'undefined') {
+    alert('Paystack is not loaded. Please check your internet connection or use Bank Transfer instead.');
+    return;
+  }
+  const handler = PaystackPop.setup({
+    key: 'pk_test_xxxxxxxxxxxxxxxxxxxx', // Replace with BMF EggScore Limited's Paystack public key
+    email, amount: price * 100, // kobo
+    currency: 'NGN', ref,
+    metadata:{ name, phone, crates: portalState.crates },
+    async callback(res) {
+      const order = {
+        ref: res.reference,
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),
+        customerName: name, phone,
+        location: document.getElementById('c-location')?.value.trim(),
+        notes: document.getElementById('c-notes')?.value.trim()||'',
+        crates: portalState.crates, pricePerCrate: portalState.basePrice - disc,
+        paymentMethod: 'paystack', paymentRef: res.reference,
+        paymentConfirmed: true, status: 'confirmed', source: 'portal',
+        loyaltyTier: portalState.matchedCustomer?.loyalty||'New',
+      };
+      await saveOrder(order);
+      showSuccess(order, true);
+    },
+    onClose(){ showToast('Payment cancelled.'); }
+  });
+  handler.openIframe();
+}
+
+/* ── Show success screen ── */
+function showSuccess(order, paid) {
+  document.getElementById('order-form-section').style.display = 'none';
+  const ss = document.getElementById('success-screen');
+  ss.classList.add('show');
+  document.getElementById('success-ref').textContent = order.ref;
+  document.getElementById('bank-narration').textContent = order.ref;
+
+  const eggAmt  = '₦' + (order.eggSubtotal || order.crates * order.pricePerCrate).toLocaleString();
+  const total   = '₦' + (order.grandTotal || order.crates * order.pricePerCrate).toLocaleString();
+
+  // Payment instructions
+  const piEl = document.getElementById('success-payment');
+  if(order.status === 'reserved') {
+    const expires = new Date(order.reservationExpiresAt);
+    const typeLabel = order.reservationCustomerType === 'returning' ? 'returning customer' : 'new customer';
+    piEl.innerHTML = `
+      <div class="pi-title">🕐 Reservation Held</div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--violet);line-height:1.8">
+        ${order.crates} crates held at <strong>${eggAmt}</strong> = <strong style="color:var(--lime)">${total}</strong>.<br>
+        Held for <strong>${order.reservationWindowHours} hours</strong> as a <strong>${typeLabel}</strong> — until
+        <strong>${expires.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</strong>.<br>
+        <span style="color:var(--mist)">Hold time adjusts daily with how fast stock is moving — this is today's rate for ${typeLabel}s.</span><br>
+        No payment needed yet. Need more time, a different quantity, or want to cancel?
+        WhatsApp/SMS us quoting <strong>${order.ref}</strong> — we're glad to help before it lapses.<br>
+        <span style="color:var(--mist)">Having trouble paying — bank issues, distance, a large order, or someone else paying on your behalf?
+        Tell us on WhatsApp and we'll work it out with you.</span>
+      </div>`;
+  } else if(paid) {
+    piEl.innerHTML = `
+      <div class="pi-title">✅ Payment Confirmed</div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--lime)">
+        Card payment of ${total} was successful. Order is confirmed.
+      </div>`;
+  } else if(order.paymentMethod === 'cash') {
+    piEl.innerHTML = `
+      <div class="pi-title">Cash on Delivery</div>
+      <div class="pi-step"><div class="pi-num">1</div><div class="pi-text">
+        A BMF EggScore Limited rep will contact you to arrange delivery.
+      </div></div>
+      <div class="pi-step"><div class="pi-num">2</div><div class="pi-text">
+        Have <strong style="color:var(--lime)">${total}</strong> ready.
+      </div></div>
+      <div class="pi-step"><div class="pi-num">3</div><div class="pi-text">
+        Quote ref <strong>${order.ref}</strong> to the BMF EggScore Limited rep.
+      </div></div>`;
+  } else {
+    piEl.innerHTML = `
+      <div class="pi-title">How to Pay — ${order.paymentMethod==='ussd'?'USSD':'Bank Transfer'}</div>
+      <div class="pi-step"><div class="pi-num">1</div><div class="pi-text">
+        Transfer <strong style="color:var(--lime)">${total}</strong> to:<br/>
+        🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited
+      </div></div>
+      <div class="pi-step"><div class="pi-num">2</div><div class="pi-text">
+        Use <strong>${order.ref}</strong> as your narration/reference.
+      </div></div>
+      <div class="pi-step"><div class="pi-num">3</div><div class="pi-text">
+        <strong style="color:var(--sun)">Do not pay to any other account.</strong>
+        BMF EggScore Limited's verified account is the only one above.
+      </div></div>`;
+  }
+
+  // Follow-up / payment complaint channel — deliberately NOT a re-announcement
+  // of the order. The old wording ("I just placed an order... Please confirm")
+  // read exactly like a new order to a rep skimming WhatsApp, risking a second
+  // dispatch against the same ref. This message references the existing ref
+  // explicitly and asks about it, rather than restating the order as if new.
+  const waMsg = order.status === 'reserved'
+    ? `Hello BMF EggScore Limited,\n\nI have a question about my reservation.\n\n` +
+      `📋 *Ref:* ${order.ref} (already on your system — not a new order)\n` +
+      `🕐 *Held for:* ${order.reservationWindowHours}h (${order.reservationCustomerType === 'returning' ? 'returning' : 'new'} customer rate)\n\n` +
+      `Please assist. Thank you!\n${order.customerName}`
+    : `Hello BMF EggScore Limited,\n\nI have a question or concern about my order/payment.\n\n` +
+      `📋 *Ref:* ${order.ref} (already on your system — not a new order)\n` +
+      `💰 *Total:* ${total}\n🏦 *Payment method:* ${order.paymentMethod}\n\n` +
+      `Please assist. Thank you!\n${order.customerName}`;
+  const waEl = document.getElementById('success-wa-link');
+  if(waEl) waEl.href = `https://wa.me/2348068371725?text=${encodeURIComponent(waMsg)}`;
+
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function resetPortal() {
+  document.getElementById('order-form-section').style.display='block';
+  document.getElementById('success-screen').classList.remove('show');
+  ['c-name','c-phone','c-location','c-code','c-notes'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  // Feedback now lives on the success screen — clear it and collapse it
+  // back down so a new order doesn't inherit the previous order's
+  // leftover feedback text still sitting in the (hidden, not destroyed) form.
+  ['fb-name','fb-text'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const fbRating = document.getElementById('fb-rating'); if(fbRating) fbRating.value = '5';
+  const fbStatus = document.getElementById('fb-status'); if(fbStatus) fbStatus.style.display = 'none';
+  const moreSection = document.getElementById('more-section');
+  if(moreSection) moreSection.style.display = 'none';
+  const moreArrow = document.getElementById('more-toggle-arrow');
+  if(moreArrow) moreArrow.textContent = '▾';
+  portalState.crates        = 10;
+  portalState.matchedCustomer = null;
+  portalState.deliveryMode  = 'deliver';
+  portalState.deliveryLevy  = getFlatDeliveryRate();
+  portalState.deliveryTotal = 0;
+  document.getElementById('crate-display').value = '10';
+  hideMatch();
+  refreshAvailableStock();
+  renderAvailableStockDisplay();
+  updateOrderCalc();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function setText(id,val){ const el=document.getElementById(id); if(el) el.textContent=val; }
+
+/* ── Paystack SDK loader (lazy) ── */
+function loadPaystackSDK() {
+  if(document.getElementById('paystack-sdk')) return;
+  const s=document.createElement('script');
+  s.id='paystack-sdk';
+  s.src='https://js.paystack.co/v1/inline.js';
+  document.head.appendChild(s);
+}
+
+/* ── Boot ── */
+document.addEventListener('DOMContentLoaded', () => {
+  initPortal();
+  loadPaystackSDK();
+  // Update WA fallback on any input change
+  ['c-name','c-phone','c-location'].forEach(id=>{
+    document.getElementById(id)?.addEventListener('input', updateWAFallback);
+  });
+  // Initial payment panel state
+  selectPaymentByKey('bank');
+});
+</script>
+</body>
+</html>
