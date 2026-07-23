@@ -960,6 +960,7 @@ input[type=number]{-moz-appearance:textfield;}
         existing.deliveryTotal = deliveryTotal;
         existing.eggSubtotal   = eggSubtotal;
         existing.grandTotal    = eggSubtotal + deliveryTotal;
+        if(!existing.date) existing.date = new Date(row.created_at).toISOString().split('T')[0];
         existing.notes         = row.notes;
         if(!existing.status || existing.status === 'pending') {
           existing.status = row.status;
