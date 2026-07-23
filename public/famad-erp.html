@@ -984,7 +984,26 @@ input[type=number]{-moz-appearance:textfield;}
 
     saveOrders(Array.from(byRef.values()));
   }
-
+// Fire-and-forget: pushes a status change to the real backend so it's
+  // no longer just a local, per-device fact. Doesn't block the UI —
+  // the local change already happened; this just makes it durable.
+  async function patchOrderStatusOnBackend(ref, updates) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/orders/${ref}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(updates),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — local state still holds; it'll
+      // reconcile next successful sync.
+    }
+  }
   erpCheckSession().then(() => syncOrdersFromBackend());
 </script>
 
