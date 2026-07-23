@@ -18683,6 +18683,7 @@ function rejectOrder(ref) {
   const orders=loadOrders(), o=orders.find(x=>x.ref===ref);
   if(!o) return;
   o.status='rejected'; saveOrders(orders); updateOrdersBadge(); renderOrders();
+  patchOrderStatusOnBackend(ref, { status: 'rejected' });
   showToast(`Order ${ref} rejected.`);
 }
 
