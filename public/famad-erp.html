@@ -8623,6 +8623,7 @@ function markPortalOrderFulfilledByRef(orderRef) {
   o.fulfilledAt  = new Date().toISOString();
   o.fulfilledVia = 'sales-log'; // audit: distinguishes from Orders Inbox path
   localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+  patchOrderStatusOnBackend(orderRef, { status: 'fulfilled' });
   updateOrdersBadge();
   if(currentModule === 'orders') renderOrders();
 }
