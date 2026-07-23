@@ -22050,7 +22050,7 @@ function deleteOrder(ref) {
   saveOrders(orders); updateOrdersBadge(); renderOrders(); showToast('Order deleted.');
 }
 
-function refreshOrders(){ renderOrders(); showToast('↻ Orders refreshed.'); }
+async function refreshOrders(){ await syncOrdersFromBackend(); renderOrders(); showToast('↻ Orders refreshed.'); }
 
 function waReplyOrder(ref, type) {
   const orders=loadOrders(), o=orders.find(x=>x.ref===ref);
