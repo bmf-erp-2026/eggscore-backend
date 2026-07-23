@@ -921,7 +921,70 @@ input[type=number]{-moz-appearance:textfield;}
     return session?.access_token || null;
   }
 
-  erpCheckSession();
+  // Pulls real orders from the live backend and merges them into the
+  // same local cache every existing screen already reads via
+  // loadOrders() — so none of the other call sites need to change.
+  // Core transactional fields (customer, crates, price, status) come
+  // from the real database; anything ERP-only that doesn't have a
+  // Postgres column yet (waybill, payment-verified timestamp,
+  // reservation flags) is left exactly as it already is locally.
+  async function syncOrdersFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendOrders;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/orders`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendOrders = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    const local = loadOrders();
+    const byRef = new Map(local.map(o => [o.ref, o]));
+
+    backendOrders.forEach(row => {
+      const eggSubtotal   = (row.egg_price_per_crate || 0) * (row.crates || 0);
+      const deliveryTotal = (row.delivery_per_crate || 0) * (row.crates || 0);
+      const existing = byRef.get(row.ref);
+
+      if(existing) {
+        existing.customerName  = row.customer_name;
+        existing.phone         = row.phone;
+        existing.location      = row.location;
+        existing.crates        = row.crates;
+        existing.pricePerCrate = row.egg_price_per_crate;
+        existing.deliveryTotal = deliveryTotal;
+        existing.eggSubtotal   = eggSubtotal;
+        existing.grandTotal    = eggSubtotal + deliveryTotal;
+        existing.notes         = row.notes;
+        if(!existing.status || existing.status === 'pending') {
+          existing.status = row.status;
+        }
+      } else {
+        byRef.set(row.ref, {
+          ref: row.ref,
+          customerName: row.customer_name,
+          phone: row.phone,
+          location: row.location,
+          crates: row.crates,
+          pricePerCrate: row.egg_price_per_crate,
+          eggSubtotal, deliveryTotal,
+          grandTotal: eggSubtotal + deliveryTotal,
+          status: row.status,
+          notes: row.notes,
+          paymentVerified: false,
+          createdAt: row.created_at,
+        });
+      }
+    });
+
+    saveOrders(Array.from(byRef.values()));
+  }
+
+  erpCheckSession().then(() => syncOrdersFromBackend());
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
