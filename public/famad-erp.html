@@ -963,6 +963,13 @@ input[type=number]{-moz-appearance:textfield;}
         existing.notes         = row.notes;
         if(!existing.status || existing.status === 'pending') {
           existing.status = row.status;
+        } else if(existing.status !== row.status && row.status === 'pending' &&
+                   (existing.status === 'rejected' || existing.status === 'confirmed')) {
+          // We already decided this locally (rejected/confirmed), but the
+          // backend still shows pending — an earlier PATCH attempt must
+          // have failed silently. Retry it now instead of leaving it
+          // stuck until the next status change happens to fix it.
+          patchOrderStatusOnBackend(row.ref, { status: existing.status });
         }
       } else {
         byRef.set(row.ref, {
@@ -978,6 +985,7 @@ input[type=number]{-moz-appearance:textfield;}
           notes: row.notes,
           paymentVerified: false,
           createdAt: row.created_at,
+          date: new Date(row.created_at).toISOString().split('T')[0],
         });
       }
     });
