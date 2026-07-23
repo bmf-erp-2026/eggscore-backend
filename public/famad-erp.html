@@ -868,6 +868,7 @@ input[type=number]{-moz-appearance:textfield;}
   const ERP_SUPABASE_URL = 'https://spmudyopklxniarfobmw.supabase.co';
   const ERP_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwbXVkeW9wa2x4bmlhcmZvYm13Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTY2MTksImV4cCI6MjA5NDE3MjYxOX0.ZKTggPV565wIxBGMEfcMIqiLtmsgWZ0XnggmEsjIoP0';
   const erpSupabase = window.supabase.createClient(ERP_SUPABASE_URL, ERP_SUPABASE_ANON_KEY);
+  const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
 
   async function erpCheckSession() {
     const { data: { session } } = await erpSupabase.auth.getSession();
