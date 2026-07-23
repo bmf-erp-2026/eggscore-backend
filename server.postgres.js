@@ -7,6 +7,7 @@ const cors = require('cors');
 const { createApiKey } = require('./auth.postgres');
 
 const app = express();
+app.use(express.static('public'));
 app.use(cors());
 app.use(express.json());
 
