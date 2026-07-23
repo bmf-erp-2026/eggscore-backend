@@ -904,6 +904,7 @@ input[type=number]{-moz-appearance:textfield;}
     document.getElementById('erp-login-overlay').style.display = 'none';
     const label = document.getElementById('erp-logged-in-as');
     if(label) label.textContent = data?.user?.email || email;
+    syncOrdersFromBackend().then(() => { if(currentModule === 'orders') renderOrders(); });
   }
 
   async function erpLogout() {
