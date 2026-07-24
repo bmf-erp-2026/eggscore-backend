@@ -1116,6 +1116,16 @@ input[type=number]{-moz-appearance:textfield;}
 
     STATE.batches = Array.from(byId.values());
     saveState();
+
+    // Backfill: any batch that exists locally but wasn't in the
+    // backend's response (e.g. created before this sync existed)
+    // needs to be sent now — otherwise the backend's FIFO deduction
+    // draws from an incomplete picture of what's actually in stock.
+    const backendIds = new Set(backendBatches.map(b => b.id));
+    STATE.batches
+      .filter(b => !backendIds.has(b.id))
+      .forEach(b => postBatchToBackend(b));
+  }
   }
 
   erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); });
