@@ -1026,6 +1026,32 @@ input[type=number]{-moz-appearance:textfield;}
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        // Fire-and-forget: sends a newly-received stock batch to the real
+  // backend, so Inventory can eventually be shared across devices —
+  // same pattern as postSaleToBackend / patchOrderStatusOnBackend.
+  async function postBatchToBackend(batch) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/inventory/batches`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: batch.id,
+          supplier: batch.supplier,
+          cost: batch.cost,
+          received: batch.qty,
+          qaGrade: batch.qaGrade,
+          receivedDate: batch.date,
+        }),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — the local batch record still holds.
+    }
+  }
         body: JSON.stringify({
           orderRef: sale.linkedOrderRef || null,
           rep: sale.rep,
