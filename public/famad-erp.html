@@ -1013,6 +1013,38 @@ input[type=number]{-moz-appearance:textfield;}
       // reconcile next successful sync.
     }
   }
+  // Fire-and-forget: sends a newly-recorded sale to the real backend.
+  // Doesn't block the Sales Log UI — the local record already exists;
+  // this just makes a durable copy Supabase can be queried against.
+  async function postSaleToBackend(sale) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/sales`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderRef: sale.linkedOrderRef || null,
+          rep: sale.rep,
+          customerName: sale.customer,
+          crates: sale.crates,
+          pricePerCrate: sale.price,
+          deliveryTotal: sale.deliveryTotal,
+          commission: sale.comm,
+          batchId: sale.batchId,
+          batchCost: sale.batchCost,
+          paymentMethod: sale.payment,
+          saleDate: sale.date,
+          invoiceRef: sale.inv,
+        }),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — the local sale record still holds.
+    }
+  }
   erpCheckSession().then(() => syncOrdersFromBackend());
 </script>
 
