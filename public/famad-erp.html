@@ -1073,7 +1073,52 @@ input[type=number]{-moz-appearance:textfield;}
     }
   }
 
-  erpCheckSession().then(() => syncOrdersFromBackend());
+  // Pulls real batches from the backend and merges them into
+  // STATE.batches — same caution as Orders: only overwrite fields the
+  // real database actually owns. Deliberately does NOT overwrite
+  // `remaining` on a batch that already exists locally, since the
+  // backend doesn't deduct stock on sale yet (that's Step 3) — every
+  // batch there still just shows full `received` as `remaining`.
+  // Overwriting now would silently re-inflate real depleted stock.
+  async function syncBatchesFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendBatches;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/inventory`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      const data = await resp.json();
+      backendBatches = data.batches || [];
+    } catch(networkErr) {
+      return;
+    }
+
+    ensureBatches();
+    const byId = new Map(STATE.batches.map(b => [b.id, b]));
+
+    backendBatches.forEach(row => {
+      const existing = byId.get(row.id);
+      if(existing) {
+        existing.supplier = row.supplier;
+        existing.cost     = row.cost;
+        existing.qaGrade  = row.qa_grade;
+        // remaining intentionally left alone — see note above
+      } else {
+        byId.set(row.id, {
+          id: row.id, date: row.received_date, supplier: row.supplier,
+          cost: row.cost, qty: row.received, remaining: row.remaining,
+          qaGrade: row.qa_grade,
+        });
+      }
+    });
+
+    STATE.batches = Array.from(byId.values());
+    saveState();
+  }
+
+  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
