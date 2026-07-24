@@ -22276,6 +22276,7 @@ function deleteOrder(ref) {
 }
 
 async function refreshOrders(){ await syncOrdersFromBackend(); renderOrders(); showToast('↻ Orders refreshed.'); }
+async function refreshSales(){ await syncSalesFromBackend(); renderLedger(); showToast('↻ Sales refreshed.'); }
 
 function waReplyOrder(ref, type) {
   const orders=loadOrders(), o=orders.find(x=>x.ref===ref);
