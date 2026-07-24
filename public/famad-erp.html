@@ -11272,6 +11272,7 @@ function handleSave() {
 
   const sale = {
     id: 's' + Date.now(),
+    createdAt: Date.now(),
     date, rep, repZone: repObj?.zone || '—',
     customer, crates, price, gross, transport: delivTotal, net,
     deliveryMode: 'deliver', // universal now — Self Collection retired, product comes to everyone
