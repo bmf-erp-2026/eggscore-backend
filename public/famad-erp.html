@@ -24118,6 +24118,37 @@ function confirmPaymentVerified() {
   const orders = loadOrders();
   const o = orders.find(x => x.ref === ref);
   if(!o) { showToast('⚠ Order not found.'); return; }
+
+  // ── Underpayment hard block ──────────────────────────────────
+  // This used to just set paymentVerified = true unconditionally —
+  // nothing compared the amount received against what the order
+  // actually costs, so a short payment could be confirmed the same
+  // as a full one. A shortfall now needs the owner PIN before it can
+  // go through, the same PIN system already gating credit overrides.
+  // Overpayment isn't blocked — that already flows into the
+  // Overpayment Recorder below, same as before.
+  const inv = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
+  if(amount < inv) {
+    const pin = prompt(`⚠ ₦${(inv - amount).toLocaleString()} short of the ₦${inv.toLocaleString()} invoice.\n\nEnter owner PIN to confirm anyway:`);
+    if(pin === null) return; // cancelled — payment stays unverified
+    verifyPin(pin).then(result => {
+      if(!result.ok) {
+        if(result.reason === 'locked') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
+        else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+        return;
+      }
+      finalizePaymentVerification(o, orders, amount, notes, inv);
+    });
+    return;
+  }
+
+  finalizePaymentVerification(o, orders, amount, notes, inv);
+}
+
+// The actual write, shared by the normal path and the post-PIN-override
+// path above — kept in one place so both routes stay in sync.
+function finalizePaymentVerification(o, orders, amount, notes, inv) {
+  const ref = o.ref;
   o.paymentVerified   = true;
   o.paymentVerifiedAt = new Date().toISOString();
   o.amountReceived    = amount;
@@ -24130,7 +24161,6 @@ function confirmPaymentVerified() {
   closeModal('modal-payment-verify');
   logOk('credit', `Payment verified — ${o.customerName} · ₦${amount.toLocaleString()} · ${ref}`, notes || 'Confirmed in bank account');
   showToast(`✓ Payment verified for ${ref}.`);
-  const inv    = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
   const excess = amount - inv;
   if(excess > 0) {
     // Auto-open the Overpayment Recorder — no confirm() dialog which is
