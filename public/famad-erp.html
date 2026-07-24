@@ -914,6 +914,29 @@ input[type=number]{-moz-appearance:textfield;}
     document.getElementById('erp-login-overlay').style.display = 'flex';
   }
 
+  // ── Idle auto-lock ──────────────────────────────────────────────
+  // A logged-in session left unattended (walked away from, tab left
+  // open) hands over the workstation's access to anyone who wanders
+  // by — closing the tab isn't a fix for that, since the tab is
+  // exactly what's still sitting open. After IDLE_TIMEOUT_MS with no
+  // mouse, keyboard, or touch activity, force a real logout — not
+  // just hiding the screen — so getting back in needs the actual
+  // credentials again, same as the tab-close fix above.
+  const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes — change this one line for a different window
+  let idleTimer = null;
+  function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      erpSupabase.auth.getSession().then(({ data: { session } }) => {
+        if(session) erpLogout(); // no-op if nobody was logged in anyway
+      });
+    }, IDLE_TIMEOUT_MS);
+  }
+  ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
+    document.addEventListener(evt, resetIdleTimer, { passive: true });
+  });
+  resetIdleTimer();
+
   // Every future call to the real backend should attach this as
   // Authorization: Bearer <token> — the piece that ties a request to
   // one specific, real, logged-in person instead of a shared secret.
