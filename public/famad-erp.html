@@ -12085,14 +12085,16 @@ function receiveStock() {
     const shelfLife  = parseInt(document.getElementById('ns-shelf-life')?.value) || EGG_DEFAULT_SHELF_LIFE;
     const expiryDate = computeExpiryDate(today, shelfLife);
     const batchId    = 'B' + String(STATE.batches.length + 1).padStart(3,'0');
-    STATE.batches.push({
+    const newBatch = {
       id: batchId, date: today, supplier: sup||'Unknown', supplierId,
       supplierPhone: supPhone || '',
       cost, qty, remaining: qty, notes,
       shelfLife, expiryDate,
       qaGrade, qaRejectedCrates: qaRejected, qaRejectionReason: qaReason,
       location: document.getElementById('ns-location')?.value || (STATE.storageLocations||['Main Depot'])[0],
-    });
+    };
+    STATE.batches.push(newBatch);
+    postBatchToBackend(newBatch);
     logOk('inventory',
       `Stock received — Batch ${batchId} · ${sup||'Unknown'} · ${qty} crates`,
       `Cost ₦${cost.toLocaleString()}/crate · Expires ${expiryDate}`
