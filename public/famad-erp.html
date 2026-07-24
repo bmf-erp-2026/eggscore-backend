@@ -1034,7 +1034,7 @@ input[type=number]{-moz-appearance:textfield;}
           pricePerCrate: sale.price,
           deliveryTotal: sale.deliveryTotal,
           commission: sale.comm,
-          batchId: sale.batchId,
+          batchId: null, // real batch sync isn't wired yet — avoids sales_batch_id_fkey violations
           batchCost: sale.batchCost,
           paymentMethod: sale.payment,
           saleDate: sale.date,
