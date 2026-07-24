@@ -1126,7 +1126,6 @@ input[type=number]{-moz-appearance:textfield;}
       .filter(b => !backendIds.has(b.id))
       .forEach(b => postBatchToBackend(b));
   }
-  }
 
   erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); });
 </script>
