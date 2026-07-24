@@ -1026,7 +1026,27 @@ input[type=number]{-moz-appearance:textfield;}
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        // Fire-and-forget: sends a newly-received stock batch to the real
+        body: JSON.stringify({
+          orderRef: sale.linkedOrderRef || null,
+          rep: sale.rep,
+          customerName: sale.customer,
+          crates: sale.crates,
+          pricePerCrate: sale.price,
+          deliveryTotal: sale.deliveryTotal,
+          commission: sale.comm,
+          batchId: null, // real batch sync isn't wired yet — avoids sales_batch_id_fkey violations
+          batchCost: sale.batchCost,
+          paymentMethod: sale.payment,
+          saleDate: sale.date,
+          invoiceRef: sale.inv,
+        }),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — the local sale record still holds.
+    }
+  }
+
+  // Fire-and-forget: sends a newly-received stock batch to the real
   // backend, so Inventory can eventually be shared across devices —
   // same pattern as postSaleToBackend / patchOrderStatusOnBackend.
   async function postBatchToBackend(batch) {
@@ -1052,25 +1072,7 @@ input[type=number]{-moz-appearance:textfield;}
       // Offline or unreachable — the local batch record still holds.
     }
   }
-        body: JSON.stringify({
-          orderRef: sale.linkedOrderRef || null,
-          rep: sale.rep,
-          customerName: sale.customer,
-          crates: sale.crates,
-          pricePerCrate: sale.price,
-          deliveryTotal: sale.deliveryTotal,
-          commission: sale.comm,
-          batchId: null, // real batch sync isn't wired yet — avoids sales_batch_id_fkey violations
-          batchCost: sale.batchCost,
-          paymentMethod: sale.payment,
-          saleDate: sale.date,
-          invoiceRef: sale.inv,
-        }),
-      });
-    } catch(networkErr) {
-      // Offline or unreachable — the local sale record still holds.
-    }
-  }
+
   erpCheckSession().then(() => syncOrdersFromBackend());
 </script>
 
