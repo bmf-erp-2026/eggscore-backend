@@ -11772,7 +11772,11 @@ function renderLedger() {
   if(repFilter) sales = sales.filter(s => s.rep === repFilter);
   if(statusFilter) sales = sales.filter(s => s.payment === statusFilter);
   if(search) sales = sales.filter(s => (s.customer||'').toLowerCase().includes(search) || (s.inv||s.id||'').toLowerCase().includes(search));
-  sales.sort((a,b) => new Date(b.date) - new Date(a.date)); // most recent first, consistent regardless of page
+  sales.sort((a,b) => {
+    const byDate = new Date(b.date) - new Date(a.date);
+    if(byDate !== 0) return byDate;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  }); // most recent first, consistent regardless of page
 
   const body = document.getElementById('ledger-body');
   if(!body) return;
