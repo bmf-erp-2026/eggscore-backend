@@ -1127,7 +1127,84 @@ input[type=number]{-moz-appearance:textfield;}
       .forEach(b => postBatchToBackend(b));
   }
 
-  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); });
+  // Pulls real sales from the live backend and merges them into
+  // STATE.sales — same pattern as Orders/Batches. Sales are keyed by
+  // invoice_ref (sale.inv locally, invoice_ref on the backend), since
+  // that's the one identifier every sale carries on both sides. Only
+  // fields the backend genuinely owns are overwritten (rep, customer,
+  // crates, price, gross, delivery, commission, batch info, payment
+  // method, sale date) — local-only fields the backend has no column
+  // for (repZone, net, effPrice, deliveryMode/Levy, promo attribution,
+  // linkedVolReqRef) are left exactly as they already are on an
+  // existing record, same caution as the Orders/Batches syncs.
+  async function syncSalesFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendSales;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/sales`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendSales = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    const byInv = new Map(STATE.sales.filter(s => s.inv).map(s => [s.inv, s]));
+
+    backendSales.forEach(row => {
+      if(!row.invoice_ref) return; // nothing to key the merge on
+      const existing = byInv.get(row.invoice_ref);
+
+      if(existing) {
+        existing.rep           = row.rep;
+        existing.customer      = row.customer_name;
+        existing.crates        = row.crates;
+        existing.price         = row.price_per_crate;
+        existing.gross         = row.gross;
+        existing.transport     = row.delivery_total;
+        existing.deliveryTotal = row.delivery_total;
+        existing.comm          = row.commission;
+        existing.batchId       = row.batch_id;
+        existing.batchCost     = row.batch_cost;
+        existing.payment       = row.payment_method;
+        existing.date          = row.sale_date;
+        existing.linkedOrderRef = row.order_ref;
+      } else {
+        // A sale recorded on another device — build a full local
+        // record from what the backend owns, with sane defaults for
+        // the fields it doesn't (repZone unknown, net derived from
+        // gross/commission since the backend doesn't store it).
+        const comm = row.commission || 0;
+        byInv.set(row.invoice_ref, {
+          id: 'sync-' + row.id,
+          date: row.sale_date,
+          rep: row.rep,
+          repZone: '—',
+          customer: row.customer_name,
+          crates: row.crates,
+          price: row.price_per_crate,
+          gross: row.gross,
+          transport: row.delivery_total,
+          deliveryTotal: row.delivery_total,
+          net: row.gross - comm,
+          commRate: row.crates ? Math.round(comm / row.crates) : 0,
+          comm,
+          payment: row.payment_method,
+          inv: row.invoice_ref,
+          batchId: row.batch_id,
+          batchCost: row.batch_cost,
+          linkedOrderRef: row.order_ref,
+        });
+      }
+    });
+
+    STATE.sales = Array.from(byInv.values());
+    saveState();
+  }
+
+  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
