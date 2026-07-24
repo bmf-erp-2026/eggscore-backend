@@ -11145,6 +11145,7 @@ function handleSave() {
   sale.batchCost = primaryBatch?.cost      || getLastCostPrice();
 
   STATE.sales.unshift(sale);
+  postSaleToBackend(sale);
 
   // ── Derive inventory.main from batch remaining (single source of truth) ──
   STATE.inventory.main = syncInventoryFromBatches();
