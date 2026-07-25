@@ -2629,8 +2629,7 @@ function resetPortal() {
   portalState.deliveryTotal = 0;
   document.getElementById('crate-display').value = '10';
   hideMatch();
-  refreshAvailableStock();
-  renderAvailableStockDisplay();
+  refreshAvailableStock().then(renderAvailableStockDisplay);
   updateOrderCalc();
   window.scrollTo({top:0,behavior:'smooth'});
 }
