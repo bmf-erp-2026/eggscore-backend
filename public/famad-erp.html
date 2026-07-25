@@ -12614,11 +12614,13 @@ function showCustomerProfile(custId) {
   const avgOrder = custSales.length > 0 ? custSales.reduce((a,s)=>a+s.crates,0)/custSales.length : 0;
   const creditScore = computeCreditScore(c.name);
   document.getElementById('cp-body').innerHTML = `
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--teal);margin-bottom:8px">CID: ${c.cid || 'not on file — registered before CID scheme'}</div>
     <div class="form-row cols-2" style="margin-bottom:12px">
       <div><div class="form-label">Location</div><div style="color:var(--dust);font-size:12px;margin-top:4px">${c.location}</div></div>
       <div><div class="form-label">Type</div><div style="color:var(--dust);font-size:12px;margin-top:4px">${c.type}</div></div>
       <div><div class="form-label">Contact</div><div style="color:var(--dust);font-size:12px;margin-top:4px">${c.contact}</div></div>
       <div><div class="form-label">Phone</div><div style="color:var(--dust);font-size:12px;margin-top:4px">${c.phone}</div></div>
+      ${c.referral ? `<div><div class="form-label">Referral Source</div><div style="color:var(--dust);font-size:12px;margin-top:4px">${c.referral}</div></div>` : ''}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:14px">
       <div class="cm-item"><div class="cm-val" style="color:var(--blue)">${c.totalCrates||0}</div><div class="cm-lbl">Total Crates</div></div>
