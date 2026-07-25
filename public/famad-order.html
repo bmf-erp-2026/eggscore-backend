@@ -1013,9 +1013,22 @@ function escapeHtmlPortal(str) {
 // orders followed in the same session. Pulled out into its own
 // function specifically so it can be re-run after every order, not
 // just once.
-function refreshAvailableStock() {
-  const erp   = loadERPData();
-  const stock = erp.inventory?.main ?? 0;
+async function refreshAvailableStock() {
+  const erp = loadERPData();
+  let stock = erp.inventory?.main ?? 0;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/inventory`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+    });
+    if(resp.ok) {
+      const data = await resp.json();
+      if(typeof data.totalAvailable === 'number') stock = data.totalAvailable;
+    }
+  } catch(networkErr) {
+    // Offline or backend unreachable — fall through to the
+    // localStorage figure already read above rather than showing
+    // nothing at all.
+  }
   const orders    = loadOrders();
   const committed = orders
     .filter(o => o.status === 'pending' || o.status === 'confirmed' || o.status === 'reserved')
