@@ -2628,6 +2628,14 @@ input[type=number]{-moz-appearance:textfield;}
       </div>
       <div class="form-group"><label class="form-label">Credit Limit (₦)</label><input class="form-input" type="number" id="nc-credit" placeholder="0 = cash only"/></div>
     </div>
+    <div class="form-group"><label class="form-label">Referral Source</label><input class="form-input" id="nc-referral" placeholder="How did they hear about us"/></div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Customer ID (auto-generated)</label>
+      <div class="computed" id="nc-cid-display" style="font-family:'DM Mono',monospace;color:var(--teal);font-weight:700">—</div>
+      <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:4px">
+        Same BEL-CID-YYMMDD-HHMMSS convention as the printable Customer Registration Form — generated automatically, nothing to ask the customer for.
+      </div>
+    </div>
     <div class="form-group" style="margin-bottom:16px"><label class="form-label">Notes</label><textarea class="form-textarea" id="nc-notes" placeholder="Buying patterns, preferences, notes…"></textarea></div>
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="closeModal('modal-add-customer')">Cancel</button>
