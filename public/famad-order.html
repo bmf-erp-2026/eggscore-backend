@@ -851,6 +851,7 @@ async function saveOrder(order) {
         eggPricePerCrate: order.pricePerCrate,
         deliveryPerCrate: order.crates > 0 ? Math.round((order.deliveryTotal||0) / order.crates) : 0,
         notes: order.notes,
+        paymentMethod: order.paymentMethod,
       }),
     });
     if(resp.ok) {
