@@ -1076,9 +1076,9 @@ function renderAvailableStockDisplay() {
   }
 }
 
-function initPortal() {
+async function initPortal() {
   const erp   = loadERPData();
-  const { stock, committed, available } = refreshAvailableStock();
+  await refreshAvailableStock();
 
   renderPortalPolicies();
   renderTrustFooter();
