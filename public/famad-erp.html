@@ -21020,17 +21020,10 @@ function openCustomerRegFormModal() {
   ['crf-name','crf-phone','crf-location','crf-business-type','crf-referral','crf-notes'].forEach(id => {
     const el = document.getElementById(id); if(el) el.value = '';
   });
-  // Generated once per form-open, not per PDF-click, so re-generating
-  // the PDF (e.g. after fixing a typo) doesn't hand the same customer
-  // two different CIDs.
-  const cid = docRefNumber('CID');
-  const cidDisplay = document.getElementById('crf-cid-display');
-  if(cidDisplay) { cidDisplay.textContent = cid; cidDisplay.dataset.cid = cid; }
   openModal('modal-customer-reg-form');
 }
 function generateCustomerRegFormPDF() {
   const v = id => document.getElementById(id)?.value.trim() || '';
-  const cid = document.getElementById('crf-cid-display')?.dataset.cid || docRefNumber('CID');
   const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
   let y = pdfDocHeader(doc, 'CUSTOMER REGISTRATION FORM', docRefNumber('CRF'));
 
@@ -21041,7 +21034,7 @@ function generateCustomerRegFormPDF() {
     ['Location/Address:', v('crf-location')||'________________________'],
     ['Business Type:', v('crf-business-type')||'________________________'],
     ['How did you hear about us:', v('crf-referral')||'________________________'],
-    ['Customer ID (CID):', cid],
+    ['Customer ID (CID):', '________________________  (fill in once entered in the CRM)'],
   ], 62);
   y += 4;
   doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(120);
