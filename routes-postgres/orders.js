@@ -12,17 +12,17 @@ function genOrderRef() {
 }
 
 router.post('/', requireEitherAuth(), async (req, res) => {
-  const { customerName, phone, location, crates, eggPricePerCrate, deliveryPerCrate, notes } = req.body;
+  const { customerName, phone, location, crates, eggPricePerCrate, deliveryPerCrate, notes, paymentMethod } = req.body;
   if(!customerName || !crates || crates < 1) {
     return res.status(400).json({ error: 'customerName and a positive crates value are required.' });
   }
 
   const ref = genOrderRef();
   const info = await db.prepare(`
-    INSERT INTO orders (ref, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (ref, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(ref, customerName, phone || null, location || null, crates,
-    eggPricePerCrate || 0, deliveryPerCrate || 0, notes || null);
+    eggPricePerCrate || 0, deliveryPerCrate || 0, notes || null, paymentMethod || null);
 
   const order = await db.prepare('SELECT * FROM orders WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(order);
