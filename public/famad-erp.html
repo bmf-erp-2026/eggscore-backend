@@ -1804,10 +1804,10 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="form-group"><label class="form-label">Referral Source</label><input class="form-input" id="crf-referral" placeholder="How did they hear about us"/></div>
     <div class="form-group" style="margin-bottom:12px">
-      <label class="form-label">Customer ID (auto-generated)</label>
-      <div class="computed" id="crf-cid-display" style="font-family:'DM Mono',monospace;color:var(--teal);font-weight:700">—</div>
+      <label class="form-label">Customer ID</label>
+      <div class="computed" style="font-family:'DM Mono',monospace;color:var(--mist);font-weight:700">Left blank on this form — filled in by hand once assigned</div>
       <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:4px">
-        No government ID is collected. This CID follows the same BEL-XXX-YYMMDD-HHMMSS convention already used for every order, invoice, and waybill — a unique internal reference, generated automatically, nothing to ask the customer for.
+        No government ID is collected. The real CID is generated automatically the moment this customer is entered via "Add New Customer" in the CRM — that's the one canonical ID for this customer. Generating one here too would create a second, different ID for the same person, since each is time-stamped at the moment it's created. Write the CRM-issued CID onto this printed form by hand afterward.
       </div>
     </div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="crf-notes" style="min-height:50px"></textarea></div>
