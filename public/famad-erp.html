@@ -12832,6 +12832,16 @@ function showCustomerProfile(custId) {
   openModal('modal-cust-profile');
 }
 
+function openAddCustomerModal() {
+  ['nc-name','nc-location','nc-contact','nc-phone','nc-credit','nc-referral','nc-notes'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  const typeSel = document.getElementById('nc-type'); if(typeSel) typeSel.selectedIndex = 0;
+  const cid = docRefNumber('CID');
+  const cidDisplay = document.getElementById('nc-cid-display');
+  if(cidDisplay) { cidDisplay.textContent = cid; cidDisplay.dataset.cid = cid; }
+  openModal('modal-add-customer');
+}
 function saveCustomer() {
   const name   = document.getElementById('nc-name')?.value.trim();
   const loc    = document.getElementById('nc-location')?.value.trim();
@@ -12839,13 +12849,15 @@ function saveCustomer() {
   const phone  = document.getElementById('nc-phone')?.value.trim() || '—';
   const type   = document.getElementById('nc-type')?.value;
   const credit = parseInt(document.getElementById('nc-credit')?.value) || 0;
+  const referral = document.getElementById('nc-referral')?.value.trim() || '';
   const notes  = document.getElementById('nc-notes')?.value.trim() || '';
   if(!name||!loc) { showToast('⚠ Name and location required.'); return; }
-  STATE.customers.push({ id:'c'+Date.now(), cid: docRefNumber('CID'), name, location:loc, contact, phone, type, creditLimit:credit, loyalty:'New', lastPurchase:null, totalCrates:0, notes });
+  const cid = document.getElementById('nc-cid-display')?.dataset.cid || docRefNumber('CID');
+  STATE.customers.push({ id:'c'+Date.now(), cid, name, location:loc, contact, phone, type, creditLimit:credit, referral, loyalty:'New', lastPurchase:null, totalCrates:0, notes });
   saveState();
   populateSelects();
   closeModal('modal-add-customer');
-  showToast('✓ Customer added: ' + name);
+  showToast(`✓ Customer added: ${name} (${cid})`);
   if(currentModule==='customers') renderCustomers();
 }
 
