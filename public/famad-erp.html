@@ -1243,6 +1243,18 @@ input[type=number]{-moz-appearance:textfield;}
 
     STATE.sales = Array.from(byInv.values());
     saveState();
+
+    // Self-healing retry: any local sale with an invoice ref the
+    // backend has never seen means an earlier POST /sales silently
+    // failed — a network hiccup, a stale token, this device sitting
+    // past the idle-lock timeout mid-task, all things that have
+    // actually happened. Retry it now instead of leaving it silently
+    // stuck until someone notices a KPI mismatch and has to go
+    // hunting for it by hand — same lesson Orders already learned.
+    const backendRefs = new Set(backendSales.map(r => r.invoice_ref).filter(Boolean));
+    STATE.sales
+      .filter(s => s.inv && !backendRefs.has(s.inv))
+      .forEach(s => postSaleToBackend(s));
   }
 
   erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); });
