@@ -985,6 +985,14 @@ input[type=number]{-moz-appearance:textfield;}
         existing.grandTotal    = eggSubtotal + deliveryTotal;
         if(!existing.date) existing.date = new Date(row.created_at).toISOString().split('T')[0];
         existing.notes         = row.notes;
+        // row.payment_method is the real source of truth once an order
+        // has it; if it's missing (an order placed before this column
+        // existed) keep whatever's already here, and failing that
+        // default to 'transfer' — the safe direction to guess wrong in,
+        // since that's what makes the payment-verification row show up
+        // rather than silently disappear for a payment that actually
+        // does need checking.
+        existing.paymentMethod = row.payment_method || existing.paymentMethod || 'transfer';
         if(!existing.status || existing.status === 'pending') {
           existing.status = row.status;
         } else if(existing.status !== row.status && row.status === 'pending' &&
