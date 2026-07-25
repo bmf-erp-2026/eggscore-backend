@@ -1015,6 +1015,7 @@ input[type=number]{-moz-appearance:textfield;}
           grandTotal: eggSubtotal + deliveryTotal,
           status: row.status,
           notes: row.notes,
+          paymentMethod: row.payment_method || 'transfer',
           paymentVerified: false,
           createdAt: row.created_at,
           date: new Date(row.created_at).toISOString().split('T')[0],
