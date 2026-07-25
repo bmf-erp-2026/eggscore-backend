@@ -11480,7 +11480,7 @@ function populateSelects() {
     custSel.innerHTML += '<option value="_new">+ Add New Customer…</option>';
     custSel.onchange = function() {
       if(this.value === '_new') {
-        openModal('modal-add-customer');
+        openAddCustomerModal();
         this.value = '';
         return;
       }
