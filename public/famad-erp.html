@@ -1107,11 +1107,18 @@ input[type=number]{-moz-appearance:textfield;}
 
   // Pulls real batches from the backend and merges them into
   // STATE.batches — same caution as Orders: only overwrite fields the
-  // real database actually owns. Deliberately does NOT overwrite
-  // `remaining` on a batch that already exists locally, since the
-  // backend doesn't deduct stock on sale yet (that's Step 3) — every
-  // batch there still just shows full `received` as `remaining`.
-  // Overwriting now would silently re-inflate real depleted stock.
+  // real database actually owns.
+  //
+  // `remaining` USED to be deliberately left alone here, back when the
+  // backend didn't deduct stock on sale yet. That's no longer true —
+  // /sales does a real FIFO deduction now, confirmed correct end to
+  // end (the portal's stock ticker already trusts this same number).
+  // Leaving the old local `remaining` in place was actually the bug:
+  // every device kept whatever it had locally computed from its own
+  // sales history, so the same real stock level showed a different
+  // number on every device. The backend is now the one source of
+  // truth for this field, same as gross/commission/etc. already are
+  // for Sales.
   async function syncBatchesFromBackend() {
     const token = await erpGetAuthToken();
     if(!token) return;
@@ -1133,10 +1140,10 @@ input[type=number]{-moz-appearance:textfield;}
     backendBatches.forEach(row => {
       const existing = byId.get(row.id);
       if(existing) {
-        existing.supplier = row.supplier;
-        existing.cost     = row.cost;
-        existing.qaGrade  = row.qa_grade;
-        // remaining intentionally left alone — see note above
+        existing.supplier  = row.supplier;
+        existing.cost      = row.cost;
+        existing.qaGrade   = row.qa_grade;
+        existing.remaining = row.remaining;
       } else {
         byId.set(row.id, {
           id: row.id, date: row.received_date, supplier: row.supplier,
