@@ -22,6 +22,23 @@ router.post('/batches', requireSupabaseAuth(), async (req, res) => {
   res.status(201).json(await db.prepare('SELECT * FROM batches WHERE id = ?').get(id));
 });
 
+// Persist a batch's remaining count after a write-off (or any authoritative
+// local change) — without this, syncBatchesFromBackend()'s "trust the
+// backend" rule silently resurrects the pre-write-off quantity on next sync.
+router.patch('/batches/:id', requireSupabaseAuth(), async (req, res) => {
+  const { id } = req.params;
+  const { remaining } = req.body;
+  if(remaining === undefined || remaining === null || isNaN(remaining) || remaining < 0) {
+    return res.status(400).json({ error: 'A valid, non-negative remaining value is required.' });
+  }
+  const existing = await db.prepare('SELECT * FROM batches WHERE id = ?').get(id);
+  if(!existing) {
+    return res.status(404).json({ error: 'Batch not found.' });
+  }
+  await db.prepare('UPDATE batches SET remaining = ? WHERE id = ?').run(remaining, id);
+  res.json(await db.prepare('SELECT * FROM batches WHERE id = ?').get(id));
+});
+
 router.get('/blended-cost', requireEitherAuth(), async (req, res) => {
   const qty = parseInt(req.query.crates) || 0;
   if(qty <= 0) return res.status(400).json({ error: 'crates query param must be a positive integer.' });
