@@ -11865,10 +11865,11 @@ function renderDashAlerts() {
   if(debt > 500000)
     alerts.push({cls:'warn', msg:'📋 Credit exposure ' + fmt(debt) + ' outstanding — follow up with customers on credit.'});
 
-  // Overdue credit
+  // Overdue credit — same single source of truth as the Credit/Debt
+  // Register (getOutstandingCreditSales), so a fully-settled sale stops
+  // triggering this alert instead of firing forever regardless of payment.
   const now = new Date();
-  const overdue = STATE.sales.filter(s => {
-    if(!s.payment.includes('credit')) return false;
+  const overdue = getOutstandingCreditSales().filter(s => {
     const d    = new Date(s.date);
     const days = (now - d) / 86400000;
     return (s.payment==='credit7' && days>7) || (s.payment==='credit30' && days>30);
