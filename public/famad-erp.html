@@ -16306,7 +16306,20 @@ function updateWriteOffValue() {
   const el = document.getElementById('wo-value-preview');
   if(el) el.textContent = `Estimated cost value lost: ₦${value.toLocaleString()}`;
 }
-
+async function postBatchRemainingToBackend(batchId, remaining) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/batches/${batchId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ remaining }),
+    });
+  } catch(networkErr) {
+    // Fire-and-forget — same as Customers. The self-healing retry below
+    // catches this on the next sync if it silently failed.
+  }
+}
 function confirmWriteOff() {
   ensureWriteOffs();
   const batchId = document.getElementById('wo-batch-id')?.value;
@@ -16326,6 +16339,11 @@ function confirmWriteOff() {
 
   // ── Deduct from the batch register — this is the formal disposal step ──
   batch.remaining -= qty;
+
+  // ── Persist the new remaining to the backend so the next sync doesn't ──
+  // ── resurrect the written-off crates (same fire-and-forget pattern ──
+  // ── as postCustomerToBackend, self-healing retry catches failures). ──
+  postBatchRemainingToBackend(batch.id, batch.remaining);
 
   // ── Re-derive inventory.main from batch remaining (single source of truth) ──
   syncInventoryFromBatches();
