@@ -1257,7 +1257,92 @@ input[type=number]{-moz-appearance:textfield;}
       .forEach(s => postSaleToBackend(s));
   }
 
-  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); });
+  async function postCustomerToBackend(customer) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          cid: customer.cid, name: customer.name, location: customer.location,
+          contact: customer.contact, phone: customer.phone, type: customer.type,
+          creditLimit: customer.creditLimit, referral: customer.referral, notes: customer.notes,
+        }),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget — same as Sales. The self-healing retry below
+      // catches this on the next sync if it silently failed.
+    }
+  }
+
+  // Customers previously had NO backend persistence at all — every
+  // customer only ever existed in whichever single device's browser
+  // storage created it, invisible to every other device, and with
+  // no recovery path if that storage was ever cleared. This mirrors
+  // the exact Orders/Sales/Batches pattern to close that gap: keyed
+  // on `cid` (the one stable identifier both sides agree on, same
+  // role invoice_ref plays for Sales). Only the fields the backend
+  // genuinely owns get overwritten on an existing match — loyalty,
+  // lastPurchase, and totalCrates are computed locally from actual
+  // sales activity and are deliberately left alone. A customer with
+  // no cid (created before the CID scheme existed) can't be reliably
+  // matched or deduped, so it's left local-only rather than risking
+  // duplicate creation on the backend.
+  async function syncCustomersFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendCustomers;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/customers`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendCustomers = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    const byCid = new Map(STATE.customers.filter(c => c.cid).map(c => [c.cid, c]));
+
+    backendCustomers.forEach(row => {
+      if(!row.cid) return; // can't merge a customer with no cid to key on
+      const existing = byCid.get(row.cid);
+      if(existing) {
+        existing.name        = row.name;
+        existing.location    = row.location;
+        existing.contact     = row.contact;
+        existing.phone       = row.phone;
+        existing.type        = row.type;
+        existing.creditLimit = row.credit_limit;
+        existing.referral    = row.referral;
+        existing.notes       = row.notes;
+      } else {
+        byCid.set(row.cid, {
+          id: 'sync-' + row.id, cid: row.cid, name: row.name, location: row.location,
+          contact: row.contact || '—', phone: row.phone || '—', type: row.type,
+          creditLimit: row.credit_limit || 0, referral: row.referral || '',
+          loyalty: 'New', lastPurchase: null, totalCrates: 0, notes: row.notes || '',
+        });
+      }
+    });
+
+    // Keep customers with no cid at all — they're local-only and were
+    // never part of this merge in the first place.
+    const noCid = STATE.customers.filter(c => !c.cid);
+    STATE.customers = [...noCid, ...Array.from(byCid.values())];
+    saveState();
+
+    // Self-healing retry — same reasoning as Sales: a local customer
+    // whose cid the backend has never seen means an earlier POST
+    // silently failed and needs to go out again.
+    const backendCids = new Set(backendCustomers.map(r => r.cid).filter(Boolean));
+    STATE.customers
+      .filter(c => c.cid && !backendCids.has(c.cid))
+      .forEach(c => postCustomerToBackend(c));
+  }
+
+  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
