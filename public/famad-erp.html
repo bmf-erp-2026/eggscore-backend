@@ -12940,8 +12940,10 @@ function saveCustomer() {
   const notes  = document.getElementById('nc-notes')?.value.trim() || '';
   if(!name||!loc) { showToast('⚠ Name and location required.'); return; }
   const cid = document.getElementById('nc-cid-display')?.dataset.cid || docRefNumber('CID');
-  STATE.customers.push({ id:'c'+Date.now(), cid, name, location:loc, contact, phone, type, creditLimit:credit, referral, loyalty:'New', lastPurchase:null, totalCrates:0, notes });
+  const newCustomer = { id:'c'+Date.now(), cid, name, location:loc, contact, phone, type, creditLimit:credit, referral, loyalty:'New', lastPurchase:null, totalCrates:0, notes };
+  STATE.customers.push(newCustomer);
   saveState();
+  postCustomerToBackend(newCustomer);
   populateSelects();
   closeModal('modal-add-customer');
   showToast(`✓ Customer added: ${name} (${cid})`);
