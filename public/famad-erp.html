@@ -11689,17 +11689,22 @@ function updateAllKPIs() {
   setText('comm-paid', fmtK(paidTotal));
   setText('comm-pending', fmtK(comm - paidTotal));
 
-  // Credit module KPIs
-  const creditSales = STATE.sales.filter(s => s.payment==='credit7'||s.payment==='credit30');
+  // Credit module KPIs — now the same single source of truth as the
+  // Outstanding Credit Transactions table (getOutstandingCreditSales),
+  // instead of a separate calculation that summed every credit-tagged
+  // sale's full original gross regardless of any settlement since.
+  // Active Credit Accounts counts distinct customers, not raw sale rows —
+  // one customer with three open credit sales is one account, not three.
+  const creditSales = getOutstandingCreditSales();
   const now = new Date();
   const overdue = creditSales.filter(s => {
     const d = new Date(s.date);
     const days = (now - d) / 86400000;
     return (s.payment==='credit7' && days>7) || (s.payment==='credit30' && days>30);
-  }).reduce((a,s)=>a+s.gross,0);
+  }).reduce((a,s)=>a+getRemainingBalance(s),0);
   setText('cr-total', fmtK(debt));
   setText('cr-overdue', fmtK(overdue));
-  setText('cr-accounts', creditSales.length);
+  setText('cr-accounts', new Set(creditSales.map(s => s.customer)).size);
 
   // Update nav badge
   const badge = document.getElementById('nav-inv-status');
