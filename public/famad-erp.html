@@ -8803,7 +8803,12 @@ function getBrandingReadinessStatus() {
 }
 
 function getTotalCratesMTD() { return getMonthSales().reduce((a,s) => a + s.crates, 0); }
-function getTotalDebt() { return STATE.sales.filter(s => s.payment==='credit7'||s.payment==='credit30').reduce((a,s) => a + s.gross, 0); }
+// Used to sum every credit-tagged sale's full original amount, blind to
+// any settlement since — the exact stale-total bug the single-source-of-
+// truth comment above getOutstandingCreditSales() was written to prevent.
+// Delegating here instead means every caller automatically gets the real,
+// settlement-aware outstanding figure, with nothing else to change.
+function getTotalDebt() { return getTotalCreditExposure(); }
 function getTotalCommMTD() { return getMonthSales().reduce((a,s) => a + s.comm, 0); }
 
 /* ── Auto-populate Sales Log from pending portal order ─────────
