@@ -8459,7 +8459,7 @@ updateClock(); setInterval(updateClock, 30000);
 /* ═══════════════════════════════════════════════════════
    SIDEBAR / NAVIGATION
 ═══════════════════════════════════════════════════════ */
-let currentModule = 'dashboard';
+window.currentModule = 'dashboard';
 
 function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
