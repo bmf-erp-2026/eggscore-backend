@@ -19988,6 +19988,7 @@ function confirmDeliveryAndProceed(orderRef, cratesLost, spoilageReason) {
   const orders = loadOrders();
   const o = orders.find(x => x.ref === orderRef);
   if(!o || !o.waybill) { showToast('⚠ No waybill found for this order.'); return; }
+  if(o.status === 'rejected' || o.status === 'cancelled') { showToast(`🚫 Order ${orderRef} was ${o.status} — cannot proceed with delivery.`); return; }
 
   o.waybill.spoilage = { cratesLost: cratesLost || 0, reason: spoilageReason || '' };
   o.waybill.deliveredAt = new Date().toISOString();
