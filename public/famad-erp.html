@@ -22394,8 +22394,8 @@ function sendToSalesLog(orderRef) {
     return;
   }
 
-  if(o.status === 'cancelled') {
-    showToast(`🚫 Order ${orderRef} was cancelled (${o.cancelReasonLabel || 'no reason recorded'}) — cannot send to Sales Log.`);
+  if(o.status === 'cancelled' || o.status === 'rejected') {
+    showToast(`🚫 Order ${orderRef} was ${o.status} (${o.cancelReasonLabel || 'no reason recorded'}) — cannot send to Sales Log.`);
     return;
   }
 
