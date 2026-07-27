@@ -22286,9 +22286,9 @@ function fulfillOrder(ref) {
     return;
   }
 
-  // ── Guard 1b: cancelled orders must never ship ──
-  if(o.status === 'cancelled') {
-    showToast(`🚫 Order ${ref} was cancelled (${o.cancelReasonLabel || 'no reason recorded'}) — cannot dispatch.`);
+  // ── Guard 1b: cancelled or rejected orders must never ship ──
+  if(o.status === 'cancelled' || o.status === 'rejected') {
+    showToast(`🚫 Order ${ref} was ${o.status} (${o.cancelReasonLabel || 'no reason recorded'}) — cannot dispatch.`);
     return;
   }
 
