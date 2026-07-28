@@ -22,9 +22,14 @@ router.post('/batches', requireSupabaseAuth(), async (req, res) => {
   if(!id || !cost || !received) {
     return res.status(400).json({ error: 'id, cost, and received are required.' });
   }
+  // ── ON CONFLICT DO NOTHING: a device with a stale local copy of a ──
+  // ── batch that already exists on the backend will sometimes try ──
+  // ── to re-POST it (see GET route fix above for why). Without this, ──
+  // ── that collides on the primary key and 500s every single sync. ──
   await db.prepare(`
     INSERT INTO batches (id, supplier, cost, received, remaining, qa_grade, received_date)
     VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (id) DO NOTHING
   `).run(id, supplier || null, cost, received, received, qaGrade || null, receivedDate || new Date().toISOString().split('T')[0]);
   res.status(201).json(await db.prepare('SELECT * FROM batches WHERE id = ?').get(id));
 });
