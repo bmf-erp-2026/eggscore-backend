@@ -55,7 +55,7 @@ router.get('/blended-cost', requireEitherAuth(), async (req, res) => {
   const qty = parseInt(req.query.crates) || 0;
   if(qty <= 0) return res.status(400).json({ error: 'crates query param must be a positive integer.' });
 
-  const batches = await db.prepare('SELECT * FROM batches WHERE remaining > 0 ORDER BY received_date ASC').all();
+  const batches = await db.prepare('SELECT * FROM batches WHERE remaining > 0 ORDER BY received_date ASC, id ASC').all();
   let remaining = qty, totalCost = 0, cratesFilled = 0;
   const draws = [];
   for(const b of batches) {
