@@ -17105,6 +17105,7 @@ function renderBatchViewer() {
             <div>${b.pickupWaybill
               ? `<button class="btn btn-ghost" style="font-size:9px;padding:3px 8px" onclick="viewPickupWaybillDoc('${b.id}')">📄 ${b.pickupWaybill.waybillNumber}</button>`
               : `<button class="btn btn-ghost" style="font-size:9px;padding:3px 8px" onclick="openGeneratePickupWaybillModal('${b.id}')">🌾 Pickup Waybill</button>`}</div>
+            <div><button class="btn btn-ghost" style="font-size:9px;padding:3px 8px;color:var(--red)" onclick="openDeleteBatchModal('${b.id}')">🗑 Delete</button></div>
           </div>
         </div>`;
       }).join('');
