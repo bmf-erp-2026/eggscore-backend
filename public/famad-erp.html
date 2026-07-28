@@ -16506,7 +16506,7 @@ function deductFIFO(qty) {
   let remaining = qty;
   const batches = STATE.batches
     .filter(b => b.remaining > 0)
-    .sort((a,b) => a.date.localeCompare(b.date));
+    .sort((a,b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   const usedBatches = [];
   for(const b of batches) {
     if(remaining <= 0) break;
