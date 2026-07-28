@@ -1771,6 +1771,29 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-delete-batch">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">Delete Batch</div>
+      <button class="modal-close" onclick="closeModal('modal-delete-batch')">✕</button>
+    </div>
+    <input type="hidden" id="db-batch-id"/>
+    <div id="db-batch-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.8"></div>
+
+    <div style="font-size:11.5px;color:var(--red);margin-bottom:16px">⚠ This permanently removes the batch and its history — unlike write-off, this cannot be undone. Only use this for batches created in error.</div>
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Owner PIN <span class="req">*</span></label>
+      <input class="form-input" type="password" id="db-pin" placeholder="••••" maxlength="8" inputmode="numeric"/>
+    </div>
+
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-delete-batch')">Cancel</button>
+      <button class="btn btn-danger" onclick="submitDeleteBatch()">🗑 Delete Permanently</button>
+    </div>
+  </div>
+</div>
+
 <!-- Generate Waybill Modal -->
 <!-- Vehicle Documents Modal (Logistics — yearly renewal tracker) -->
 <div class="modal-overlay" id="modal-vehicle-documents">
