@@ -16354,6 +16354,61 @@ async function postBatchRemainingToBackend(batchId, remaining) {
     // catches this on the next sync if it silently failed.
   }
 }
+// Hard-deletes a batch entirely (distinct from write-off, which zeroes
+// remaining but keeps the row). Owner-PIN gated, same pattern as
+// submitVolumeAdjustment() — verifyPin() first, only proceed on success.
+function openDeleteBatchModal(batchId) {
+  ensureBatches();
+  const b = STATE.batches.find(x => x.id === batchId);
+  if(!b) { showToast('⚠ Batch not found.'); return; }
+  document.getElementById('db-batch-id').value = batchId;
+  document.getElementById('db-batch-summary').innerHTML =
+    `Batch ${b.id} · ${b.supplier}<br>Received ${b.date} · ${b.qty} crates (${b.remaining} remaining) · ₦${b.cost.toLocaleString()}/crate`;
+  document.getElementById('db-pin').value = '';
+  openModal('modal-delete-batch');
+}
+
+async function submitDeleteBatch() {
+  const batchId = document.getElementById('db-batch-id').value;
+  const pin = document.getElementById('db-pin').value;
+  if(!pin) { showToast('⚠ Enter the owner PIN.'); return; }
+
+  const pinResult = await verifyPin(pin);
+  if(!pinResult.ok) {
+    if(pinResult.reason === 'locked') showToast(`🔒 PIN locked for ${pinResult.mins} more minute(s).`);
+    else showToast(`🚫 Incorrect PIN. ${pinResult.remaining} attempt${pinResult.remaining!==1?'s':''} remaining.`);
+    return;
+  }
+
+  const ok = await deleteBatchFromBackend(batchId);
+  if(!ok) { showToast('⚠ Could not delete on the server — check your connection and try again.'); return; }
+
+  STATE.batches = STATE.batches.filter(b => b.id !== batchId);
+  saveState();
+  logOk('inventory', `Batch deleted — ${batchId}`, 'Removed permanently by owner (PIN-verified).');
+  closeModal('modal-delete-batch');
+  renderBatchViewer();
+  syncInventoryFromBatches();
+  showToast(`✓ Batch ${batchId} deleted.`);
+}
+
+// Unlike postBatchRemainingToBackend()'s fire-and-forget PATCH, this is a
+// deliberate, infrequent, destructive action — wait for a real result and
+// only remove locally once the server confirms it's gone.
+async function deleteBatchFromBackend(batchId) {
+  const token = await erpGetAuthToken();
+  if(!token) return false;
+  try {
+    const res = await fetch(`${BACKEND_URL}/batches/${batchId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    return res.ok;
+  } catch(networkErr) {
+    return false;
+  }
+}
+
 function confirmWriteOff() {
   ensureWriteOffs();
   const batchId = document.getElementById('wo-batch-id')?.value;
