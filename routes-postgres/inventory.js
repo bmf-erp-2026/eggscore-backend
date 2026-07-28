@@ -5,8 +5,15 @@ const { requireEitherAuth, requireSupabaseAuth } = require('../auth.postgres');
 const router = express.Router();
 
 router.get('/', requireEitherAuth(), async (req, res) => {
-  const batches = await db.prepare('SELECT * FROM batches WHERE remaining > 0 ORDER BY received_date ASC').all();
-  const totalAvailable = batches.reduce((sum, b) => sum + b.remaining, 0);
+  // ── Return every batch, not just ones with stock left. A depleted ──
+  // ── batch still needs to be visible so devices holding a stale, ──
+  // ── pre-depletion copy get corrected down to its real (zero) ──
+  // ── remaining value on sync — otherwise it's invisible here, ──
+  // ── never gets updated locally, and the sync backfill logic ──
+  // ── wrongly re-POSTs it as "never sent," colliding on its ──
+  // ── existing primary key every time. ──
+  const batches = await db.prepare('SELECT * FROM batches ORDER BY received_date ASC').all();
+  const totalAvailable = batches.reduce((sum, b) => sum + Math.max(b.remaining, 0), 0);
   res.json({ totalAvailable, batches });
 });
 
