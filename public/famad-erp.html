@@ -11347,13 +11347,24 @@ function renderFloorRiskKPI() {
 }
 
 function handleSave() {
-  const date     = document.getElementById('s-date')?.value;
-  const rep      = document.getElementById('s-rep')?.value;
-  const customer = document.getElementById('s-customer')?.value;
-  const crates   = parseInt(document.getElementById('s-crates')?.value) || 0;
-  const price    = parseFloat(document.getElementById('s-price')?.value) || 0;
-  const payment  = document.getElementById('s-payment')?.value;
-  const inv      = document.getElementById('s-inv')?.value || autoInvRef();
+  // ── Guard against a double-click/double-tap firing this twice — the ──
+  // ── Save button has no built-in debounce, so a slow response or an ──
+  // ── impatient second click can submit the same sale (and deduct the ──
+  // ── same stock) twice. Lock for 2 seconds regardless of outcome. ──
+  const saveBtn = document.querySelector('#mod-sales .btn-primary[onclick="handleSave()"]');
+  if(saveBtn && saveBtn.dataset.submitting === 'true') return;
+  if(saveBtn) {
+    saveBtn.dataset.submitting = 'true';
+    setTimeout(() => { saveBtn.dataset.submitting = 'false'; }, 2000);
+  }
+
+  const date      = document.getElementById('s-date')?.value;
+  const rep       = document.getElementById('s-rep')?.value;
+  const customer  = document.getElementById('s-customer')?.value;
+  const crates    = parseInt(document.getElementById('s-crates')?.value) || 0;
+  const price     = parseFloat(document.getElementById('s-price')?.value) || 0;
+  const payment   = document.getElementById('s-payment')?.value;
+  const inv       = document.getElementById('s-inv')?.value || autoInvRef();
 
   const delivTotal  = getDeliveryLevy(crates);
   const levyPCrate  = getDeliveryLevyPerCrate();
