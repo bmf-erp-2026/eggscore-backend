@@ -51,6 +51,20 @@ router.patch('/batches/:id', requireSupabaseAuth(), async (req, res) => {
   res.json(await db.prepare('SELECT * FROM batches WHERE id = ?').get(id));
 });
 
+// Hard-deletes a batch entirely — distinct from write-off (which zeroes
+// remaining but keeps the row for history). Only for batches created in
+// error or otherwise meant to be fully removed. Gated by owner PIN on the
+// client side before this is ever called.
+router.delete('/batches/:id', requireSupabaseAuth(), async (req, res) => {
+  const { id } = req.params;
+  const existing = await db.prepare('SELECT * FROM batches WHERE id = ?').get(id);
+  if(!existing) {
+    return res.status(404).json({ error: 'Batch not found.' });
+  }
+  await db.prepare('DELETE FROM batches WHERE id = ?').run(id);
+  res.json({ deleted: true, id });
+});
+
 router.get('/blended-cost', requireEitherAuth(), async (req, res) => {
   const qty = parseInt(req.query.crates) || 0;
   if(qty <= 0) return res.status(400).json({ error: 'crates query param must be a positive integer.' });
