@@ -20309,7 +20309,21 @@ function submitGenerateWaybill() {
   const destinationName = document.getElementById('wb-destination-name').value.trim();
   const distanceKm = parseFloat(document.getElementById('wb-distance-km').value) || 0;
 
+  // ── Waybill fields are dispatch-critical — a blank fallback like '—' ──
+  // ── or '(not yet provided)' on a real waybill is an operational gap, ──
+  // ── not just a display nicety. Block generation until every required ──
+  // ── field is actually filled, instead of letting generateWaybill() ──
+  // ── silently paper over a missing one. ──
+  if(!vehicleId) { showToast('⚠ Select a vehicle.'); return; }
+  if(!driverId) { showToast('⚠ Select a driver.'); return; }
   if(!destinationName) { showToast('⚠ Enter a destination.'); return; }
+  if(!distanceKm || distanceKm <= 0) { showToast('⚠ Enter a real distance (km).'); return; }
+
+  const fleet = ensureFleet();
+  const vehicle = fleet.vehicles.find(v => v.id === vehicleId);
+  const driver  = fleet.drivers.find(d => d.id === driverId);
+  if(!vehicle?.plate) { showToast('⚠ Selected vehicle has no plate on file — add one in Logistics first.'); return; }
+  if(!driver?.phone)  { showToast('⚠ Selected driver has no phone on file — add one in Logistics first.'); return; }
 
   generateWaybill(orderRef, { vehicleId, driverId, destinationName, distanceKm });
   closeModal('modal-generate-waybill');
