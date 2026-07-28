@@ -16503,6 +16503,15 @@ function deductFIFO(qty) {
     b.remaining -= take;
     remaining -= take;
     usedBatches.push({ batchId: b.id, supplier: b.supplier, cost: b.cost, qty: take });
+
+    // ── Persist every drawn batch's new remaining to the backend — ──
+    // ── without this, EVERY sale (not just write-offs) only ever ──
+    // ── depleted stock locally, letting the next sync silently ──
+    // ── resurrect crates that were genuinely sold. Same fix as ──
+    // ── confirmWriteOff(), now applied at the one function every ──
+    // ── sale path (Quick Entry, Sales Log, portal fulfillment) ──
+    // ── actually funnels through. ──
+    postBatchRemainingToBackend(b.id, b.remaining);
   }
   return usedBatches; // returns which batches were drawn from
 }
