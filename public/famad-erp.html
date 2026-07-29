@@ -9747,6 +9747,7 @@ function processPriceRampStep() {
   const nextPrice = remaining <= 5 ? ramp.targetPrice : round2(current + remaining * (ramp.dailyStepPct / 100));
 
   STATE.currentSellingPrice = nextPrice;
+  postSellingPriceToBackend(nextPrice, 'System (ramp)');
   ramp.lastSteppedDate = today;
   if(!STATE.priceHistory) STATE.priceHistory = [];
   STATE.priceHistory.unshift({
