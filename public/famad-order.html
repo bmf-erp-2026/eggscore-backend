@@ -1443,6 +1443,7 @@ function submitFeedback() {
   });
   saveFeedbackSubmissions(subs);
   document.getElementById('fb-text').value = '';
+  markWizardStopReached(6); // Feedback — actually submitted, not just opened
   if(statusEl) { statusEl.style.display='block'; statusEl.style.color='var(--lime)'; statusEl.textContent='✓ Thank you — your feedback has been recorded and earns loyalty points.'; }
 }
 
