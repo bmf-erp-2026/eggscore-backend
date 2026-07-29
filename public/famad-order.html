@@ -69,6 +69,13 @@ input[type=number]{-moz-appearance:textfield;}
 .wiz-dot-wrap.done .wiz-dot{border-color:var(--lime);color:var(--lime);background:rgba(109,217,109,0.1);}
 .wiz-label{font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:5px;text-align:center;letter-spacing:0.3px;}
 .wiz-dot-wrap.active .wiz-label{color:var(--blue);font-weight:600;}
+/* Upcoming stops (post-submission: Confirm/Feedback/You're In) — visible
+   on the line for reassurance, same as a metro map shows stations ahead,
+   but not clickable since you can't jump ahead to them before finishing
+   payment. Lit up via .done once actually reached. */
+.wiz-dot-wrap.wiz-upcoming{cursor:default;opacity:0.45;}
+.wiz-dot-wrap.wiz-upcoming:hover .wiz-dot{filter:none;transform:none;}
+.wiz-dot-wrap.wiz-upcoming.done{opacity:1;}
 .wiz-nav{display:none;justify-content:space-between;gap:10px;margin:-6px 0 16px 0;}
 .wiz-nav[data-step-nav="1"]{display:flex;}
 .wiz-nav button{flex:1;}
