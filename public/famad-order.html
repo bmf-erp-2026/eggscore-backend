@@ -287,6 +287,25 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div class="ph-badge"><span class="ph-badge-dot"></span> Portal Live</div>
     <div><span class="ph-progressive-banner">📦 We offer volume discount pricing<span class="sub">The more crates you order, the less you pay per crate — automatically</span></span></div>
 
+    <!-- STEP WIZARD INDICATOR — moved here (was further down, after the
+         WhatsApp link) so the "just a few quick stops" reassurance is the
+         first thing anyone sees, before any exit is offered. Extended
+         with 3 grayed-out upcoming stops so the whole journey is visible
+         at a glance, metro-map style — they're not clickable since you
+         can't jump ahead to them, but light up as they're actually
+         reached (see markWizardStopReached()). Persistent here (outside
+         order-form-section) so it stays visible through the success and
+         feedback screens too, instead of vanishing once the form is done. -->
+    <div class="wizard-indicator" id="wizard-indicator">
+      <div class="wiz-dot-wrap active" data-wiz="1" onclick="goToWizardStep(1)"><div class="wiz-dot">1</div><div class="wiz-label">Details</div></div>
+      <div class="wiz-dot-wrap" data-wiz="2" onclick="goToWizardStep(2)"><div class="wiz-dot">2</div><div class="wiz-label">Order</div></div>
+      <div class="wiz-dot-wrap" data-wiz="3" onclick="goToWizardStep(3)"><div class="wiz-dot">3</div><div class="wiz-label">Review</div></div>
+      <div class="wiz-dot-wrap" data-wiz="4" onclick="goToWizardStep(4)"><div class="wiz-dot">4</div><div class="wiz-label">Payment</div></div>
+      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="5"><div class="wiz-dot">5</div><div class="wiz-label">Confirm</div></div>
+      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="6"><div class="wiz-dot">6</div><div class="wiz-label">Feedback</div></div>
+      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="7"><div class="wiz-dot">7</div><div class="wiz-label">You're In</div></div>
+    </div>
+
     <!-- PREFER WHATSAPP — a genuine alternative to the form, so it has to
          be visible before any of it, not discovered after finishing it. -->
     <a href="https://wa.me/2348068371725?text=Hello%20BMF%20EggScore%20Limited%2C%20I%27d%20like%20to%20place%20an%20order%20via%20WhatsApp."
