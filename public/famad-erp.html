@@ -16360,6 +16360,33 @@ function updateWriteOffValue() {
   const el = document.getElementById('wo-value-preview');
   if(el) el.textContent = `Estimated cost value lost: ₦${value.toLocaleString()}`;
 }
+// Pulls the canonical selling price from the backend and reconciles it
+// into local STATE — same reasoning as syncBatchesFromBackend(): price
+// is set manually on whichever device is in front of someone, and
+// without this, every OTHER device just keeps showing its own stale
+// local value until someone repeats the change there too.
+async function syncSellingPriceFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/selling-price`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.price == null) return; // backend has no value set yet — leave local default alone
+    if(data.price !== STATE.currentSellingPrice) {
+      STATE.currentSellingPrice = data.price;
+      saveState();
+      renderPricePanel();
+      if(document.getElementById('dash-margin-watch')) renderMarginWatch();
+    }
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other sync calls. Local value stands
+    // until the next successful check.
+  }
+}
+
 async function postBatchRemainingToBackend(batchId, remaining) {
   const token = await erpGetAuthToken();
   if(!token) return;
