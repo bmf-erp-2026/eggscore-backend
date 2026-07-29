@@ -25403,6 +25403,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Inventory reconciliation ──
   reconcileInventoryOnLoad();
 
+  syncSellingPriceFromBackend();
+
   populateSelects();
   renderDashboard();
   initOrdersChannel();
