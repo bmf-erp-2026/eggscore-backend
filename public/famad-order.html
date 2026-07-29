@@ -2289,12 +2289,10 @@ async function submitReservation() {
     return;
   }
 
-  const stock     = erp.inventory?.main ?? 0;
-  const orders    = loadOrders();
-  const committed = orders
-    .filter(o => (o.status==='pending'||o.status==='confirmed'||o.status==='reserved') && o.ref !== undefined)
-    .reduce((sum,o) => sum + (o.crates||0), 0);
-  const available = Math.max(0, stock - committed);
+  // Live backend figure — same fix as submitOrder(), replacing the old
+  // local-only loadERPData() read that was never populated on a
+  // customer's own device.
+  const { available, committed } = await refreshAvailableStock();
 
   if(portalState.crates > available) {
     if(errEl) {
