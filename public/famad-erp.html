@@ -9841,6 +9841,7 @@ function updateSellingPrice() {
   });
 
   STATE.currentSellingPrice = newPrice;
+  postSellingPriceToBackend(newPrice, 'Admin');
 
   // A manual price-set supersedes any ramp in progress — otherwise the
   // ramp's stale start/target reference points produce nonsensical
