@@ -2561,6 +2561,7 @@ function showSuccess(order, paid) {
   document.getElementById('order-form-section').style.display = 'none';
   const ss = document.getElementById('success-screen');
   ss.classList.add('show');
+  markWizardStopReached(5); // Confirm — order/reservation actually went through
   document.getElementById('success-ref').textContent = order.ref;
   document.getElementById('bank-narration').textContent = order.ref;
 
