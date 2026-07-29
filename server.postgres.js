@@ -16,6 +16,7 @@ app.use('/events', require('./routes-postgres/events'));
 app.use('/sales', require('./routes-postgres/sales'));
 app.use('/inventory', require('./routes-postgres/inventory'));
 app.use('/customers', require('./routes-postgres/customers'));
+app.use('/settings', require('./routes-postgres/settings'));
 
 app.get('/health', (req, res) => res.json({ ok: true, service: 'eggscore-backend', mode: 'postgres', time: new Date().toISOString() }));
 
