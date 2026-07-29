@@ -2390,12 +2390,12 @@ async function submitOrder() {
     return;
   }
 
-  const stock      = erp.inventory?.main ?? 0;
-  const orders     = loadOrders();
-  const committed  = orders
-    .filter(o => (o.status==='pending'||o.status==='confirmed'||o.status==='reserved') && o.ref !== undefined)
-    .reduce((sum,o) => sum + (o.crates||0), 0);
-  const available  = Math.max(0, stock - committed);
+  // Live backend figure — the same one the visible stock ticker already
+  // uses — instead of the old local-only loadERPData() read, which was
+  // never populated at all on a customer's own device (it only ever
+  // looked non-zero on a device that had separately opened the ERP app
+  // on the same origin, since they share localStorage).
+  const { available, committed } = await refreshAvailableStock();
 
   if(portalState.crates > available) {
     if(errEl) {
