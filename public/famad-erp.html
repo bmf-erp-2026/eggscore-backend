@@ -10841,6 +10841,25 @@ function runSaleErrorChecks() {
    time the app is opened on a new calendar day." Close enough for a
    daily reference point; worth knowing it's not a literal clock timer.
 ═══════════════════════════════════════════════════════ */
+// Always-fresh — unlike ensureDailyBatchSnapshot() below, this recomputes
+// from the current active batches on every call, so the Blended Margin
+// card tracks real-time inventory instead of freezing at whatever the
+// pool looked like on first load of the day. Price is the fluid variable
+// worth tracking live; the once-daily snapshot still exists separately,
+// purely to give the drift trend chart one stable point per day.
+function computeLiveMarginSnapshot() {
+  const active = STATE.batches.filter(b => b.remaining > 0);
+  const totalCrates = active.reduce((sum, b) => sum + b.remaining, 0);
+  const analysis = totalCrates > 0 ? computeBlendedCost(totalCrates) : null;
+  const sellPrice = getCurrentSellingPrice();
+  return {
+    date: new Date().toISOString().split('T')[0],
+    blendedCost: analysis ? analysis.blendedCost : null,
+    blendedMargin: analysis ? round2(sellPrice - analysis.blendedCost) : null,
+    totalCrates,
+  };
+}
+
 function ensureDailyBatchSnapshot() {
   ensureBatches();
   const today = new Date().toISOString().split('T')[0];
