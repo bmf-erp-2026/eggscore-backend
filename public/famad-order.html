@@ -994,6 +994,7 @@ function goToWizardStep(target) {
   });
   document.querySelectorAll('.wiz-dot-wrap').forEach(el => {
     const n = parseInt(el.dataset.wiz, 10);
+    if(n > 4) return; // stops 5-7 are only ever set by markWizardStopReached(), never by form navigation
     el.classList.toggle('active', n === target);
     el.classList.toggle('done', n < target);
   });
@@ -1002,6 +1003,18 @@ function goToWizardStep(target) {
   });
 
   document.getElementById('wizard-indicator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Lights up a post-submission metro-map stop (5=Confirm, 6=Feedback,
+// 7=You're In/Register) once it's actually reached — these live outside
+// the 1-4 form wizard and are never touched by goToWizardStep(). Marks
+// every stop up to and including n as done, same "stations behind you"
+// logic as the form steps.
+function markWizardStopReached(n) {
+  document.querySelectorAll('.wiz-dot-wrap').forEach(el => {
+    const stepNum = parseInt(el.dataset.wiz, 10);
+    if(stepNum <= n) el.classList.add('done');
+  });
 }
 
 // Populates the footer and success-screen trust lines from BRAND_TRUST
