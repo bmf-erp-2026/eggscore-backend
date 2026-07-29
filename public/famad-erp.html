@@ -16387,6 +16387,27 @@ async function syncSellingPriceFromBackend() {
   }
 }
 
+// Pushes a newly-set price to the backend so every other device picks
+// it up on its next syncSellingPriceFromBackend() check — fire-and-forget,
+// same pattern as postBatchRemainingToBackend() below. updatedBy mirrors
+// the same setBy labels already used in STATE.priceHistory ('Admin' /
+// 'System (ramp)') rather than inventing a new identity field.
+async function postSellingPriceToBackend(price, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/selling-price`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ price, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other backend syncs. The next
+    // successful syncSellingPriceFromBackend() check on any device will
+    // still show its own last-known value until this eventually lands.
+  }
+}
+
 async function postBatchRemainingToBackend(batchId, remaining) {
   const token = await erpGetAuthToken();
   if(!token) return;
