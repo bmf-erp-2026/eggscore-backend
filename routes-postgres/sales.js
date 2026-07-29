@@ -12,12 +12,20 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
     return res.status(400).json({ error: 'rep, customerName, crates, pricePerCrate, and paymentMethod are required.' });
   }
 
+  // Resolve the real customer record so customer_id is a genuine FK link
+  // instead of the NULL it's always been — customer_name stays as the
+  // immediate display value, customer_id is what lets a sale be traced
+  // back to the full customer record (cid, contact, credit history, etc).
+  // A customer created after this sale, or a name that doesn't match
+  // exactly, still leaves it null rather than blocking the sale.
+  const customerRow = await db.prepare('SELECT id FROM customers WHERE name = ?').get(customerName);
+
   const gross = crates * pricePerCrate;
   const info = await db.prepare(`
-    INSERT INTO sales (order_ref, rep, customer_name, crates, price_per_crate, gross, delivery_total,
+    INSERT INTO sales (order_ref, rep, customer_id, customer_name, crates, price_per_crate, gross, delivery_total,
       commission, batch_id, batch_cost, payment_method, sale_date, invoice_ref)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(orderRef || null, rep, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(orderRef || null, rep, customerRow?.id || null, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
     commission || 0, batchId || null, batchCost || null, paymentMethod, saleDate || new Date().toISOString().split('T')[0], invoiceRef || null);
 
   // Real multi-batch FIFO deduction — same logic verified in the
