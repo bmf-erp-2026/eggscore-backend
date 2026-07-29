@@ -360,13 +360,8 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       <div class="pb-text" id="promo-banner-text">—</div>
     </div>
 
-    <!-- STEP WIZARD INDICATOR -->
-    <div class="wizard-indicator" id="wizard-indicator">
-      <div class="wiz-dot-wrap active" data-wiz="1" onclick="goToWizardStep(1)"><div class="wiz-dot">1</div><div class="wiz-label">Details</div></div>
-      <div class="wiz-dot-wrap" data-wiz="2" onclick="goToWizardStep(2)"><div class="wiz-dot">2</div><div class="wiz-label">Order</div></div>
-      <div class="wiz-dot-wrap" data-wiz="3" onclick="goToWizardStep(3)"><div class="wiz-dot">3</div><div class="wiz-label">Review</div></div>
-      <div class="wiz-dot-wrap" data-wiz="4" onclick="goToWizardStep(4)"><div class="wiz-dot">4</div><div class="wiz-label">Payment</div></div>
-    </div>
+    <!-- STEP WIZARD INDICATOR now lives in the persistent header above,
+         so it stays visible through the success/feedback screens too. -->
 
     <!-- STEP 1: IDENTIFY -->
     <div class="panel wizard-step active" data-step="1" id="wizard-step-1">
