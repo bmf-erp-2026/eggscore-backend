@@ -11254,7 +11254,8 @@ function computePredictor() {
 function renderMarginWatch() {
   const el = document.getElementById('dash-margin-watch');
   if(!el) return;
-  const snap  = ensureDailyBatchSnapshot();
+  ensureDailyBatchSnapshot(); // still runs once/day, purely to feed the Batch Cost Drift trend history below — the live card now uses its own always-fresh figure instead
+  const snap  = computeLiveMarginSnapshot();
   const floor = getPriceFloor();
   const floorGap = snap.blendedMargin != null ? round2(snap.blendedMargin - floor) : null;
 
