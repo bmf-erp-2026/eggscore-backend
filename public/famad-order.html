@@ -1646,18 +1646,22 @@ function lookupCustomer() {
   }, 400);
 }
 
-function lookupByCode() {
+async function lookupByCode() {
   const code = document.getElementById('c-code')?.value.trim();
   if(!code) return;
-  const erp = loadERPData();
-  const custs = erp.customers || [];
-  const idx = custs.findIndex(c => c.id === code || ('BEL-C' + (custs.indexOf(c)+1).toString().padStart(3,'0')) === code || ('EGS-C' + (custs.indexOf(c)+1).toString().padStart(3,'0')) === code || ('FEDS-C' + (custs.indexOf(c)+1).toString().padStart(3,'0')) === code);
-  if(idx >= 0) {
-    const c = custs[idx];
+  try {
+    const resp = await fetch(`${BACKEND_URL}/customers/by-code?code=${encodeURIComponent(code)}`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+    });
+    if(!resp.ok) return;
+    const c = await resp.json();
+    if(!c) return;
     showMatch(c);
     document.getElementById('c-name').value = c.name;
-    document.getElementById('c-phone').value = c.phone !== '—' ? c.phone : '';
-    document.getElementById('c-location').value = c.location;
+    document.getElementById('c-phone').value = c.phone && c.phone !== '—' ? c.phone : '';
+    document.getElementById('c-location').value = c.location || '';
+  } catch(networkErr) {
+    // Silent — same as before, a wrong/unmatched code just doesn't autofill
   }
 }
 
