@@ -1139,6 +1139,19 @@ async function initPortal() {
   const erp   = loadERPData();
   await refreshAvailableStock();
 
+  // Return visit, same device — fill in what they already told us last
+  // time rather than asking again. Purely local convenience; doesn't
+  // depend on the backend or the broken cross-device recognition path.
+  const mine = loadMyDetails();
+  if(mine) {
+    const nameEl = document.getElementById('c-name');
+    const phoneEl = document.getElementById('c-phone');
+    const locEl = document.getElementById('c-location');
+    if(nameEl && !nameEl.value) nameEl.value = mine.name || '';
+    if(phoneEl && !phoneEl.value) phoneEl.value = mine.phone || '';
+    if(locEl && !locEl.value) locEl.value = mine.location || '';
+  }
+
   renderPortalPolicies();
   renderTrustFooter();
 
