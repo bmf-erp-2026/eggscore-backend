@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
 
 const router = express.Router();
 
