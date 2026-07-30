@@ -852,6 +852,22 @@ function loadOrders() {
   try { return JSON.parse(localStorage.getItem(ORDERS_KEY)||'[]'); }
   catch(e) { return []; }
 }
+
+// "Remember me on this device" — separate from the backend customer
+// record (which now always exists regardless, per saveOrder() above).
+// This is purely local: lets step 1 auto-fill on a return visit from
+// the same browser, without needing the broken cross-device recognition
+// that loadERPData()-based lookupCustomer() would otherwise rely on.
+const MY_DETAILS_KEY = 'feds_my_details';
+function rememberMyDetails(name, phone, location, cid) {
+  try {
+    localStorage.setItem(MY_DETAILS_KEY, JSON.stringify({ name, phone, location, cid, savedAt: new Date().toISOString() }));
+  } catch(e) {}
+}
+function loadMyDetails() {
+  try { return JSON.parse(localStorage.getItem(MY_DETAILS_KEY) || 'null'); }
+  catch(e) { return null; }
+}
 // Real backend config — same fill-in-the-placeholder pattern as the
 // ERP's Supabase values. The portal key only ever grants order/event
 // creation, never read access to anyone else's data — see auth.postgres.js.
