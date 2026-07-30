@@ -24402,11 +24402,13 @@ function confirmOverpayment() {
 
   if(resolution === 'wallet') {
     // ── Credit to wallet — applies to next order automatically ──
-    STATE.walletTransactions.unshift({
+    const tx = {
       id:'wt'+Date.now(), customerName:o.customerName, type:'credit',
       amount:excess, ref, date:new Date().toISOString().split('T')[0],
       notes:`Overpayment on ${ref} — ₦${excess.toLocaleString()} credited to wallet`,
-    });
+    };
+    STATE.walletTransactions.unshift(tx);
+    postWalletTransactionToBackend(tx);
     toastMsg = `✓ ₦${excess.toLocaleString()} credited to ${o.customerName}'s wallet — applies to next order.`;
     logOk('credit', `Overpayment → wallet — ${o.customerName} · ₦${excess.toLocaleString()}`, `Invoice:₦${invoiceAmt.toLocaleString()} Received:₦${received.toLocaleString()} Ref:${ref}`);
 
@@ -24415,11 +24417,13 @@ function confirmOverpayment() {
     overpayRecord.refundPending  = true;
     overpayRecord.refundExecuted = false;
     overpayRecord.refundDue      = excess;
-    STATE.walletTransactions.unshift({
+    const tx = {
       id:'wt'+Date.now(), customerName:o.customerName, type:'refund_pending',
       amount:excess, ref, date:new Date().toISOString().split('T')[0],
       notes:`Refund due to ${o.customerName} — ₦${excess.toLocaleString()} · transfer pending`,
-    });
+    };
+    STATE.walletTransactions.unshift(tx);
+    postWalletTransactionToBackend(tx);
     toastMsg = `⏳ ₦${excess.toLocaleString()} refund recorded for ${o.customerName}. Transfer funds back and mark executed in Credit/Debt.`;
     logCrit('refund', `Overpayment → refund pending — ${o.customerName} · ₦${excess.toLocaleString()}`, `Must be transferred back. Ref:${ref}`);
 
@@ -24468,18 +24472,22 @@ function confirmOverpayment() {
       remaining -= applied;
     });
 
-    STATE.walletTransactions.unshift({
+    const infoTx = {
       id:'wt'+Date.now(), customerName:o.customerName, type:'info',
       amount:excess - remaining, ref, date:new Date().toISOString().split('T')[0],
       notes:`Overpayment applied directly to outstanding balance — ₦${(excess-remaining).toLocaleString()} offset (did not pass through wallet)`,
-    });
+    };
+    STATE.walletTransactions.unshift(infoTx);
+    postWalletTransactionToBackend(infoTx);
     if(remaining > 0) {
       // Any unabsorbed excess goes to wallet
-      STATE.walletTransactions.unshift({
+      const creditTx = {
         id:'wt'+Date.now(), customerName:o.customerName, type:'credit',
         amount:remaining, ref, date:new Date().toISOString().split('T')[0],
         notes:`Remaining ₦${remaining.toLocaleString()} after balance offset — credited to wallet`,
-      });
+      };
+      STATE.walletTransactions.unshift(creditTx);
+      postWalletTransactionToBackend(creditTx);
     }
     toastMsg = `✓ ₦${excess.toLocaleString()} excess applied to ${o.customerName}'s outstanding balance.${remaining>0?' Remainder credited to wallet.':''}`;
     logOk('credit', `Overpayment → balance offset — ${o.customerName} · ₦${excess.toLocaleString()}`, `Ref:${ref}`);
