@@ -1294,6 +1294,25 @@ input[type=number]{-moz-appearance:textfield;}
       // Fire-and-forget — same as the other backend syncs.
     }
   }
+
+  // Customers previously had NO backend persistence at all — every
+  // customer only ever existed in whichever single device's browser
+  // storage created it, invisible to every other device, and with
+  // no recovery path if that storage was ever cleared. This mirrors
+  // the exact Orders/Sales/Batches pattern to close that gap: keyed
+  // on `cid` (the one stable identifier both sides agree on, same
+  // role invoice_ref plays for Sales). Only the fields the backend
+  // genuinely owns get overwritten on an existing match — loyalty,
+  // lastPurchase, and totalCrates are computed locally from actual
+  // sales activity and are deliberately left alone. A customer with
+  // no cid (created before the CID scheme existed) can't be reliably
+  // matched or deduped, so it's left local-only rather than risking
+  // duplicate creation on the backend.
+  async function syncCustomersFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendCustomers;
+    try {
       const resp = await fetch(`${BACKEND_URL}/customers`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
