@@ -1741,69 +1741,43 @@ function escapeHtmlPortal(str) {
    shows the reason from Price Management's note field —
    transparent communication, no surprises at checkout.
 ─────────────────────────────────────────────────────────── */
-function checkPriceChangeSinceLastOrder(customerName) {
+// Phase 2A simplified version — current price vs. what the customer
+// actually paid last time, via the real backend. Drops the "why did it
+// change" reasoning the old local-blob version had (that needs
+// priceHistory exposed server-side too, which is a Phase 2B-sized task
+// on its own) in favour of a general note that's still honest.
+async function checkPriceChangeSinceLastOrder(customerName) {
   const note = document.getElementById('price-change-notice');
   if(!note) return;
 
-  const erp = loadERPData();
-  const currentPrice = erp.currentSellingPrice || portalState.basePrice;
-
-  // Find this customer's most recent sale (by date)
-  const lastSale = (erp.sales || [])
-    .filter(s => s.customer === customerName)
-    .sort((a,b) => b.date.localeCompare(a.date))[0];
+  const currentPrice = portalState.basePrice;
+  let lastSale;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/sales/last-price?customer=${encodeURIComponent(customerName)}`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+    });
+    if(!resp.ok) { note.style.display = 'none'; return; }
+    lastSale = await resp.json();
+  } catch(networkErr) {
+    note.style.display = 'none';
+    return;
+  }
 
   if(!lastSale || !lastSale.price) { note.style.display = 'none'; return; }
 
   const lastPrice = lastSale.price;
   if(lastPrice === currentPrice) { note.style.display = 'none'; return; }
 
-  const history = erp.priceHistory || [];
-  // How many price changes actually happened between HER last purchase
-  // and today — not just the single most recent one. The stored reason
-  // for the latest change was correctly computed for its own one-step
-  // transition at the time, but only validly explains a customer's ENTIRE
-  // gap when there's exactly one step in between. With several changes
-  // since her last order, showing that one reason as if it explains the
-  // whole movement is misleading — it might even point the opposite
-  // direction from what she's actually experiencing, since her reference
-  // point and the reason's reference point aren't the same moment.
-  const changesSinceHerOrder = history.filter(h => h.setAt > lastSale.date).length;
-
-  const relevantChange = (history[0]?.price === currentPrice) ? history[0] : null;
-  // Structured category (guaranteed consistent with direction, enforced at
-  // entry in the ERP) + optional free-text detail — mirrors PRICE_REASON_CATEGORIES.
-  const PORTAL_REASON_LABELS = {
-    input_cost_up: 'Production input costs increased', input_cost_down: 'Production input costs dropped',
-    market_competitive: 'Market / competitive price adjustment', supply_demand: 'Supply and demand shift',
-    strategic_promo: 'Strategic or promotional adjustment', other: 'Other',
-  };
-  const categoryLabel = relevantChange?.reasonCategory ? PORTAL_REASON_LABELS[relevantChange.reasonCategory] : null;
-  const latestReason = categoryLabel
-    ? categoryLabel + (relevantChange.note ? ` — ${relevantChange.note}` : '')
-    : (relevantChange?.note || null);
-
   const direction = currentPrice > lastPrice ? 'increased' : 'decreased';
   const icon      = currentPrice > lastPrice ? '📈' : '📉';
   const diff      = Math.abs(currentPrice - lastPrice);
-
-  // Multiple steps since her order → frame the reason as describing only
-  // the latest step, never as if it explains the whole gap from her price.
-  // Single step (or no traceable reason at all) → existing behaviour.
-  let reasonLine = '';
-  if(changesSinceHerOrder > 1 && latestReason) {
-    reasonLine = `<br><span style="color:var(--dust)">Price has adjusted ${changesSinceHerOrder} times since your last order — most recent change: ${latestReason}</span>`;
-  } else if(latestReason) {
-    reasonLine = `<br><span style="color:var(--dust)">Reason: ${latestReason}</span>`;
-  }
 
   note.style.display = 'block';
   note.innerHTML =
     `${icon} <strong>Price update:</strong> Since your last order `
     + `(₦${lastPrice.toLocaleString()}/crate), our price has ${direction} `
     + `to <strong>₦${currentPrice.toLocaleString()}/crate</strong> `
-    + `(₦${diff.toLocaleString()} ${direction === 'increased' ? 'more' : 'less'} per crate)`
-    + reasonLine;
+    + `(₦${diff.toLocaleString()} ${direction === 'increased' ? 'more' : 'less'} per crate).`;
 }
 
 /* ── Crate stepper ── */
