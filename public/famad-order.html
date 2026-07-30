@@ -1449,19 +1449,26 @@ function updatePaymentCommitmentBox() {
   if(ackEl) ackEl.checked = false;
 }
 
-// Looks up an entered referral code against known customers' own codes
-// (already shared via the whole-STATE sync — no new channel needed).
-// Returns the referring customer's name, or null if the code doesn't
-// match anyone. A customer can't refer themselves.
-function resolveReferralCode(code, ownName) {
+// Looks up an entered referral code against the real backend now,
+// instead of the broken loadERPData().customers read. A customer can't
+// refer themselves.
+async function resolveReferralCode(code, ownName) {
   if(!code) return null;
-  const erp = loadERPData();
-  const match = (erp.customers || []).find(c => c.referralCode === code.trim().toUpperCase());
-  if(!match) return null;
-  if(match.name === ownName) return null;
-  return match.name;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/customers/by-referral?code=${encodeURIComponent(code.trim().toUpperCase())}`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+    });
+    if(!resp.ok) return null;
+    const match = await resp.json();
+    if(!match) return null;
+    if(match.name === ownName) return null;
+    return match.name;
+  } catch(networkErr) {
+    return null;
+  }
 }
 
+let referralDebounceTimer = null;
 function checkReferralCode() {
   const code = document.getElementById('c-referral-code')?.value.trim();
   const ownName = document.getElementById('c-name')?.value.trim();
@@ -1469,15 +1476,18 @@ function checkReferralCode() {
   if(!msgEl) return;
   if(!code) { msgEl.style.display = 'none'; return; }
 
-  const referrer = resolveReferralCode(code, ownName);
-  msgEl.style.display = 'block';
-  if(referrer) {
-    msgEl.style.color = 'var(--lime)';
-    msgEl.textContent = `✓ Recognised — you were referred by ${referrer}.`;
-  } else {
-    msgEl.style.color = 'var(--amber)';
-    msgEl.textContent = `⚠ Code not recognised — order will still go through, just without the referral credit.`;
-  }
+  clearTimeout(referralDebounceTimer);
+  referralDebounceTimer = setTimeout(async () => {
+    const referrer = await resolveReferralCode(code, ownName);
+    msgEl.style.display = 'block';
+    if(referrer) {
+      msgEl.style.color = 'var(--lime)';
+      msgEl.textContent = `✓ Recognised — you were referred by ${referrer}.`;
+    } else {
+      msgEl.style.color = 'var(--amber)';
+      msgEl.textContent = `⚠ Code not recognised — order will still go through, just without the referral credit.`;
+    }
+  }, 400);
 }
 
 /* ── Feedback — own localStorage channel, same convention as orders ── */
