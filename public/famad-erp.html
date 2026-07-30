@@ -1317,12 +1317,14 @@ input[type=number]{-moz-appearance:textfield;}
         existing.creditLimit = row.credit_limit;
         existing.referral    = row.referral;
         existing.notes       = row.notes;
+        existing.backendId   = row.id; // explicit, reliable — regardless of what existing.id happens to look like
       } else {
         byCid.set(row.cid, {
           id: 'sync-' + row.id, cid: row.cid, name: row.name, location: row.location,
           contact: row.contact || '—', phone: row.phone || '—', type: row.type,
           creditLimit: row.credit_limit || 0, referral: row.referral || '',
           loyalty: 'New', lastPurchase: null, totalCrates: 0, notes: row.notes || '',
+          backendId: row.id,
         });
       }
     });
