@@ -1623,15 +1623,27 @@ function getPortalWalletBalance(erp, customerName) {
   }, 0);
 }
 
-/* ── Customer lookup ── */
+/* ── Customer lookup — Phase 2A: real backend search instead of the
+   broken loadERPData().customers read. Debounced since it fires on
+   every keystroke; a network call per letter typed would be wasteful
+   and could show stale results out of order. ── */
+let lookupDebounceTimer = null;
 function lookupCustomer() {
-  const name = document.getElementById('c-name')?.value.trim().toLowerCase();
+  const name = document.getElementById('c-name')?.value.trim();
   if(!name || name.length < 3) { hideMatch(); return; }
-  const erp = loadERPData();
-  const custs = erp.customers || [];
-  const match = custs.find(c => c.name.toLowerCase().includes(name) || (c.contact||'').toLowerCase().includes(name));
-  if(match) showMatch(match);
-  else hideMatch();
+  clearTimeout(lookupDebounceTimer);
+  lookupDebounceTimer = setTimeout(async () => {
+    try {
+      const resp = await fetch(`${BACKEND_URL}/customers/search?q=${encodeURIComponent(name)}`, {
+        headers: { 'x-api-key': PORTAL_API_KEY },
+      });
+      if(!resp.ok) { hideMatch(); return; }
+      const match = await resp.json();
+      if(match) showMatch(match); else hideMatch();
+    } catch(networkErr) {
+      hideMatch();
+    }
+  }, 400);
 }
 
 function lookupByCode() {
