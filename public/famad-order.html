@@ -2475,7 +2475,7 @@ async function submitReservation() {
     deliveryTotal, grandTotal,
     promoApplied: promo ? promo.name : null, promoDiscount,
     loyaltyTier: portalState.matchedCustomer?.loyalty || 'New',
-    referredByCustomerName: resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
+    referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
     status: 'reserved',
     source: 'portal',
     reservationCustomerType: customerType,
