@@ -1135,6 +1135,25 @@ function renderAvailableStockDisplay() {
   }
 }
 
+// Live backend figure — same /settings/selling-price endpoint the ERP
+// already syncs from. Replaces trusting erp.currentSellingPrice, which
+// came from the same broken feds_erp_data local blob the stock-check
+// bug traced back to. Only updates portalState.basePrice — the caller
+// still handles rendering, same as the erp.currentSellingPrice path did.
+async function syncPortalPriceFromBackend() {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/selling-price`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+    });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.price != null) portalState.basePrice = data.price;
+  } catch(networkErr) {
+    // Fire-and-forget — falls back to whatever initPortal() already set
+    // (the legacy erp.currentSellingPrice read or the 5700 default).
+  }
+}
+
 async function initPortal() {
   const erp   = loadERPData();
   await refreshAvailableStock();
