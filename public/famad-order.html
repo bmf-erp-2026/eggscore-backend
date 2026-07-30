@@ -878,6 +878,8 @@ async function saveOrder(order) {
     if(resp.ok) {
       const realOrder = await resp.json();
       order.ref = realOrder.ref; // the backend's ref is now the authoritative one
+      order.customerCid    = realOrder.customerCid || null;
+      order.isNewCustomer  = !!realOrder.isNewCustomer;
       backendSucceeded = true;
     }
   } catch(networkErr) {
