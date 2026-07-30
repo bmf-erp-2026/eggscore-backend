@@ -1668,7 +1668,10 @@ function showMatch(c) {
   const loy = document.getElementById('match-loyalty');
   if(box){ box.style.display='flex'; }
   if(nm)  nm.textContent = c.name;
-  if(loy) loy.textContent = c.loyalty + ' loyalty';
+  // Real loyalty-tier scoring is Phase 2B (needs wallet/respect/tag data
+  // that has no backend presence yet) — a generic recognition label here
+  // is honest about what we actually know right now.
+  if(loy) loy.textContent = 'Recognized customer';
 
   // ── Price change notice — informs returning customers of price moves ──
   checkPriceChangeSinceLastOrder(c.name);
