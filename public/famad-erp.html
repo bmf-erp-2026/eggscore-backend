@@ -24537,11 +24537,13 @@ function applyWalletCredit(customerName, ref, amountOwed) {
   const balance = getWalletBalance(customerName);
   const applyAmt = Math.min(balance, amountOwed || 0);
   if(applyAmt <= 0) return 0;
-  STATE.walletTransactions.unshift({
+  const tx = {
     id:'wt'+Date.now()+Math.floor(Math.random()*1000), customerName, type:'applied', amount:applyAmt,
     ref, date:new Date().toISOString().split('T')[0],
     notes:`Wallet credit applied to ${ref}`,
-  });
+  };
+  STATE.walletTransactions.unshift(tx);
+  postWalletTransactionToBackend(tx);
   return applyAmt;
 }
 
