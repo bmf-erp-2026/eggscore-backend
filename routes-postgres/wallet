@@ -25,20 +25,16 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
   res.status(201).json(await db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(info.lastInsertRowid));
 });
 
-// ERP-only — full transaction history for one customer, for the ERP's
-// own sync-with-retry (mirrors how Customers/Orders/Sales/Batches sync).
-router.get('/:customerId', requireSupabaseAuth(), async (req, res) => {
-  res.json(await db.prepare(
-    'SELECT * FROM wallet_transactions WHERE customer_id = ? ORDER BY created_at DESC'
-  ).all(req.params.customerId));
-});
-
 // ── Portal-facing balance lookup ──────────────────────────────────────
 // Deliberately narrow, same philosophy as customers.js's /search,
 // /by-code, /by-referral: only the one number the portal actually
 // needs, never the transaction list itself (no order_ref, no dates,
 // no created_by). Balance computed live via SUM at query time — no
 // cached balance column, so there's no cache-vs-ledger drift possible.
+//
+// NOTE: declared BEFORE /:customerId below — Express matches routes in
+// declaration order, and "/balance" would otherwise be swallowed by the
+// /:customerId param slot (treating "balance" as a literal customer ID).
 router.get('/balance', requireEitherAuth(), async (req, res) => {
   const customerName = (req.query.customer || '').trim();
   if(!customerName) return res.json({ balance: 0 });
@@ -57,6 +53,14 @@ router.get('/balance', requireEitherAuth(), async (req, res) => {
   }, 0);
 
   res.json({ balance });
+});
+
+// ERP-only — full transaction history for one customer, for the ERP's
+// own sync-with-retry (mirrors how Customers/Orders/Sales/Batches sync).
+router.get('/:customerId', requireSupabaseAuth(), async (req, res) => {
+  res.json(await db.prepare(
+    'SELECT * FROM wallet_transactions WHERE customer_id = ? ORDER BY created_at DESC'
+  ).all(req.params.customerId));
 });
 
 module.exports = router;
