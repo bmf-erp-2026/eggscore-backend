@@ -1362,8 +1362,83 @@ input[type=number]{-moz-appearance:textfield;}
       .filter(c => c.cid && !backendCids.has(c.cid))
       .forEach(c => postCustomerToBackend(c));
   }
+  // Records a wallet transaction to the backend. Needs the customer's
+  // backendId (not name) since the schema's customer_id is a real FK —
+  // looked up from STATE.customers the same way applyWalletCredit()
+  // already resolves customerName to a customer record. clientId is the
+  // transaction's own local id ('wt'+Date.now()...) — sent so the
+  // self-healing retry below can tell this one apart from every other.
+  async function postWalletTransactionToBackend(tx) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    const customer = STATE.customers.find(c => c.name === tx.customerName);
+    if(!customer?.backendId) return; // no backend-known customer to attach this to yet
+    try {
+      await fetch(`${BACKEND_URL}/wallet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          customerId: customer.backendId, amount: tx.amount, type: tx.type,
+          orderRef: tx.ref, createdBy: 'ERP', clientId: tx.id,
+        }),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget — same as Customers/Sales/Batches. The self-healing
+      // retry below catches this on the next sync if it silently failed.
+    }
+  }
 
-  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); });
+  // Wallet transactions previously had zero backend persistence — every
+  // credit, deduction, and refund-pending record only ever existed in
+  // whichever single device's browser created it. This mirrors the exact
+  // Customers pattern: pull the backend's full list, merge by client_id
+  // (the one stable identifier both sides agree on — same role cid plays
+  // for Customers), then self-heal by re-posting any local transaction
+  // the backend has genuinely never seen.
+  async function syncWalletTransactionsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendTx;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/wallet`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendTx = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.walletTransactions) STATE.walletTransactions = [];
+    const byClientId = new Map(
+      STATE.walletTransactions.filter(t => t.id).map(t => [t.id, t])
+    );
+
+    backendTx.forEach(row => {
+      if(!row.client_id) return; // can't merge a row with no client_id to key on
+      if(!byClientId.has(row.client_id)) {
+        const customer = STATE.customers.find(c => c.backendId === row.customer_id);
+        byClientId.set(row.client_id, {
+          id: row.client_id,
+          customerName: customer?.name || '(unknown customer)',
+          type: row.type, amount: Number(row.amount), ref: row.order_ref,
+          date: row.created_at?.split('T')[0], notes: '',
+        });
+      }
+    });
+
+    STATE.walletTransactions = Array.from(byClientId.values());
+    saveState();
+
+    // Self-healing retry — same reasoning as Customers/Sales/Batches: a
+    // local transaction whose client_id the backend has never seen means
+    // an earlier POST silently failed and needs to go out again.
+    const backendClientIds = new Set(backendTx.map(r => r.client_id).filter(Boolean));
+    STATE.walletTransactions
+      .filter(t => t.id && !backendClientIds.has(t.id))
+      .forEach(t => postWalletTransactionToBackend(t));
+  }
+  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
