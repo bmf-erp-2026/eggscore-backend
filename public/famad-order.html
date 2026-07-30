@@ -1033,12 +1033,15 @@ function goToWizardStep(target) {
 // Lights up a post-submission metro-map stop (5=Confirm, 6=Feedback,
 // 7=You're In/Register) once it's actually reached — these live outside
 // the 1-4 form wizard and are never touched by goToWizardStep(). Marks
-// every stop up to and including n as done, same "stations behind you"
-// logic as the form steps.
+// only the exact stop passed in — unlike steps 1-4, stops 5-7 aren't
+// strictly sequential (registration at 7 happens automatically on order
+// success, independent of whether feedback at 6 is ever given), so each
+// one gets its own explicit call at its own real trigger point instead
+// of a cascading "done up to n".
 function markWizardStopReached(n) {
   document.querySelectorAll('.wiz-dot-wrap').forEach(el => {
     const stepNum = parseInt(el.dataset.wiz, 10);
-    if(stepNum <= n) el.classList.add('done');
+    if(stepNum === n) el.classList.add('done');
   });
 }
 
