@@ -10619,23 +10619,40 @@ function confirmEditContact() {
 
   const newPhone = document.getElementById('ec-phone').value.trim();
   const newLocation = document.getElementById('ec-location').value.trim();
+  const newContact = document.getElementById('ec-contact').value.trim();
+  const newType = document.getElementById('ec-type').value;
   const reason = document.getElementById('ec-reason').value;
   if(!reason) { showToast('⚠ Select a reason for the change.'); return; }
 
   const oldPhone = c.phone;
   const oldLocation = c.location;
+  const oldContact = c.contact && c.contact !== '—' ? c.contact : '';
+  const oldType = c.type || 'Individual';
   const phoneChanged = newPhone && newPhone !== oldPhone;
   const locationChanged = newLocation && newLocation !== oldLocation;
+  const contactChanged = newContact !== oldContact;
+  const typeChanged = newType !== oldType;
 
-  if(!phoneChanged && !locationChanged) { showToast('No changes to save.'); closeModal('modal-edit-contact'); return; }
+  if(!phoneChanged && !locationChanged && !contactChanged && !typeChanged) { showToast('No changes to save.'); closeModal('modal-edit-contact'); return; }
 
-  if(phoneChanged) c.phone = newPhone;
-  if(locationChanged) c.location = newLocation;
+  const backendFields = {};
+  if(phoneChanged)    { c.phone = newPhone; backendFields.phone = newPhone; }
+  if(locationChanged) { c.location = newLocation; backendFields.location = newLocation; }
+  if(contactChanged)  { c.contact = newContact || '—'; backendFields.contact = newContact || null; }
+  if(typeChanged)      { c.type = newType; backendFields.type = newType; }
   saveState();
+
+  // Previously this function only ever wrote to local STATE — a
+  // contact-info edit on one device silently never reached any other
+  // device or the backend at all. Now actually persisted, same as
+  // every other write tonight.
+  if(c.backendId) patchCustomerToBackend(c.backendId, backendFields);
 
   const changeParts = [];
   if(phoneChanged) changeParts.push(`phone ${oldPhone||'none'} → ${newPhone}`);
   if(locationChanged) changeParts.push(`location "${oldLocation||'—'}" → "${newLocation}"`);
+  if(contactChanged) changeParts.push(`contact "${oldContact||'none'}" → "${newContact||'none'}"`);
+  if(typeChanged) changeParts.push(`type ${oldType} → ${newType}`);
   logInfo('customers', `Contact info updated — ${c.name}`, `${changeParts.join(' · ')} · Reason: ${reason}`);
 
   closeModal('modal-edit-contact');
