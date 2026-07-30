@@ -33,6 +33,14 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
   res.status(201).json(row);
 });
 
+// ERP-only — every wallet transaction across all customers, for the
+// self-healing retry's client_id comparison (mirrors the bulk GET
+// /customers and /batches endpoints — one fetch instead of looping
+// per-customer).
+router.get('/', requireSupabaseAuth(), async (req, res) => {
+  res.json(await db.prepare('SELECT * FROM wallet_transactions ORDER BY created_at DESC').all());
+});
+
 // ── Portal-facing balance lookup ──────────────────────────────────────
 // Deliberately narrow, same philosophy as customers.js's /search,
 // /by-code, /by-referral: only the one number the portal actually
