@@ -1,0 +1,62 @@
+const express = require('express');
+const { db } = require('../db.postgres');
+const { requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
+
+const router = express.Router();
+
+// ERP-only — records a wallet transaction (credit, applied, or
+// refund_pending). This is the ERP's write path; the portal never
+// creates transactions, only reads a balance (see /balance below).
+router.post('/', requireSupabaseAuth(), async (req, res) => {
+  const { customerId, amount, type, orderRef, createdBy } = req.body;
+
+  if(!customerId || amount == null || !type) {
+    return res.status(400).json({ error: 'customerId, amount, and type are required.' });
+  }
+  if(!['credit', 'applied', 'refund_pending'].includes(type)) {
+    return res.status(400).json({ error: 'type must be one of credit, applied, refund_pending.' });
+  }
+
+  const info = await db.prepare(`
+    INSERT INTO wallet_transactions (customer_id, amount, type, order_ref, created_by)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(customerId, amount, type, orderRef || null, createdBy || null);
+
+  res.status(201).json(await db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// ERP-only — full transaction history for one customer, for the ERP's
+// own sync-with-retry (mirrors how Customers/Orders/Sales/Batches sync).
+router.get('/:customerId', requireSupabaseAuth(), async (req, res) => {
+  res.json(await db.prepare(
+    'SELECT * FROM wallet_transactions WHERE customer_id = ? ORDER BY created_at DESC'
+  ).all(req.params.customerId));
+});
+
+// ── Portal-facing balance lookup ──────────────────────────────────────
+// Deliberately narrow, same philosophy as customers.js's /search,
+// /by-code, /by-referral: only the one number the portal actually
+// needs, never the transaction list itself (no order_ref, no dates,
+// no created_by). Balance computed live via SUM at query time — no
+// cached balance column, so there's no cache-vs-ledger drift possible.
+router.get('/balance', requireEitherAuth(), async (req, res) => {
+  const customerName = (req.query.customer || '').trim();
+  if(!customerName) return res.json({ balance: 0 });
+
+  const customer = await db.prepare('SELECT id FROM customers WHERE name = ?').get(customerName);
+  if(!customer) return res.json({ balance: 0 });
+
+  const rows = await db.prepare(
+    `SELECT type, amount FROM wallet_transactions WHERE customer_id = ?`
+  ).all(customer.id);
+
+  const balance = rows.reduce((a, t) => {
+    if(t.type === 'credit') return a + Number(t.amount);
+    if(t.type === 'applied' || t.type === 'refund_pending') return a - Number(t.amount);
+    return a;
+  }, 0);
+
+  res.json({ balance });
+});
+
+module.exports = router;
