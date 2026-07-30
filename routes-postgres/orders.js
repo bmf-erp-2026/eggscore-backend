@@ -53,7 +53,13 @@ router.post('/', requireEitherAuth(), async (req, res) => {
       const info = await db.prepare(`
         INSERT INTO customers (cid, name, location, phone, type, credit_limit)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(cid, customerName, location, phone || null, 'portal', 0);
+      // 'Individual' is a real, meaningful value from the same Customer
+      // Type vocabulary used in the ERP's manual Add Customer form
+      // (Wholesaler/Retailer/Market Trader/Depot/Restaurant-Hotel/
+      // Individual) — a reasonable default for a first-time online
+      // order, editable later via Edit Contact Info once Bob knows more
+      // about them. 'portal' was a meaningless internal placeholder.
+      `).run(cid, customerName, location, phone || null, 'Individual', 0);
       customerId    = info.lastInsertRowid;
       customerCid   = cid;
       isNewCustomer = true;
