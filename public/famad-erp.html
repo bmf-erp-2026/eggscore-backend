@@ -10600,11 +10600,15 @@ function openEditContactModal(custId) {
   document.getElementById('ec-cust-id').value = custId;
   document.getElementById('ec-phone').value = c.phone !== '—' ? c.phone : '';
   document.getElementById('ec-location').value = c.location || '';
+  document.getElementById('ec-contact').value = c.contact && c.contact !== '—' ? c.contact : '';
+  document.getElementById('ec-type').value = c.type || 'Individual';
   document.getElementById('ec-reason').value = '';
   document.getElementById('ec-cust-summary').innerHTML =
     `<strong style="color:var(--cream)">${c.name}</strong><br>
      Current phone: <strong style="color:var(--dust)">${c.phone !== '—' ? c.phone : 'none on file'}</strong><br>
-     Current location: <strong style="color:var(--dust)">${c.location || '—'}</strong>`;
+     Current location: <strong style="color:var(--dust)">${c.location || '—'}</strong><br>
+     Current contact: <strong style="color:var(--dust)">${c.contact && c.contact !== '—' ? c.contact : 'none on file'}</strong><br>
+     Current type: <strong style="color:var(--dust)">${c.type || 'Individual'}</strong>`;
   openModal('modal-edit-contact');
 }
 
