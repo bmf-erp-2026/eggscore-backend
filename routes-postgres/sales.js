@@ -57,4 +57,18 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
   res.json(await db.prepare(query).all(...params));
 });
 
+// Narrow, portal-facing — only what checkPriceChangeSinceLastOrder()
+// needs (Phase 2A: current vs. last price the customer paid, no
+// reasoning about *why* it changed — that needs priceHistory exposed
+// too, deferred to a later pass). Never returns anything else about
+// the sale or the customer.
+router.get('/last-price', requireEitherAuth(), async (req, res) => {
+  const customerName = (req.query.customer || '').trim();
+  if(!customerName) return res.json(null);
+  const row = await db.prepare(
+    `SELECT price_per_crate, sale_date FROM sales WHERE customer_name = ? ORDER BY sale_date DESC, created_at DESC LIMIT 1`
+  ).get(customerName);
+  res.json(row ? { price: row.price_per_crate, date: row.sale_date } : null);
+});
+
 module.exports = router;
