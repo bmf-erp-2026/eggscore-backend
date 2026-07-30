@@ -2598,7 +2598,7 @@ async function submitOrder() {
     promoApplied:   promo ? promo.name : null,
     promoDiscount,
     loyaltyTier:    portalState.matchedCustomer?.loyalty || 'New',
-    referredByCustomerName: resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
+    referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
     paymentCommitmentDeadline, // set only for first-time/large-volume/bank-transfer orders — the customer's own stated deadline
     status:         'pending',
     source:         'portal',
