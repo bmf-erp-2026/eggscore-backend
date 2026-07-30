@@ -1174,10 +1174,13 @@ async function initPortal() {
   renderPortalPolicies();
   renderTrustFooter();
 
-  // ── Read current selling price from ERP ──
+  // ── Read current selling price from ERP (local fallback) ──
   const erpPrice = erp.currentSellingPrice;
   if(erpPrice && erpPrice > 0) portalState.basePrice = erpPrice;
   if(!erpPrice && erp.sales?.length) portalState.basePrice = erp.sales[0].price || 5700;
+
+  // ── Overwrite with the real live price if the backend has one ──
+  await syncPortalPriceFromBackend();
 
   // ── Identify active FIFO batch ──
   const batches     = erp.batches || [];
