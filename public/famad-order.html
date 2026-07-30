@@ -2588,6 +2588,33 @@ function showSuccess(order, paid) {
   const ss = document.getElementById('success-screen');
   ss.classList.add('show');
   markWizardStopReached(5); // Confirm — order/reservation actually went through
+
+  // Enrollment card — stop 7. Backend already created/matched the
+  // customer silently regardless (see saveOrder()); this is the visible,
+  // celebratory moment for the customer, and the "remember me" tap is
+  // purely a local convenience for next time on this device.
+  const enrollCard = document.getElementById('enrollment-card');
+  if(enrollCard && order.customerCid) {
+    if(order.isNewCustomer) {
+      enrollCard.innerHTML = `
+        <div style="font-size:13px;margin-bottom:4px">🎉 You're now an EggScore customer!</div>
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px">
+          Your Customer ID is <strong style="color:var(--teal)">${order.customerCid}</strong> — quote it next time for faster ordering.
+        </div>
+        <button class="submit-btn" style="width:auto;padding:8px 16px;font-size:11px;margin-top:0"
+          onclick="rememberMyDetails('${order.customerName.replace(/'/g,"\\'")}','${order.phone}','${order.location.replace(/'/g,"\\'")}','${order.customerCid}');
+          this.textContent='✓ Saved on this device';this.disabled=true;">
+          Remember me on this device
+        </button>`;
+    } else {
+      enrollCard.innerHTML = `
+        <div style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--teal)">
+          Welcome back — Customer ID <strong>${order.customerCid}</strong>
+        </div>`;
+    }
+    enrollCard.style.display = 'block';
+  }
+  markWizardStopReached(7); // reached regardless of the "remember me" tap itself
   document.getElementById('success-ref').textContent = order.ref;
   document.getElementById('bank-narration').textContent = order.ref;
 
