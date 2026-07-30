@@ -27,6 +27,15 @@ function normalisePhone(phone) {
   return (phone || '').replace(/\D/g, '');
 }
 
+// A customer's OWN shareable referral code (what they give a friend) —
+// same generator as the ERP's manual Add Customer flow, so a portal-
+// created customer gets one too instead of only manually-added ones.
+function genReferralCode(name) {
+  const letters = (name || '').replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 4) || 'EGGS';
+  const digits = String(Math.floor(100 + Math.random() * 900));
+  return `BEL-${letters}${digits}`;
+}
+
 router.post('/', requireEitherAuth(), async (req, res) => {
   const { customerName, phone, location, crates, eggPricePerCrate, deliveryPerCrate, notes, paymentMethod } = req.body;
   if(!customerName || !crates || crates < 1) {
