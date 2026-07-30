@@ -1,28 +1,36 @@
 const express = require('express');
 const { db } = require('../db.postgres');
 const { requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
-
 const router = express.Router();
 
-// ERP-only — records a wallet transaction (credit, applied, or
-// refund_pending). This is the ERP's write path; the portal never
-// creates transactions, only reads a balance (see /balance below).
+// ERP-only — records a wallet transaction (credit, applied, refund_pending,
+// or info). This is the ERP's write path; the portal never creates
+// transactions, only reads a balance (see /balance below).
+// clientId is the ERP's own 'wt'+Date.now() id — stored so the ERP's
+// self-healing retry can tell which local transactions the backend has
+// already seen, same role ref/inv/cid play for Orders/Sales/Customers.
+// ON CONFLICT makes a retried POST safe — it won't create a duplicate row.
 router.post('/', requireSupabaseAuth(), async (req, res) => {
-  const { customerId, amount, type, orderRef, createdBy } = req.body;
+  const { customerId, amount, type, orderRef, createdBy, clientId } = req.body;
 
   if(!customerId || amount == null || !type) {
     return res.status(400).json({ error: 'customerId, amount, and type are required.' });
   }
-  if(!['credit', 'applied', 'refund_pending'].includes(type)) {
-    return res.status(400).json({ error: 'type must be one of credit, applied, refund_pending.' });
+  if(!['credit', 'applied', 'refund_pending', 'info'].includes(type)) {
+    return res.status(400).json({ error: 'type must be one of credit, applied, refund_pending, info.' });
   }
 
-  const info = await db.prepare(`
-    INSERT INTO wallet_transactions (customer_id, amount, type, order_ref, created_by)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(customerId, amount, type, orderRef || null, createdBy || null);
+  await db.prepare(`
+    INSERT INTO wallet_transactions (customer_id, amount, type, order_ref, created_by, client_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT (client_id) DO NOTHING
+  `).run(customerId, amount, type, orderRef || null, createdBy || null, clientId || null);
 
-  res.status(201).json(await db.prepare('SELECT * FROM wallet_transactions WHERE id = ?').get(info.lastInsertRowid));
+  const row = clientId
+    ? await db.prepare('SELECT * FROM wallet_transactions WHERE client_id = ?').get(clientId)
+    : await db.prepare('SELECT * FROM wallet_transactions WHERE customer_id = ? ORDER BY id DESC LIMIT 1').get(customerId);
+
+  res.status(201).json(row);
 });
 
 // ── Portal-facing balance lookup ──────────────────────────────────────
@@ -31,6 +39,8 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
 // needs, never the transaction list itself (no order_ref, no dates,
 // no created_by). Balance computed live via SUM at query time — no
 // cached balance column, so there's no cache-vs-ledger drift possible.
+// 'info' transactions are excluded from the reduce below — they're
+// audit-trail entries for money that never passed through the wallet.
 //
 // NOTE: declared BEFORE /:customerId below — Express matches routes in
 // declaration order, and "/balance" would otherwise be swallowed by the
