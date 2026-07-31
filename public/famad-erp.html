@@ -16699,6 +16699,77 @@ async function postSellingPriceToBackend(price, updatedBy) {
   }
 }
 
+// Pulls loyaltySettings from the backend and reconciles into local
+// STATE — same reasoning as syncSellingPriceFromBackend(): configured on
+// whichever device Bob happens to be editing settings on, every other
+// device needs to pick it up so scoring stays consistent everywhere.
+async function syncLoyaltySettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/loyalty-settings`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return; // backend has no value set yet — leave local default alone
+    STATE.loyaltySettings = data.settings;
+    saveState();
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other sync calls. Local value stands
+    // until the next successful check.
+  }
+}
+
+// Pushes a newly-saved loyaltySettings object to the backend — same
+// fire-and-forget pattern as postSellingPriceToBackend().
+async function postLoyaltySettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/loyalty-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other backend syncs.
+  }
+}
+
+// Same pair, for scorecardSettings (credit-scorecard weights plus
+// relationshipTagPoints).
+async function syncScorecardSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/scorecard-settings`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return; // backend has no value set yet — leave local default alone
+    STATE.scorecardSettings = data.settings;
+    saveState();
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other sync calls.
+  }
+}
+
+async function postScorecardSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/scorecard-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other backend syncs.
+  }
+}
+
 async function postBatchRemainingToBackend(batchId, remaining) {
   const token = await erpGetAuthToken();
   if(!token) return;
