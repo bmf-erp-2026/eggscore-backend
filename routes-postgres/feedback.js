@@ -43,4 +43,24 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
   res.json(await db.prepare('SELECT * FROM feedback_submissions ORDER BY submitted_at DESC').all());
 });
 
+// ERP-only — marks a real, backend-synced feedback submission as bonus-
+// worthy. Only reachable now that the ERP actually reads real records
+// via GET / above (its own real integer id, not the portal's local
+// 'fb'+timestamp string) — flagFeedbackImpactful() previously flagged
+// entries in the ERP's own never-synced local copy, which in production
+// could only ever be entries created on that same device/browser.
+router.patch('/:id/flag-impactful', requireSupabaseAuth(), async (req, res) => {
+  const { flaggedBy } = req.body;
+  const existing = await db.prepare('SELECT * FROM feedback_submissions WHERE id = ?').get(req.params.id);
+  if(!existing) return res.status(404).json({ error: 'Feedback record not found.' });
+  if(existing.flagged_impactful) return res.status(400).json({ error: 'Already flagged.' });
+
+  await db.prepare(`
+    UPDATE feedback_submissions SET flagged_impactful = true, flagged_by = ?, flagged_at = now()
+    WHERE id = ?
+  `).run(flaggedBy || null, req.params.id);
+
+  res.json(await db.prepare('SELECT * FROM feedback_submissions WHERE id = ?').get(req.params.id));
+});
+
 module.exports = router;
