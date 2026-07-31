@@ -1498,6 +1498,29 @@ function loadFeedbackSubmissions() {
 function saveFeedbackSubmissions(subs) {
   try { localStorage.setItem(FEEDBACK_KEY, JSON.stringify(subs)); } catch(e) {}
 }
+// Posts one feedback submission to the backend. clientId lets a
+// retried/duplicate send resolve safely (ON CONFLICT DO NOTHING) —
+// same convention as saveOrder()'s x-api-key header, fire-and-forget
+// so a network hiccup never blocks the customer's own confirmation.
+async function postFeedbackToBackend(sub) {
+  try {
+    await fetch(`${BACKEND_URL}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({
+        customerName: sub.customerName, phone: sub.phone,
+        rating: sub.rating, text: sub.text, clientId: sub.id,
+      }),
+    });
+  } catch(networkErr) {
+    // Fire-and-forget — same as saveOrder(). No retry queue on the
+    // portal side yet for feedback specifically; a lost submission here
+    // just means the customer's own record stays local-only until a
+    // future sync sub-phase adds portal-side retry (mirrors the ERP's
+    // self-healing retries, not yet built for this data type).
+  }
+}
+
 function submitFeedback() {
   const name   = document.getElementById('fb-name')?.value.trim();
   const rating = parseInt(document.getElementById('fb-rating')?.value, 10);
@@ -1508,13 +1531,15 @@ function submitFeedback() {
     return;
   }
   const subs = loadFeedbackSubmissions();
-  subs.unshift({
+  const sub = {
     id: 'fb' + Date.now() + Math.floor(Math.random()*1000), customerName: name,
     phone: document.getElementById('c-phone')?.value.trim() || '',
     rating: isNaN(rating) ? 5 : rating, text, submittedAt: new Date().toISOString(),
     flaggedImpactful: false,
-  });
+  };
+  subs.unshift(sub);
   saveFeedbackSubmissions(subs);
+  postFeedbackToBackend(sub);
   document.getElementById('fb-text').value = '';
   markWizardStopReached(6); // Feedback — actually submitted, not just opened
   if(statusEl) { statusEl.style.display='block'; statusEl.style.color='var(--lime)'; statusEl.textContent='✓ Thank you — your feedback has been recorded and earns loyalty points.'; }
