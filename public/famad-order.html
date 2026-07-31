@@ -1632,11 +1632,11 @@ async function computePortalLoyaltyProfile(erp, customerName) {
   };
 }
 
-function renderMyLoyaltyPanel(customerName) {
+async function renderMyLoyaltyPanel(customerName) {
   const panel = document.getElementById('my-loyalty-panel');
   if(!panel) return;
   const erp = loadERPData();
-  const profile = computePortalLoyaltyProfile(erp, customerName);
+  const profile = await computePortalLoyaltyProfile(erp, customerName);
   panel.style.display = 'block';
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
