@@ -18183,7 +18183,10 @@ function computeRespectPoints(customerName) {
 
 async function flagFeedbackImpactful(feedbackId) {
   const subs = loadFeedbackSubmissions();
-  const f = subs.find(x => x.id === feedbackId);
+  // String() on both sides — real backend ids are now numbers (a
+  // Postgres integer), but the onclick attribute below always passes
+  // them in as a string, so a strict === would never match.
+  const f = subs.find(x => String(x.id) === String(feedbackId));
   if(!f) { showToast('⚠ Feedback record not found.'); return; }
   if(f.flaggedImpactful) { showToast('⚠ Already flagged.'); return; }
   f.flaggedImpactful = true;
