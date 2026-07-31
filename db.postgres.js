@@ -33,7 +33,13 @@ function toPgPlaceholders(sql) {
 function ensureReturningId(sql) {
   const isInsert = /^\s*INSERT/i.test(sql);
   const alreadyHasReturning = /RETURNING/i.test(sql);
-  if(isInsert && !alreadyHasReturning) return sql.trim().replace(/;?\s*$/, '') + ' RETURNING id';
+  // settings is the one table with no `id` column at all (its primary
+  // key is `key`, by design, as a generic key/value store) — blindly
+  // appending RETURNING id here throws "column id does not exist" and
+  // 500s every INSERT into it, including the ON CONFLICT upserts used
+  // by selling-price/loyalty-settings/scorecard-settings.
+  const targetsSettingsTable = /INSERT\s+INTO\s+settings\b/i.test(sql);
+  if(isInsert && !alreadyHasReturning && !targetsSettingsTable) return sql.trim().replace(/;?\s*$/, '') + ' RETURNING id';
   return sql;
 }
 
