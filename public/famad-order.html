@@ -896,6 +896,9 @@ async function saveOrder(order) {
         deliveryPerCrate: order.crates > 0 ? Math.round((order.deliveryTotal||0) / order.crates) : 0,
         notes: order.notes,
         paymentMethod: order.paymentMethod,
+        referredByCustomerName: order.referredByCustomerName || null,
+        reservationCustomerType: order.reservationCustomerType || null,
+        reservedAt: order.reservedAt || null,
       }),
     });
     if(resp.ok) {
