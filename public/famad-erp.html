@@ -18236,11 +18236,13 @@ function holdTierUpgrade(clearanceId) {
 function logRelationshipTag(customerName, type, note, loggedBy) {
   if(!STATE.relationshipTags) STATE.relationshipTags = [];
   if(!ensureScorecardSettings().relationshipTagPoints[type]) { showToast('⚠ Unknown tag type.'); return; }
-  STATE.relationshipTags.unshift({
+  const tag = {
     id: 'rt' + Date.now() + Math.floor(Math.random()*1000), customerName, type,
     note: note || '', loggedBy: loggedBy || 'Admin', loggedAt: new Date().toISOString(),
-  });
+  };
+  STATE.relationshipTags.unshift(tag);
   saveState();
+  postRelationshipTagToBackend(tag);
 }
 
 function getMedianOrderValue(customerName) {
