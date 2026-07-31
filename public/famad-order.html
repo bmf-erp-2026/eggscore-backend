@@ -1649,13 +1649,37 @@ function renderMyLoyaltyPanel(customerName) {
   `;
 }
 
+// Portal-facing wallet balance — now read live from the backend instead
+// of the old erp.walletTransactions local blob, which a real customer's
+// own device never actually populated (same root cause as the
+// stock-check bug elsewhere: loadERPData() only ever had data on
+// devices that had separately opened the ERP app). Ignores its `erp`
+// and `customerName` params — kept only so the existing call sites
+// below don't all need rewriting; every one of them already passes
+// whatever customer is currently in portalState.matchedCustomer, which
+// is exactly what refreshPortalWalletBalance() below keeps in sync.
 function getPortalWalletBalance(erp, customerName) {
-  const txns = erp.walletTransactions || [];
-  return txns.filter(t => t.customerName === customerName).reduce((a, t) => {
-    if(t.type === 'credit') return a + t.amount;
-    if(t.type === 'applied' || t.type === 'refund_pending') return a - t.amount;
-    return a;
-  }, 0);
+  return portalState.walletBalanceCache || 0;
+}
+
+// Fetches the real wallet balance for a recognized customer and
+// refreshes anything already displaying it. Fire-and-forget, same
+// convention as checkPriceChangeSinceLastOrder() — called once from
+// showMatch(), updates the DOM itself once the fetch resolves rather
+// than making its caller wait.
+async function refreshPortalWalletBalance(customerName) {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/wallet/balance?customer=${encodeURIComponent(customerName)}`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+    });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    portalState.walletBalanceCache = data.balance || 0;
+  } catch(networkErr) {
+    return; // stays at its last-known value (0 if never successfully fetched)
+  }
+  renderWalletNotice(customerName);
+  updateOrderCalc();
 }
 
 /* ── Customer lookup — Phase 2A: real backend search instead of the
