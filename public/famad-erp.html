@@ -16249,6 +16249,7 @@ function saveScorecardSettings() {
   s.minPurchasesForScoring   = parseInt(document.getElementById('sc-min-purchases').value, 10) || 3;
 
   saveState();
+  postScorecardSettingsToBackend(s, 'Admin');
   statusEl.style.color = 'var(--teal)';
   statusEl.textContent = '✓ Scoring settings saved.';
   renderCustomerScorecard();
