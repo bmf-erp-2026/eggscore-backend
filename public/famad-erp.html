@@ -1521,7 +1521,81 @@ input[type=number]{-moz-appearance:textfield;}
       .filter(r => !backendKeys.has(`${r.customerName}::${r.quarter}`))
       .forEach(r => postRespectEventToBackend(r));
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); });
+  // Records one relationship tag to the backend. Needs the customer's
+  // backendId (real FK), looked up the same way
+  // postWalletTransactionToBackend() does. clientId is the tag's own
+  // local id ('rt'+Date.now()...) — sent so the self-healing retry
+  // below can tell this one apart from every other (append-only ledger,
+  // same as wallet — not an upsert like respect).
+  async function postRelationshipTagToBackend(tag) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    const customer = STATE.customers.find(c => c.name === tag.customerName);
+    if(!customer?.backendId) return; // no backend-known customer to attach this to yet
+    try {
+      await fetch(`${BACKEND_URL}/relationship-tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          customerId: customer.backendId, tagType: tag.type, note: tag.note,
+          createdBy: tag.loggedBy, clientId: tag.id,
+        }),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget — same as Wallet/Respect/Customers/Sales/Batches.
+      // The self-healing retry below catches this on the next sync if
+      // it silently failed.
+    }
+  }
+
+  // Relationship tags previously had zero backend persistence — every
+  // manually-logged advocacy/feedback/product_trial/etc. entry only ever
+  // existed in whichever single device's browser created it. Mirrors
+  // the exact Wallet pattern: pull the backend's full list, merge by
+  // client_id, then self-heal by re-posting any local tag the backend
+  // has genuinely never seen.
+  async function syncRelationshipTagsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendTags;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/relationship-tags`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendTags = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.relationshipTags) STATE.relationshipTags = [];
+    const byClientId = new Map(
+      STATE.relationshipTags.filter(t => t.id).map(t => [t.id, t])
+    );
+
+    backendTags.forEach(row => {
+      if(!row.client_id) return; // can't merge a row with no client_id to key on
+      if(!byClientId.has(row.client_id)) {
+        const customer = STATE.customers.find(c => c.backendId === row.customer_id);
+        byClientId.set(row.client_id, {
+          id: row.client_id,
+          customerName: customer?.name || '(unknown customer)',
+          type: row.tag_type, note: row.note || '',
+          loggedBy: row.created_by, loggedAt: row.created_at,
+        });
+      }
+    });
+
+    STATE.relationshipTags = Array.from(byClientId.values());
+    saveState();
+
+    // Self-healing retry — same reasoning as Wallet/Customers/Sales/Batches.
+    const backendClientIds = new Set(backendTags.map(r => r.client_id).filter(Boolean));
+    STATE.relationshipTags
+      .filter(t => t.id && !backendClientIds.has(t.id))
+      .forEach(t => postRelationshipTagToBackend(t));
+  }
+  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
