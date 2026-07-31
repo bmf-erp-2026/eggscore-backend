@@ -1438,7 +1438,90 @@ input[type=number]{-moz-appearance:textfield;}
       .filter(t => t.id && !backendClientIds.has(t.id))
       .forEach(t => postWalletTransactionToBackend(t));
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); });
+  // Records (or overwrites) one customer's quarterly conduct record to
+  // the backend. Needs the customer's backendId (real FK), looked up
+  // the same way postWalletTransactionToBackend() does. Unlike wallet,
+  // there's no clientId to send — (customerId, quarter) is itself the
+  // natural key the backend upserts on, matching
+  // recordQuarterlyRespect()'s own find-or-create-by-quarter logic.
+  async function postRespectEventToBackend(record) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    const customer = STATE.customers.find(c => c.name === record.customerName);
+    if(!customer?.backendId) return; // no backend-known customer to attach this to yet
+    try {
+      await fetch(`${BACKEND_URL}/respect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          customerId: customer.backendId, quarter: record.quarter,
+          noIncidentFlag: record.noIncidentFlag, policiesAdhered: record.policiesAdhered,
+          createdBy: record.recordedBy || 'owner',
+        }),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget — same as Wallet/Customers/Sales/Batches. The
+      // self-healing retry below catches this on the next sync if it
+      // silently failed.
+    }
+  }
+
+  // Respect records previously had zero backend persistence — every
+  // quarterly conduct entry only ever existed in whichever single
+  // device's browser created it. Mirrors the Wallet pattern, but merges
+  // on customerName+quarter instead of a clientId, since that's the
+  // record's own natural key (an upsert table, not a ledger).
+  async function syncRespectEventsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendRecords;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/respect`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendRecords = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.respectRecords) STATE.respectRecords = [];
+    const byKey = new Map(STATE.respectRecords.map(r => [`${r.customerName}::${r.quarter}`, r]));
+
+    backendRecords.forEach(row => {
+      const customer = STATE.customers.find(c => c.backendId === row.customer_id);
+      const customerName = customer?.name || '(unknown customer)';
+      const key = `${customerName}::${row.quarter}`;
+      const existing = byKey.get(key);
+      if(existing) {
+        existing.noIncidentFlag = row.no_incident_flag;
+        existing.policiesAdhered = row.policies_adhered || [];
+        existing.recordedBy = row.created_by;
+        existing.recordedAt = row.created_at;
+      } else {
+        byKey.set(key, {
+          id: 'rr' + Date.now() + Math.floor(Math.random()*1000), customerName, quarter: row.quarter,
+          noIncidentFlag: row.no_incident_flag, policiesAdhered: row.policies_adhered || [],
+          recordedBy: row.created_by, recordedAt: row.created_at,
+        });
+      }
+    });
+
+    STATE.respectRecords = Array.from(byKey.values());
+    saveState();
+
+    // Self-healing retry — a local record whose customerName+quarter the
+    // backend has never seen means an earlier POST silently failed and
+    // needs to go out again.
+    const backendKeys = new Set(backendRecords.map(row => {
+      const customer = STATE.customers.find(c => c.backendId === row.customer_id);
+      return `${customer?.name || '(unknown customer)'}::${row.quarter}`;
+    }));
+    STATE.respectRecords
+      .filter(r => !backendKeys.has(`${r.customerName}::${r.quarter}`))
+      .forEach(r => postRespectEventToBackend(r));
+  }
+  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
