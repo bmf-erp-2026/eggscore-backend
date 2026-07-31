@@ -20154,6 +20154,7 @@ function convertReservationToOrder(ref) {
   saveOrders(orders);
   updateOrdersBadge();
   renderOrders();
+  patchOrderStatusOnBackend(ref, { status: 'confirmed', convertedAt: o.convertedAt });
   waReplyOrder(ref, 'confirm');
   logOk('orders', `Reservation converted to order — ${o.customerName} · ${o.ref}`,
     `${o.crates} crates · reserved ${o.reservationWindowHours}h as a ${o.reservationCustomerType} customer`);
