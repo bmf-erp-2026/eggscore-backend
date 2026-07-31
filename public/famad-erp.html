@@ -20120,6 +20120,8 @@ function confirmCancelOrder() {
   o.cancelReasonLabel = CANCEL_REASON_LABELS[reason] || reason;
   o.cancelNotes    = notes;
   if(originatedFromReservation) o.reservationOutcome = 'cancelled'; // feeds Reservation Intelligence — overwrites a stale 'converted' if present
+saveOrders(orders);
+patchOrderStatusOnBackend(ref, { status: 'cancelled', cancelledAt: o.cancelledAt });
   saveOrders(orders);
 
   // If this order is the one currently locked into the Record Sale form,
