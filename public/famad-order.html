@@ -1564,7 +1564,7 @@ function getPortalQuarterKey(dateStr) {
   const d = new Date(dateStr);
   return `${d.getFullYear()}-Q${Math.floor(d.getMonth()/3)+1}`;
 }
-function computePortalLoyaltyProfile(erp, customerName) {
+async function computePortalLoyaltyProfile(erp, customerName) {
   const ly = erp.loyaltySettings || {
     pointsPerReferral:10, referralCapPerQuarter:40, feedbackFormPoints:5, feedbackImpactfulBonus:10, feedbackCapPerQuarter:30,
     commThirtyMinPoints:4, commOneHourPoints:2, commOneDayPoints:1, respectNoIncidentPoints:5, respectPerPolicyPoints:1,
@@ -1572,23 +1572,18 @@ function computePortalLoyaltyProfile(erp, customerName) {
   };
   const orders = loadOrders();
 
-  // Advocacy — converted (fulfilled) referrals only, capped per quarter
+  // Advocacy — still computed locally. The backend /loyalty endpoint
+  // deliberately doesn't cover this: it depends on referredByCustomerName
+  // and order status, neither of which the backend orders table actually
+  // stores yet (a separate, larger gap — the ERP sets these fields only
+  // on its own local, unsynced order objects). Unchanged from before.
   const referred = orders.filter(o => o.referredByCustomerName === customerName && o.status === 'fulfilled');
   const advByQ = {};
   referred.forEach(o => { const q = getPortalQuarterKey(o.date); advByQ[q] = (advByQ[q]||0) + ly.pointsPerReferral; });
   const advocacy = Object.values(advByQ).reduce((a,p) => a + Math.min(ly.referralCapPerQuarter, p), 0);
 
-  // Feedback — capped per quarter
-  const subs = loadFeedbackSubmissions().filter(f => f.customerName === customerName);
-  const fbByQ = {};
-  subs.forEach(f => {
-    const q = getPortalQuarterKey(f.submittedAt);
-    const pts = ly.feedbackFormPoints + (f.flaggedImpactful ? ly.feedbackImpactfulBonus : 0);
-    fbByQ[q] = (fbByQ[q]||0) + pts;
-  });
-  const feedback = Object.values(fbByQ).reduce((a,p) => a + Math.min(ly.feedbackCapPerQuarter, p), 0);
-
-  // Communication — reservation response speed
+  // Communication — still local, same reason as advocacy above (reservedAt/
+  // convertedAt/cancelledAt aren't backend-persisted either). Unchanged.
   const resolved = orders.filter(o => o.customerName === customerName && o.reservationCustomerType && (o.convertedAt || o.cancelledAt) && o.reservedAt);
   const communication = resolved.reduce((total, o) => {
     const actedAt = o.convertedAt || o.cancelledAt;
@@ -1599,26 +1594,39 @@ function computePortalLoyaltyProfile(erp, customerName) {
     return total;
   }, 0);
 
-  // Respect — quarterly records
-  const records = (erp.respectRecords || []).filter(r => r.customerName === customerName);
-  const respect = records.reduce((total, r) => {
-    let pts = r.noIncidentFlag ? ly.respectNoIncidentPoints : 0;
-    pts += (r.policiesAdhered?.length || 0) * ly.respectPerPolicyPoints;
-    return total + pts;
-  }, 0);
-
-  const scSettings = erp.scorecardSettings || { relationshipTagPoints: { advocacy:15, feedback:12, product_trial:8, respectful_conduct:6, communication:6 } };
-  const manualTags = (erp.relationshipTags || []).filter(t => t.customerName === customerName)
-    .reduce((a,t) => a + (scSettings.relationshipTagPoints[t.type] || 0), 0);
+  // Feedback, Respect, and manual relationship tags — now computed
+  // server-side by the real backend from real Postgres data, replacing
+  // the old reads of loadFeedbackSubmissions()/erp.respectRecords/
+  // erp.relationshipTags, none of which a real customer's own device
+  // ever actually had (all local-only, same root cause as the wallet
+  // balance fix above). referralCode/totalOrders come from the same
+  // response now too, instead of the old local erp.customers/erp.sales
+  // lookups.
+  let feedback = 0, respect = 0, manualTags = 0, referralCode = null, totalOrders = 0;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/loyalty/${encodeURIComponent(customerName)}`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+    });
+    if(resp.ok) {
+      const data = await resp.json();
+      feedback = data.breakdown?.feedback || 0;
+      respect = data.breakdown?.respect || 0;
+      manualTags = data.breakdown?.other || 0;
+      referralCode = data.referralCode || null;
+      totalOrders = data.totalOrders || 0;
+    }
+  } catch(networkErr) {
+    // Backend unreachable — these three components show 0 until the
+    // next successful check, same fail-quiet convention as the rest of
+    // the portal's backend calls.
+  }
 
   const totalPoints = advocacy + feedback + communication + respect + manualTags;
   const t = ly.loyaltyLevelThresholds;
   const level = totalPoints >= t.platinum ? 'Platinum' : totalPoints >= t.gold ? 'Gold' : totalPoints >= t.silver ? 'Silver' : 'Bronze';
-  const cust = (erp.customers || []).find(c => c.name === customerName);
 
   return {
-    referralCode: cust?.referralCode || null,
-    totalOrders: (erp.sales || []).filter(s => s.customer === customerName).length,
+    referralCode, totalOrders,
     loyaltyPoints: totalPoints, loyaltyLevel: level,
     breakdown: { advocacy, feedback, communication, respect, other: manualTags },
   };
