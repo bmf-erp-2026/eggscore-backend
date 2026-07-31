@@ -18181,7 +18181,7 @@ function computeRespectPoints(customerName) {
   }, 0);
 }
 
-function flagFeedbackImpactful(feedbackId) {
+async function flagFeedbackImpactful(feedbackId) {
   const subs = loadFeedbackSubmissions();
   const f = subs.find(x => x.id === feedbackId);
   if(!f) { showToast('⚠ Feedback record not found.'); return; }
@@ -18190,6 +18190,7 @@ function flagFeedbackImpactful(feedbackId) {
   f.flaggedBy = 'owner';
   f.flaggedAt = new Date().toISOString();
   saveFeedbackSubmissions(subs);
+  await postFlagFeedbackImpactfulToBackend(feedbackId, 'owner');
   logOk('credit', `Feedback flagged impactful — ${f.customerName}`, `+${ensureLoyaltySettings().feedbackImpactfulBonus} bonus points`);
   renderCustomerScorecard();
   showToast(`✓ Marked impactful — bonus points added for ${f.customerName}.`);
