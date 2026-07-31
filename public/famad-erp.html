@@ -18002,19 +18002,23 @@ function flagFeedbackImpactful(feedbackId) {
 function recordQuarterlyRespect(customerName, quarter, noIncident, policyIds) {
   const records = ensureRespectRecords();
   const existing = records.find(r => r.customerName === customerName && r.quarter === quarter);
+  let record;
   if(existing) {
     existing.noIncidentFlag = noIncident;
     existing.policiesAdhered = policyIds;
     existing.recordedBy = 'owner';
     existing.recordedAt = new Date().toISOString();
+    record = existing;
   } else {
-    records.unshift({
+    record = {
       id: 'rr' + Date.now() + Math.floor(Math.random()*1000), customerName, quarter,
       noIncidentFlag: noIncident, policiesAdhered: policyIds,
       recordedBy: 'owner', recordedAt: new Date().toISOString(),
-    });
+    };
+    records.unshift(record);
   }
   saveState();
+  postRespectEventToBackend(record);
   logInfo('credit', `Quarterly conduct recorded — ${customerName} · ${quarter}`,
     `No incident: ${noIncident} · ${policyIds.length} polic${policyIds.length===1?'y':'ies'} adhered`);
   renderCustomerScorecard();
