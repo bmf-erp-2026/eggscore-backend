@@ -26,4 +26,55 @@ router.patch('/selling-price', requireSupabaseAuth(), async (req, res) => {
   res.json({ ok: true, price });
 });
 
+// ERP-only — full loyaltySettings object (referral/feedback/communication/
+// respect point values + level thresholds). Unlike selling-price, the
+// portal never needs to read this directly — it's Bob's own internal
+// configuration, consumed by the backend's own /loyalty endpoint
+// server-side, and by the ERP for cross-device consistency (same
+// reasoning as selling-price: set on whichever device is in front of
+// someone, every other device needs to pick it up). Stored as a single
+// JSON blob rather than exploded into columns — same generic-settings
+// convention as selling-price, just a structured value instead of a
+// single number.
+router.get('/loyalty-settings', requireSupabaseAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'loyalty_settings'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+
+router.patch('/loyalty-settings', requireSupabaseAuth(), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('loyalty_settings', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(settings), updatedBy || null);
+  res.json({ ok: true, settings });
+});
+
+// ERP-only — full scorecardSettings object (credit-scorecard weights plus
+// relationshipTagPoints, the only part the /loyalty endpoint actually
+// needs). Same JSON-blob convention as loyalty-settings above.
+router.get('/scorecard-settings', requireSupabaseAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'scorecard_settings'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+
+router.patch('/scorecard-settings', requireSupabaseAuth(), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('scorecard_settings', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(settings), updatedBy || null);
+  res.json({ ok: true, settings });
+});
+
 module.exports = router;
