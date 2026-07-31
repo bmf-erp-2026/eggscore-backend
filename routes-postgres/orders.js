@@ -76,12 +76,13 @@ router.post('/', requireEitherAuth(), async (req, res) => {
     }
   }
 
-  const ref = genOrderRef();
+const ref = genOrderRef();
   const info = await db.prepare(`
-    INSERT INTO orders (ref, customer_id, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (ref, customer_id, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method, referred_by_customer_name, reservation_customer_type, reserved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(ref, customerId, customerName, phone || null, location || null, crates,
-    eggPricePerCrate || 0, deliveryPerCrate || 0, notes || null, paymentMethod || null);
+    eggPricePerCrate || 0, deliveryPerCrate || 0, notes || null, paymentMethod || null,
+    referredByCustomerName || null, reservationCustomerType || null, reservedAt || null);  
 
   const order = await db.prepare('SELECT * FROM orders WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ ...order, customerCid, isNewCustomer });
@@ -102,7 +103,7 @@ router.get('/:ref', requireEitherAuth(), async (req, res) => {
 });
 
 router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
-  const { status, paymentVerified, batchId } = req.body;
+  const { status, paymentVerified, batchId, convertedAt, cancelledAt } = req.body;
   const order = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
 
@@ -110,6 +111,8 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
   if(status !== undefined) { fields.push('status = ?'); values.push(status); }
   if(paymentVerified !== undefined) { fields.push('payment_verified = ?'); values.push(paymentVerified ? 1 : 0); }
   if(batchId !== undefined) { fields.push('batch_id = ?'); values.push(batchId); }
+  if(convertedAt !== undefined) { fields.push('converted_at = ?'); values.push(convertedAt); }
+  if(cancelledAt !== undefined) { fields.push('cancelled_at = ?'); values.push(cancelledAt); }
   fields.push("updated_at = now()");
 
   if(fields.length === 1) return res.status(400).json({ error: 'No updatable fields provided.' });
