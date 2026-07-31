@@ -1741,11 +1741,13 @@ function showMatch(c) {
 
   // ── Wallet balance notice — thanks the customer and shows what it buys ──
   renderWalletNotice(c.name);
+  refreshPortalWalletBalance(c.name);
   renderMyLoyaltyPanel(c.name);
   updateOrderCalc();
 }
 function hideMatch() {
   portalState.matchedCustomer = null;
+  portalState.walletBalanceCache = 0;
   const box = document.getElementById('customer-match-box');
   if(box) box.style.display = 'none';
   const note = document.getElementById('price-change-notice');
