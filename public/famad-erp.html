@@ -16115,6 +16115,7 @@ function saveLoyaltySettings() {
   ly.respectNoIncidentPoints = parseFloat(document.getElementById('ly-respect-base').value) || 0;
   ly.respectPerPolicyPoints  = parseFloat(document.getElementById('ly-respect-policy').value) || 0;
   saveState();
+  postLoyaltySettingsToBackend(ly, 'Admin');
   const statusEl = document.getElementById('ly-settings-status');
   if(statusEl) { statusEl.style.color = 'var(--teal)'; statusEl.textContent = '✓ Loyalty settings saved.'; }
   renderCustomerScorecard();
