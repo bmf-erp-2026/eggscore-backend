@@ -1595,7 +1595,56 @@ input[type=number]{-moz-appearance:textfield;}
       .filter(t => t.id && !backendClientIds.has(t.id))
       .forEach(t => postRelationshipTagToBackend(t));
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); });
+  // Pushes a flag-impactful action to the backend, keyed on the real
+  // synced feedback id (an integer from Postgres, not the portal's local
+  // 'fb'+timestamp string) — only meaningful once syncFeedbackFromBackend()
+  // below has replaced the ERP's local feedback copy with real records.
+  async function postFlagFeedbackImpactfulToBackend(feedbackId, flaggedBy) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/feedback/${feedbackId}/flag-impactful`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ flaggedBy }),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget — same as the other backend syncs.
+    }
+  }
+
+  // Feedback previously had zero real read access on the ERP side —
+  // loadFeedbackSubmissions() only ever read whatever localStorage
+  // happened to hold on that exact device, which for feedback specifically
+  // was never anything a real customer submitted (customers submit from
+  // their own device via the portal, a completely separate origin).
+  // This replaces that local copy outright with the real backend list,
+  // giving every submission its real integer id so flagFeedbackImpactful()
+  // can actually reference something durable.
+  async function syncFeedbackFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendSubs;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/feedback`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendSubs = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    const mapped = backendSubs.map(row => ({
+      id: row.id, customerName: row.customer_name, phone: row.phone || '',
+      rating: row.rating, text: row.text,
+      flaggedImpactful: row.flagged_impactful, flaggedBy: row.flagged_by,
+      flaggedAt: row.flagged_at, submittedAt: row.submitted_at,
+    }));
+    saveFeedbackSubmissions(mapped);
+    if(document.getElementById('feedback-review-panel')) renderFeedbackReview();
+  }
+  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
