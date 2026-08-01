@@ -975,6 +975,7 @@ input[type=number]{-moz-appearance:textfield;}
       const existing = byRef.get(row.ref);
 
       if(existing) {
+        existing.customerId    = row.customer_id;
         existing.customerName  = row.customer_name;
         existing.phone         = row.phone;
         existing.location      = row.location;
