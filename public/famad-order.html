@@ -1077,7 +1077,7 @@ function renderTrustFooter() {
   const footerEl = document.getElementById('portal-footer');
   if(footerEl) {
     footerEl.innerHTML = `BMF EggScore Limited · Nigeria 🇳🇬 · Orders processed securely<br>
-      <span style="opacity:0.8">Only trust orders at <strong>${escapeHtmlPortal(BRAND_TRUST.canonicalDomain)}</strong> —
+      <span style="opacity:0.8">Only trust orders at <a href="${escapeHtmlPortal(BRAND_TRUST.canonicalDomain)}" style="color:var(--blue);font-weight:700;">${escapeHtmlPortal(BRAND_TRUST.canonicalDomain)}</a> —
       unsure about a link? WhatsApp us: ${escapeHtmlPortal(BRAND_TRUST.officialWhatsApp)}</span>`;
   }
   const successTrustEl = document.getElementById('success-trust-line');
