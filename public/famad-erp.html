@@ -23066,11 +23066,31 @@ async function sendToSalesLog(orderRef) {
     if(dateEl) dateEl.value = new Date().toISOString().split('T')[0];
 
     // Set customer — this triggers autoPopulateOrderRef which locks crates/price/ref
-    // AND locks the delivery component to what the customer was actually quoted
+    // AND locks the delivery component to what the customer was actually quoted.
+    // Match by real backend customer ID first (reliable); only fall back
+    // to name-string matching for legacy orders that predate ID linkage.
     const custSel = document.getElementById('s-customer');
     if(custSel) {
-      custSel.value = o.customerName;
-      autoPopulateOrderRef(o.customerName);
+      const matchedCustomer = o.customerId
+        ? STATE.customers.find(c => c.backendId === o.customerId)
+        : null;
+      if(matchedCustomer) {
+        custSel.value = matchedCustomer.name;
+        autoPopulateOrderRef(matchedCustomer.name);
+      } else if(o.customerId) {
+        // A real backend customer_id exists for this order but the local
+        // directory still doesn't have it after a fresh sync — something's
+        // genuinely wrong, not just staleness. Don't silently fall through
+        // to "Add Customer" here, since that would create a real duplicate
+        // of a customer who already exists on the backend.
+        custSel.value = '';
+        showToast('⚠ This order has a linked customer that couldn\'t be found in the directory — try syncing again before adding a new one.');
+      } else {
+        // No customer_id on this order at all (a legacy order that
+        // predates ID linkage) — fall back to the old name-matching behaviour.
+        custSel.value = o.customerName;
+        autoPopulateOrderRef(o.customerName);
+      }
     }
 
     // Set payment method from order
