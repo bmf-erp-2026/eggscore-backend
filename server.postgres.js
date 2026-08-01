@@ -11,6 +11,8 @@ app.use(express.static('public'));
 app.use(cors());
 app.use(express.json());
 
+app.get('/', (req, res) => res.redirect('/famad-order.html'));
+
 app.use('/orders', require('./routes-postgres/orders'));
 app.use('/events', require('./routes-postgres/events'));
 app.use('/sales', require('./routes-postgres/sales'));
