@@ -9475,6 +9475,7 @@ function savePriceWatchThreshold() {
   if(!isNaN(val) && val >= 0) {
     ensurePriceWatchSettings().deviationThreshold = val;
     saveState();
+    postPriceWatchThresholdToBackend(val, 'Admin');
   }
 }
 
@@ -9483,6 +9484,7 @@ function saveStopLossCeiling() {
   if(!isNaN(val) && val >= 0) {
     ensureStopLossSettings().exposureCeiling = val;
     saveState();
+    postStopLossCeilingToBackend(val, 'Admin');
   }
 }
 
@@ -9491,6 +9493,7 @@ function saveFloor() {
   if(!isNaN(val) && val >= 0) {
     STATE.priceFloor = val;
     saveState();
+    postPriceFloorToBackend(val, 'Admin');
     renderBatchMarginTable();
     computeSale(); // re-run alerts with new floor
   }
@@ -9508,6 +9511,7 @@ function saveTargetMargin() {
   if(warn) warn.style.display = 'none';
   STATE.targetMargin = val;
   saveState();
+  postTargetMarginToBackend(val, 'Admin');
   renderBatchMarginTable();
   renderSuggestedPrice(); // was missing — the ₦500 in the suggestion box is this value, live, not hardcoded; it just never refreshed on save
   computeSale();
@@ -9657,6 +9661,7 @@ function saveHoldWindow(tier, field, value) {
   if(!STATE.holdWindows[tier]) STATE.holdWindows[tier] = {};
   STATE.holdWindows[tier][field] = hrs;
   saveState();
+  postHoldWindowsToBackend(STATE.holdWindows, 'Admin');
 }
 
 function renderHoldWindowSettings() {
@@ -13552,6 +13557,7 @@ function saveMarketReferenceSettings() {
   STATE.marketReferenceSettings.ceilingPct = parseFloat(document.getElementById('mrp-ceiling-pct')?.value) || 4;
   STATE.marketReferenceSettings.floorPct   = parseFloat(document.getElementById('mrp-floor-pct')?.value) || 9;
   saveState();
+  postMarketReferenceSettingsToBackend(STATE.marketReferenceSettings, 'Admin');
   renderMarketReferenceCalibration();
   showToast('✓ Reference thresholds saved.');
 }
@@ -14037,6 +14043,7 @@ function saveSupplierScorecardSettings() {
   settings.preferredMinBiosecurityPct = parseFloat(document.getElementById('ssc-t-preferred-bio')?.value) || 70;
   settings.probationMaxBiosecurityPct = parseFloat(document.getElementById('ssc-t-probation-bio')?.value) || 40;
   saveState();
+  postSupplierScorecardSettingsToBackend(settings, 'Admin');
   renderSupplierScorecard();
   const statusEl = document.getElementById('ssc-settings-status');
   if(statusEl) { statusEl.textContent = '✓ Thresholds saved.'; statusEl.style.color = 'var(--lime)'; }
@@ -15854,6 +15861,7 @@ function saveAbuseSettings() {
   s.minReservationsForConversionFlag = minSample;
   s.suspiciousConversionRateThreshold = convThreshold / 100;
   saveState();
+  postAbuseSettingsToBackend(s, 'Admin');
   statusEl.style.color = 'var(--teal)'; statusEl.textContent = '✓ Settings saved.';
   renderReservationIntelligence();
 }
@@ -15954,6 +15962,7 @@ function saveReservationSettings() {
 
   Object.assign(s, newVals);
   saveState();
+  postReservationSettingsToBackend(s, 'Admin');
   if(statusEl){statusEl.style.color='var(--teal)'; statusEl.textContent='✓ Policy settings saved.';}
   renderReservationIntelligence();
 }
@@ -16821,6 +16830,342 @@ async function postScorecardSettingsToBackend(settings, updatedBy) {
   } catch(networkErr) {
     // Fire-and-forget — same as the other backend syncs.
   }
+}
+
+/* ═══════════════════════════════════════════════════════
+   PHASE 2E — sync/post pairs for the 13 formerly local-only
+   settings. Same fire-and-forget fetch pattern throughout —
+   sync leaves the local value alone if the backend has none
+   yet; post is called at the end of each save function.
+═══════════════════════════════════════════════════════ */
+
+async function syncPriceWatchThresholdFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/price-watch-threshold`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.threshold === null || data.threshold === undefined) return;
+    ensurePriceWatchSettings().deviationThreshold = data.threshold;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postPriceWatchThresholdToBackend(threshold, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/price-watch-threshold`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ threshold, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncStopLossCeilingFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/stop-loss-ceiling`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.ceiling === null || data.ceiling === undefined) return;
+    ensureStopLossSettings().exposureCeiling = data.ceiling;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postStopLossCeilingToBackend(ceiling, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/stop-loss-ceiling`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ ceiling, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncPriceFloorFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/price-floor`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.floor === null || data.floor === undefined) return;
+    STATE.priceFloor = data.floor;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postPriceFloorToBackend(floor, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/price-floor`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ floor, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncTargetMarginFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/target-margin`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.margin === null || data.margin === undefined) return;
+    STATE.targetMargin = data.margin;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postTargetMarginToBackend(margin, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/target-margin`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ margin, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncHoldWindowsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/hold-windows`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.windows) return;
+    STATE.holdWindows = data.windows;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postHoldWindowsToBackend(windows, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/hold-windows`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ windows, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncMarketReferenceSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/market-reference-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    STATE.marketReferenceSettings = data.settings;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postMarketReferenceSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/market-reference-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncSupplierScorecardSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/supplier-scorecard-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensureSupplierScorecardSettings(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postSupplierScorecardSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/supplier-scorecard-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncAbuseSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/abuse-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensureReservationAbuseSettings(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postAbuseSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/abuse-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncReservationSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/reservation-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensureReservationSettings(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postReservationSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/reservation-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncLogisticsSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/logistics-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensureLogisticsSettings(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postLogisticsSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/logistics-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncProcurementReminderSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/procurement-reminder-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.threshold === null || data.threshold === undefined) return;
+    ensureProcurementReminderSettings().largeVolumeThreshold = data.threshold;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postProcurementReminderSettingsToBackend(threshold, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/procurement-reminder-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ threshold, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncBrandingReadinessSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/branding-readiness-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensureBrandingReadinessSettings(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postBrandingReadinessSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/branding-readiness-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncTimeValueRateFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/time-value-rate`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.rate === null || data.rate === undefined) return;
+    STATE.timeValueRate = data.rate;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postTimeValueRateToBackend(rate, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/time-value-rate`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ rate, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+// Owner PIN — hash/recoveryHash/setAt/lockoutUntil only, never plaintext.
+// Sync pulls the latest hash set from any device; lockoutUntil syncing
+// closes the gap where a lockout on one device wouldn't stop a retry
+// attempt on another (deliberate decision, see memory).
+async function syncOwnerPinFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/owner-pin`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.pin) return;
+    STATE.ownerPinHash = data.pin.hash;
+    STATE.ownerPinRecoveryHash = data.pin.recoveryHash;
+    STATE.ownerPinSetAt = data.pin.setAt;
+    STATE.ownerPinLockoutUntil = data.pin.lockoutUntil || null;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postOwnerPinToBackend(pin, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/owner-pin`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ pin, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
 }
 
 async function postBatchRemainingToBackend(batchId, remaining) {
@@ -20740,6 +21085,7 @@ function saveLogisticsSettings() {
   }
   Object.assign(s, fields);
   saveState();
+  postLogisticsSettingsToBackend(s, 'Admin');
   statusEl.style.color = 'var(--teal)'; statusEl.textContent = '✓ Settings saved.';
 }
 
@@ -21784,7 +22130,7 @@ function ensureProcurementReminderSettings() {
 }
 function saveProcurementReminderThreshold() {
   const val = parseFloat(document.getElementById('po-reminder-threshold')?.value);
-  if(!isNaN(val) && val > 0) { ensureProcurementReminderSettings().largeVolumeThreshold = val; saveState(); }
+  if(!isNaN(val) && val > 0) { ensureProcurementReminderSettings().largeVolumeThreshold = val; saveState(); postProcurementReminderSettingsToBackend(val, 'Admin'); }
 }
 
 // Fires the moment a Purchase Order's crate count crosses the
@@ -21850,6 +22196,7 @@ function saveBrandingReadinessSettings() {
   if(!isNaN(watch) && watch > 0) settings.watchThreshold = watch;
   if(!isNaN(action) && action > watch) settings.actionThreshold = action;
   saveState();
+  postBrandingReadinessSettingsToBackend(settings, 'Admin');
   renderBrandingReadinessContent();
 }
 
@@ -24380,6 +24727,7 @@ function saveTimeValueRate(newRate, reason) {
     overriddenAt: new Date().toISOString(), overriddenBy: 'owner',
   });
   saveState();
+  postTimeValueRateToBackend(val, 'Admin');
   return { ok: true };
 }
 
@@ -25701,6 +26049,7 @@ async function verifyPin(enteredPin) {
     const until = new Date(Date.now() + 30 * 60000).toISOString();
     STATE.ownerPinLockoutUntil = until;
     saveState();
+    postOwnerPinToBackend({ hash: STATE.ownerPinHash, recoveryHash: STATE.ownerPinRecoveryHash, setAt: STATE.ownerPinSetAt, lockoutUntil: until }, 'Admin');
     logCrit('security',
       `PIN lockout triggered — 3 consecutive failed attempts`,
       `Function attempted: owner override · Locked until: ${new Date(until).toLocaleTimeString('en-GB')}`
@@ -25810,6 +26159,7 @@ async function submitChangePin() {
     previousHash: oldHash?.slice(0,8) + '…', // partial hash only — not reversible
   });
   saveState();
+  postOwnerPinToBackend({ hash: newHash, recoveryHash, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin');
 
   // Show recovery code — displayed ONCE, never stored in plaintext
   document.getElementById('cp-recovery-code').textContent = recoveryCode;
@@ -25863,6 +26213,7 @@ async function submitPinRecovery() {
   STATE.ownerPin             = null;
   resetPinAttempts();
   saveState();
+  postOwnerPinToBackend({ hash: newHash, recoveryHash: newRecovery, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin');
 
   closeModal('modal-pin-recovery');
   logCrit('security', 'PIN reset via recovery code — new PIN set', '');
@@ -25891,6 +26242,22 @@ document.addEventListener('DOMContentLoaded', () => {
   syncSellingPriceFromBackend();
   syncLoyaltySettingsFromBackend();
   syncScorecardSettingsFromBackend();
+
+  // ── Phase 2E — formerly local-only settings, now cross-device synced ──
+  syncPriceWatchThresholdFromBackend();
+  syncStopLossCeilingFromBackend();
+  syncPriceFloorFromBackend();
+  syncTargetMarginFromBackend();
+  syncHoldWindowsFromBackend();
+  syncMarketReferenceSettingsFromBackend();
+  syncSupplierScorecardSettingsFromBackend();
+  syncAbuseSettingsFromBackend();
+  syncReservationSettingsFromBackend();
+  syncLogisticsSettingsFromBackend();
+  syncProcurementReminderSettingsFromBackend();
+  syncBrandingReadinessSettingsFromBackend();
+  syncTimeValueRateFromBackend();
+  syncOwnerPinFromBackend();
 
   populateSelects();
   renderDashboard();
