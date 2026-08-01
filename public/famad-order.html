@@ -2868,5 +2868,51 @@ document.addEventListener('DOMContentLoaded', () => {
   selectPaymentByKey('bank');
 });
 </script>
+
+<script>
+// ── PWA install banner + service worker registration ──
+(function() {
+  if (localStorage.getItem('pwaBannerDismissed') === '1') return;
+
+  const banner = document.getElementById('pwa-install-banner');
+  const installBtn = document.getElementById('pwa-install-btn');
+  const iosInstructions = document.getElementById('pwa-ios-instructions');
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if (isStandalone) return; // already installed, don't nag
+
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  if (isIOS) {
+    banner.style.display = 'block';
+    iosInstructions.style.display = 'block';
+  } else {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      window._pwaDeferredPrompt = e;
+      banner.style.display = 'block';
+      installBtn.style.display = 'block';
+    });
+  }
+})();
+
+function triggerPwaInstall() {
+  const promptEvent = window._pwaDeferredPrompt;
+  if (!promptEvent) return;
+  promptEvent.prompt();
+  promptEvent.userChoice.then(() => { window._pwaDeferredPrompt = null; });
+  document.getElementById('pwa-install-banner').style.display = 'none';
+}
+
+function dismissPwaBanner() {
+  localStorage.setItem('pwaBannerDismissed', '1');
+  document.getElementById('pwa-install-banner').style.display = 'none';
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+  });
+}
+</script>
 </body>
 </html>
