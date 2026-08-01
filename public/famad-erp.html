@@ -23007,7 +23007,7 @@ function markOrderPaid(ref) {
 // This is the canonical fulfilment path. Sales Log captures:
 // rep assignment, commission, payment status, delivery confirmation.
 // Orders Inbox only routes, rejects, and WA-replies.
-function sendToSalesLog(orderRef) {
+async function sendToSalesLog(orderRef) {
   const ORDERS_KEY = 'feds_orders';
   let orders = [];
   try { orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]'); } catch(e) {}
