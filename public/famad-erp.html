@@ -23050,6 +23050,12 @@ async function sendToSalesLog(orderRef) {
     waReplyOrder(orderRef, 'confirm');
   }
 
+  // Fresh sync before matching — closes the staleness window that let
+  // portal-created customers stay invisible until a full ERP page
+  // reload, which is what was forcing a duplicate-creating manual
+  // Add Customer for every customer created mid-session.
+  await syncCustomersFromBackend();
+
   // Switch to Sales Log module
   switchModule('sales');
 
