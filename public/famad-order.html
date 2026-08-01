@@ -293,6 +293,22 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div class="ph-badge"><span class="ph-badge-dot"></span> Portal Live</div>
     <div><span class="ph-progressive-banner">📦 We offer volume discount pricing<span class="sub">The more crates you order, the less you pay per crate — automatically</span></span></div>
 
+    <div id="pwa-install-banner" style="display:none;margin-top:8px;">
+      <span class="ph-progressive-banner" style="color:var(--blue);background:rgba(74,158,255,0.1);border-color:rgba(74,158,255,0.35);box-shadow:0 0 16px rgba(74,158,255,0.25);">
+        📲 Install this as an app — one visit now, no link needed again
+        <span class="sub">Add to your home screen for one-tap ordering next time.</span>
+      </span>
+      <div style="margin-top:8px;">
+        <button id="pwa-install-btn" onclick="triggerPwaInstall()" style="display:none;width:100%;padding:10px;background:var(--blue);border:none;border-radius:10px;color:var(--bg);font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;">📲 Install App</button>
+        <div id="pwa-ios-instructions" style="display:none;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);text-align:center;margin-top:4px;">
+          Tap the Share icon <strong>⬆</strong> below, then <strong>"Add to Home Screen"</strong>
+        </div>
+      </div>
+      <div style="text-align:center;margin-top:4px;">
+        <a href="#" onclick="dismissPwaBanner();return false;" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--dust);text-decoration:underline;">Not now</a>
+      </div>
+    </div>
+
     <!-- STEP WIZARD INDICATOR — moved here (was further down, after the
          WhatsApp link) so the "just a few quick stops" reassurance is the
          first thing anyone sees, before any exit is offered. Extended
