@@ -18,6 +18,7 @@ app.use('/events', require('./routes-postgres/events'));
 app.use('/sales', require('./routes-postgres/sales'));
 app.use('/inventory', require('./routes-postgres/inventory'));
 app.use('/customers', require('./routes-postgres/customers'));
+app.use('/suppliers', require('./routes-postgres/suppliers'));
 app.use('/settings', require('./routes-postgres/settings'));
 app.use('/wallet', require('./routes-postgres/wallet'));
 app.use('/respect', require('./routes-postgres/respect'));
