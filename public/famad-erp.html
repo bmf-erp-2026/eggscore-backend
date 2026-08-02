@@ -4,6 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
 <title>EggScore · Command Centre</title>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"/>
+<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Fraunces:ital,wght@0,300;0,600;0,700;1,400&family=Poppins:wght@400;500;700&display=swap" rel="stylesheet"/>
 <style>
 /* ── TOKENS ─────────────────────────────────────────── */
@@ -9488,7 +9491,13 @@ function getTotalCommMTD() { return getMonthSales().reduce((a,s) => a + s.comm, 
 function autoPopulateOrderRef(customerName) {
   if(!customerName) return;
 
-  // Look for the most recent confirmed/pending portal order for this customer
+  // Look for the most recent confirmed/pending/reserved portal order for this customer.
+  // 'reserved' is included deliberately (fixed — was previously excluded here even
+  // though it's treated as a live, stock-committed order everywhere else in the app).
+  // Without it, a customer whose only order is an active reservation would never get
+  // linkedOrderRef set, and checkOrderAbuseRisk()'s excludeOrderRef would then be null —
+  // causing that same reservation to match itself as "an active reservation elsewhere"
+  // and wrongly block a genuinely new customer at Record Sale time.
   const ORDERS_KEY = 'feds_orders';
   let orders = [];
   try { orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]'); } catch(e) {}
@@ -9496,7 +9505,7 @@ function autoPopulateOrderRef(customerName) {
   const portalOrder = orders
     .filter(o =>
       o.customerName === customerName &&
-      (o.status === 'confirmed' || o.status === 'pending' || o.status === 'in_transit') &&
+      (o.status === 'confirmed' || o.status === 'pending' || o.status === 'in_transit' || o.status === 'reserved') &&
       o.ref && (o.ref.startsWith('BEL-ORD') || o.ref.startsWith('EGS-ORD') || o.ref.startsWith('FEDS-ORD')) &&
       o.status !== 'fulfilled'
     )
@@ -9539,11 +9548,14 @@ function autoPopulateOrderRef(customerName) {
     // ── Lock price from order ──
     const priceField = document.getElementById('s-price');
     if(priceField) {
-      priceField.value    = portalOrder.pricePerCrate || getCurrentSellingPrice();
+      // A reservation's lockedPrice (if present) is the price actually agreed
+      // with the customer at reservation time — take priority over pricePerCrate,
+      // which may just reflect whatever the selling price was at that moment.
+      priceField.value    = portalOrder.lockedPrice || portalOrder.pricePerCrate || getCurrentSellingPrice();
       priceField.readOnly = true;
       priceField.style.color       = 'var(--teal)';
       priceField.style.borderColor = 'rgba(61,214,192,0.3)';
-      priceField.title    = `Locked — from portal order price`;
+      priceField.title    = portalOrder.status === 'reserved' ? `Locked — reservation price agreed at time of booking` : `Locked — from portal order price`;
       priceField.dataset.touched = '1'; // prevent computeSale from overriding
     }
 
@@ -9568,11 +9580,22 @@ function autoPopulateOrderRef(customerName) {
     computeSale();
 
     // ── Show a clear info banner ──
+    const isReservation = portalOrder.status === 'reserved';
     showToast(
-      `🔗 Order ${portalOrder.ref} loaded — ${portalOrder.crates} crates locked from portal`
+      isReservation
+        ? `🔗 Reservation ${portalOrder.ref} loaded — ${portalOrder.crates} crates locked, saving this sale will convert it`
+        : `🔗 Order ${portalOrder.ref} loaded — ${portalOrder.crates} crates locked from portal`
     );
     const linkBanner = document.getElementById('sale-linked-order-banner');
-    if(linkBanner) linkBanner.style.display = 'flex';
+    if(linkBanner) {
+      linkBanner.style.display = 'flex';
+      const bannerText = linkBanner.querySelector('span');
+      if(bannerText) {
+        bannerText.textContent = isReservation
+          ? `This form is locked to an active reservation — completing this sale will convert it to a fulfilled order. If the customer called to cancel, don't just Clear the form — that only resets these fields, the reservation itself stays open.`
+          : `This form is locked to a portal order. If the customer called to cancel, don't just Clear the form — that only resets these fields, the order itself stays open.`;
+      }
+    }
 
     // Trigger computation with locked values
     computeSale();
@@ -9603,10 +9626,33 @@ function releaseLockedOrderFields() {
   if(invField) {
     delete invField.dataset.linkedOrderRef;
     delete invField.dataset.linkedVolReqRef;
+    delete invField.dataset.promoApplied;
+    delete invField.dataset.promoDiscount;
+    // FIX: previously only the dataset markers were cleared here — the
+    // field's actual VALUE (the invoice ref) was left exactly as it was
+    // from whichever customer/order had been linked before. Switching to
+    // a customer with no matching portal order (e.g. one whose orders
+    // fail the name match due to a CID split) silently carried that stale
+    // ref straight into a brand-new sale instead of getting a fresh one.
+    invField.value = autoInvRef();
   }
   // Reset price to current selling price
   const sp = document.getElementById('s-price');
   if(sp) { sp.value = getCurrentSellingPrice(); delete sp.dataset.touched; }
+  // FIX: crates and the delivery levy override were likewise left at
+  // whatever the previously-locked customer's values were — only their
+  // readOnly/styling got reset above, never the actual numbers or the
+  // deliveryComponentOverridden flag that controls how delivery gets
+  // computed. A rep who didn't notice could record a sale carrying the
+  // wrong crate count and wrong delivery total — and since commission is
+  // crate-tier based, wrong commission too.
+  const sc = document.getElementById('s-crates');
+  if(sc) sc.value = '';
+  deliveryComponentOverridden = false;
+  const st = document.getElementById('s-transport');
+  if(st) st.value = '';
+  const adjustWrap = document.getElementById('delivery-adjust-wrap');
+  if(adjustWrap) adjustWrap.style.display = 'none';
   const linkBanner = document.getElementById('sale-linked-order-banner');
   if(linkBanner) linkBanner.style.display = 'none';
 }
