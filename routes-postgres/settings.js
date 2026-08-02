@@ -355,4 +355,84 @@ router.patch('/owner-pin', requireSupabaseAuth(), async (req, res) => {
   res.json({ ok: true });
 });
 
+// Distribution pricing — added after the fact, found during Phase 2E
+// verification (missed in the original 15-area audit, same local-only
+// category as the other 13). 6-field singleton object.
+router.get('/distribution-pricing-settings', requireSupabaseAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'distribution_pricing_settings'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+router.patch('/distribution-pricing-settings', requireSupabaseAuth(), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('distribution_pricing_settings', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(settings), updatedBy || null);
+  res.json({ ok: true, settings });
+});
+
+// Price ramp (daily step %), commission tier structure, and shipper
+// details — 3 more genuine singleton gaps found during Phase 2E
+// verification (commission tiers was actually the original audit
+// trigger, dropped somewhere along the way; ramp step and shipper
+// details are new finds). Same pattern as everything above.
+router.get('/price-ramp-settings', requireSupabaseAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'price_ramp_settings'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+router.patch('/price-ramp-settings', requireSupabaseAuth(), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('price_ramp_settings', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(settings), updatedBy || null);
+  res.json({ ok: true, settings });
+});
+
+router.get('/commission-tier-settings', requireSupabaseAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'commission_tier_settings'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+router.patch('/commission-tier-settings', requireSupabaseAuth(), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('commission_tier_settings', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(settings), updatedBy || null);
+  res.json({ ok: true, settings });
+});
+
+router.get('/shipper-details', requireSupabaseAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'shipper_details'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+router.patch('/shipper-details', requireSupabaseAuth(), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('shipper_details', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(settings), updatedBy || null);
+  res.json({ ok: true, settings });
+});
+
 module.exports = router;
