@@ -923,6 +923,12 @@ async function saveOrder(order) {
         referredByCustomerName: order.referredByCustomerName || null,
         reservationCustomerType: order.reservationCustomerType || null,
         reservedAt: order.reservedAt || null,
+        // FIX: these two were never sent at all — every other reservation
+        // field (customer type, reservedAt) at least made it to the
+        // backend, but the window length and expiry timestamp existed
+        // only in this device's local order object, never persisted.
+        reservationWindowHours: order.reservationWindowHours || null,
+        reservationExpiresAt: order.reservationExpiresAt || null,
         // FIX: was missing entirely — every field needed to recognize a
         // reservation was sent EXCEPT the status itself, so the backend's
         // `status || 'pending'` default silently turned every reservation

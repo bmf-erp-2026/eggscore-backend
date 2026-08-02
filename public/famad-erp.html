@@ -1024,6 +1024,19 @@ input[type=number]{-moz-appearance:textfield;}
           paymentVerified: false,
           createdAt: row.created_at,
           date: new Date(row.created_at).toISOString().split('T')[0],
+          // FIX: previously every reservation-specific field was silently
+          // dropped here — this branch only ran for a device seeing the
+          // order for the first time, exactly the case where a reservation
+          // most needs its terms carried over correctly. Missing
+          // reservationWindowHours/reservationExpiresAt is what produced
+          // "window undefinedh · expires Invalid Date" on a fresh device.
+          referredByCustomerName: row.referred_by_customer_name || null,
+          reservationCustomerType: row.reservation_customer_type || null,
+          reservedAt: row.reserved_at || null,
+          reservationWindowHours: row.reservation_window_hours || null,
+          reservationExpiresAt: row.reservation_expires_at || null,
+          convertedAt: row.converted_at || null,
+          cancelledAt: row.cancelled_at || null,
         });
       }
     });
