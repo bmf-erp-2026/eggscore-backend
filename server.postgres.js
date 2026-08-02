@@ -7,6 +7,18 @@ const cors = require('cors');
 const { createApiKey } = require('./auth.postgres');
 
 const app = express();
+
+// service-worker.js MUST always be revalidated — a stale cached copy of
+// this exact file is what caused a live production incident (a POST to
+// /suppliers got silently intercepted and 404'd by an old worker version
+// that predated its own method-check guard). express.static's default
+// caching isn't aggressive enough to have prevented that on its own, but
+// this removes any ambiguity: this one file is never served from cache.
+app.get('/service-worker.js', (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile('service-worker.js', { root: 'public' });
+});
+
 app.use(express.static('public'));
 app.use(cors());
 app.use(express.json());
@@ -19,6 +31,7 @@ app.use('/sales', require('./routes-postgres/sales'));
 app.use('/inventory', require('./routes-postgres/inventory'));
 app.use('/customers', require('./routes-postgres/customers'));
 app.use('/suppliers', require('./routes-postgres/suppliers'));
+app.use('/promotions', require('./routes-postgres/promotions'));
 app.use('/settings', require('./routes-postgres/settings'));
 app.use('/wallet', require('./routes-postgres/wallet'));
 app.use('/respect', require('./routes-postgres/respect'));
