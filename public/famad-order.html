@@ -923,6 +923,14 @@ async function saveOrder(order) {
         referredByCustomerName: order.referredByCustomerName || null,
         reservationCustomerType: order.reservationCustomerType || null,
         reservedAt: order.reservedAt || null,
+        // FIX: was missing entirely — every field needed to recognize a
+        // reservation was sent EXCEPT the status itself, so the backend's
+        // `status || 'pending'` default silently turned every reservation
+        // into a plain pending order the moment any other device synced
+        // it fresh from Supabase. The device that created it never
+        // noticed, since its own local cache already held 'reserved' and
+        // never got overwritten by the (wrong) synced value.
+        status: order.status || 'pending',
       }),
     });
     if(resp.ok) {
