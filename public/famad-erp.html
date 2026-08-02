@@ -1338,6 +1338,156 @@ input[type=number]{-moz-appearance:textfield;}
     }
   }
 
+  async function postVehicleToBackend(vehicle) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/vehicles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          type: vehicle.type, plate: vehicle.plate,
+          trackingProvider: vehicle.trackingProvider, trackingReference: vehicle.trackingReference,
+        }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
+  }
+  async function deleteVehicleFromBackend(backendId) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/vehicles/${backendId}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch(networkErr) {}
+  }
+  async function syncVehiclesFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let rows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/vehicles`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      rows = await resp.json();
+    } catch(networkErr) { return; }
+
+    ensureFleet();
+    const byBackendId = new Map(STATE.fleet.vehicles.filter(v => v.backendId).map(v => [v.backendId, v]));
+    rows.forEach(row => {
+      const existing = byBackendId.get(row.id);
+      if(existing) {
+        existing.type = row.type; existing.plate = row.plate;
+        existing.trackingProvider = row.tracking_provider; existing.trackingReference = row.tracking_reference;
+        existing.backendId = row.id;
+      } else {
+        STATE.fleet.vehicles.push({
+          id: 'sync-' + row.id, type: row.type, plate: row.plate || '',
+          trackingProvider: row.tracking_provider || '', trackingReference: row.tracking_reference || '',
+          backendId: row.id,
+        });
+      }
+    });
+    saveState();
+  }
+
+  async function postDriverToBackend(driver) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/drivers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ name: driver.name, phone: driver.phone }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
+  }
+  async function deleteDriverFromBackend(backendId) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/drivers/${backendId}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch(networkErr) {}
+  }
+  async function syncDriversFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let rows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/drivers`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      rows = await resp.json();
+    } catch(networkErr) { return; }
+
+    ensureFleet();
+    const byBackendId = new Map(STATE.fleet.drivers.filter(d => d.backendId).map(d => [d.backendId, d]));
+    rows.forEach(row => {
+      const existing = byBackendId.get(row.id);
+      if(existing) {
+        existing.name = row.name; existing.phone = row.phone; existing.backendId = row.id;
+      } else {
+        STATE.fleet.drivers.push({ id: 'sync-' + row.id, name: row.name, phone: row.phone || '', backendId: row.id });
+      }
+    });
+    saveState();
+  }
+
+  async function postDestinationToBackend(dest) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/destinations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ name: dest.name, distanceKm: dest.distanceKm }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
+  }
+  async function deleteDestinationFromBackend(backendId) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/destinations/${backendId}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch(networkErr) {}
+  }
+  async function syncDestinationsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let rows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/destinations`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      rows = await resp.json();
+    } catch(networkErr) { return; }
+
+    if(!STATE.destinationReference) STATE.destinationReference = [];
+    const byBackendId = new Map(STATE.destinationReference.filter(d => d.backendId).map(d => [d.backendId, d]));
+    rows.forEach(row => {
+      const existing = byBackendId.get(row.id);
+      if(existing) {
+        existing.name = row.name; existing.distanceKm = row.distance_km; existing.backendId = row.id;
+      } else {
+        STATE.destinationReference.push({ id: 'sync-' + row.id, name: row.name, distanceKm: row.distance_km, backendId: row.id });
+      }
+    });
+    saveState();
+  }
+
   async function postPromoToBackend(promo) {
     const token = await erpGetAuthToken();
     if(!token) return null;
@@ -21309,18 +21459,22 @@ function saveShipperDetails() {
 function addVehicle() {
   const type = document.getElementById('lg-veh-type').value.trim();
   if(!type) { showToast('⚠ Enter a vehicle type.'); return; }
-  ensureFleet().vehicles.push({
+  const newVehicle = {
     id: 'v' + Date.now(), type,
     plate: document.getElementById('lg-veh-plate').value.trim(),
     trackingProvider: document.getElementById('lg-veh-tracker').value.trim(),
     trackingReference: document.getElementById('lg-veh-trackerref').value.trim(),
-  });
+  };
+  ensureFleet().vehicles.push(newVehicle);
+  postVehicleToBackend(newVehicle).then(row => { if(row) newVehicle.backendId = row.id; saveState(); });
   saveState();
   ['lg-veh-type','lg-veh-plate','lg-veh-tracker','lg-veh-trackerref'].forEach(id => document.getElementById(id).value = '');
   renderLogistics();
   showToast('✓ Vehicle added.');
 }
 function removeVehicle(id) {
+  const v = STATE.fleet.vehicles.find(x => x.id === id);
+  if(v?.backendId) deleteVehicleFromBackend(v.backendId);
   STATE.fleet.vehicles = STATE.fleet.vehicles.filter(v => v.id !== id);
   saveState(); renderLogistics();
 }
@@ -21328,13 +21482,17 @@ function removeVehicle(id) {
 function addDriver() {
   const name = document.getElementById('lg-drv-name').value.trim();
   if(!name) { showToast('⚠ Enter a driver name.'); return; }
-  ensureFleet().drivers.push({ id: 'd' + Date.now(), name, phone: document.getElementById('lg-drv-phone').value.trim() });
+  const newDriver = { id: 'd' + Date.now(), name, phone: document.getElementById('lg-drv-phone').value.trim() };
+  ensureFleet().drivers.push(newDriver);
+  postDriverToBackend(newDriver).then(row => { if(row) newDriver.backendId = row.id; saveState(); });
   saveState();
   document.getElementById('lg-drv-name').value = ''; document.getElementById('lg-drv-phone').value = '';
   renderLogistics();
   showToast('✓ Driver added.');
 }
 function removeDriver(id) {
+  const d = STATE.fleet.drivers.find(x => x.id === id);
+  if(d?.backendId) deleteDriverFromBackend(d.backendId);
   STATE.fleet.drivers = STATE.fleet.drivers.filter(d => d.id !== id);
   saveState(); renderLogistics();
 }
@@ -21343,13 +21501,17 @@ function addDestination() {
   const name = document.getElementById('lg-dest-name').value.trim();
   const km   = parseFloat(document.getElementById('lg-dest-km').value);
   if(!name || isNaN(km) || km <= 0) { showToast('⚠ Enter a destination name and a real distance.'); return; }
-  ensureDestinationReference().push({ id: 'dst' + Date.now(), name, distanceKm: km });
+  const newDest = { id: 'dst' + Date.now(), name, distanceKm: km };
+  ensureDestinationReference().push(newDest);
+  postDestinationToBackend(newDest).then(row => { if(row) newDest.backendId = row.id; saveState(); });
   saveState();
   document.getElementById('lg-dest-name').value = ''; document.getElementById('lg-dest-km').value = '';
   renderLogistics();
   showToast('✓ Destination added.');
 }
 function removeDestination(id) {
+  const d = STATE.destinationReference.find(x => x.id === id);
+  if(d?.backendId) deleteDestinationFromBackend(d.backendId);
   STATE.destinationReference = STATE.destinationReference.filter(d => d.id !== id);
   saveState(); renderLogistics();
 }
@@ -26554,6 +26716,9 @@ document.addEventListener('DOMContentLoaded', () => {
   syncShipperDetailsFromBackend();
   syncSuppliersFromBackend();
   syncPromotionsFromBackend();
+  syncVehiclesFromBackend();
+  syncDriversFromBackend();
+  syncDestinationsFromBackend();
 
   populateSelects();
   renderDashboard();
