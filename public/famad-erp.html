@@ -1297,6 +1297,102 @@ input[type=number]{-moz-appearance:textfield;}
     }
   }
 
+  // Suppliers previously had NO backend persistence at all — same gap
+  // customers had before Phase 2A. postSupplierToBackend() returns the
+  // created row so saveSupplier() can attach backendId immediately,
+  // without waiting for the next full sync.
+  async function postSupplierToBackend(supplier) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/suppliers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          name: supplier.name, location: supplier.location, phone: supplier.phone,
+          distanceKm: supplier.distanceKm, capacityCratesPerWeek: supplier.capacityCratesPerWeek,
+          status: supplier.status, documentsOnFile: supplier.documentsOnFile,
+          biosecurityChecklist: supplier.biosecurityChecklist, biosecurityAssessedAt: supplier.biosecurityAssessedAt,
+          biosecurityNotes: supplier.biosecurityNotes, docNotes: supplier.docNotes,
+          dateAdded: supplier.dateAdded, dateLastReviewed: supplier.dateLastReviewed,
+        }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
+  }
+
+  async function patchSupplierToBackend(backendId, fields) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/suppliers/${backendId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(fields),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget, same as everywhere else.
+    }
+  }
+
+  // Suppliers have no CID-equivalent stable code, so first-sync merge
+  // is keyed on name (case-insensitive) — same fragile-but-workable
+  // tradeoff the old customer-matching used before CIDs existed. Once
+  // backendId is attached it's used going forward, never name again.
+  // A duplicate supplier name would collide here; low risk given this
+  // is a small, manually curated list, but worth knowing about.
+  async function syncSuppliersFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendSuppliers;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/suppliers`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendSuppliers = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    ensureSuppliers();
+    const byBackendId = new Map(STATE.suppliers.filter(s => s.backendId).map(s => [s.backendId, s]));
+    const byName       = new Map(STATE.suppliers.filter(s => !s.backendId).map(s => [(s.name || '').trim().toLowerCase(), s]));
+
+    backendSuppliers.forEach(row => {
+      let existing = byBackendId.get(row.id) || byName.get((row.name || '').trim().toLowerCase());
+      if(existing) {
+        existing.name                   = row.name;
+        existing.location               = row.location;
+        existing.phone                  = row.phone;
+        existing.distanceKm             = row.distance_km;
+        existing.capacityCratesPerWeek  = row.capacity_crates_per_week;
+        existing.status                 = row.status;
+        existing.documentsOnFile        = row.documents_on_file;
+        existing.biosecurityChecklist   = row.biosecurity_checklist;
+        existing.biosecurityAssessedAt  = row.biosecurity_assessed_at;
+        existing.biosecurityNotes       = row.biosecurity_notes;
+        existing.docNotes               = row.doc_notes;
+        existing.dateAdded              = row.date_added;
+        existing.dateLastReviewed       = row.date_last_reviewed;
+        existing.backendId              = row.id;
+      } else {
+        STATE.suppliers.push({
+          id: 'sync-' + row.id, name: row.name, location: row.location, phone: row.phone || '',
+          distanceKm: row.distance_km, capacityCratesPerWeek: row.capacity_crates_per_week,
+          status: row.status, documentsOnFile: row.documents_on_file,
+          biosecurityChecklist: row.biosecurity_checklist || {}, biosecurityAssessedAt: row.biosecurity_assessed_at,
+          biosecurityNotes: row.biosecurity_notes || '', docNotes: row.doc_notes || '',
+          dateAdded: row.date_added, dateLastReviewed: row.date_last_reviewed,
+          backendId: row.id,
+        });
+      }
+    });
+    saveState();
+  }
   // Customers previously had NO backend persistence at all — every
   // customer only ever existed in whichever single device's browser
   // storage created it, invisible to every other device, and with
@@ -13827,6 +13923,17 @@ function saveSupplier() {
     if(!s) { showToast('⚠ Supplier not found.'); return; }
     const wasSuspended = s.status === 'suspended';
     Object.assign(s, { name, location, phone, distanceKm, capacityCratesPerWeek, status, documentsOnFile, biosecurityChecklist, biosecurityAssessedAt: new Date().toISOString(), biosecurityNotes, docNotes, dateLastReviewed: new Date().toISOString().split('T')[0] });
+    if(s.backendId) {
+      patchSupplierToBackend(s.backendId, {
+        name, location, phone, distanceKm, capacityCratesPerWeek, status, documentsOnFile,
+        biosecurityChecklist, biosecurityAssessedAt: s.biosecurityAssessedAt, biosecurityNotes, docNotes,
+        dateLastReviewed: s.dateLastReviewed,
+      });
+    } else {
+      // Pre-existing local supplier that predates backend sync — push it
+      // up as a fresh create now rather than losing the update silently.
+      postSupplierToBackend(s).then(row => { if(row) s.backendId = row.id; saveState(); });
+    }
     if(!wasSuspended && status === 'suspended') {
       logCrit('procurement', `Supplier suspended — ${name}`, biosecurityNotes || 'No reason recorded — add one via the Supplier Directory.');
     } else {
@@ -13835,11 +13942,13 @@ function saveSupplier() {
     showToast('✓ Supplier updated: ' + name);
   } else {
     const newId = 'sup' + Date.now();
-    STATE.suppliers.push({
+    const newSupplier = {
       id: newId, name, location, phone, distanceKm, capacityCratesPerWeek, status,
       documentsOnFile, biosecurityChecklist, biosecurityAssessedAt: new Date().toISOString(), biosecurityNotes, docNotes,
       dateAdded: new Date().toISOString().split('T')[0], dateLastReviewed: null,
-    });
+    };
+    STATE.suppliers.push(newSupplier);
+    postSupplierToBackend(newSupplier).then(row => { if(row) newSupplier.backendId = row.id; saveState(); });
     logInfo('procurement', `Supplier added — ${name}`, `${location}${distanceKm ? ' · ' + distanceKm + 'km' : ''} · Status: ${SUPPLIER_STATUS_LABELS[status]} · Biosecurity ${bioScore.checked}/${bioScore.total} (${bioScore.pct}%)`);
     showToast('✓ Supplier added: ' + name);
   }
@@ -26360,6 +26469,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncPriceRampSettingsFromBackend();
   syncCommissionTierSettingsFromBackend();
   syncShipperDetailsFromBackend();
+  syncSuppliersFromBackend();
 
   populateSelects();
   renderDashboard();
