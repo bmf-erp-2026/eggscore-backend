@@ -10119,6 +10119,7 @@ function saveRampDailyStepPct() {
     ensurePriceRampSettings().dailyStepPct = val;
     if(STATE.priceRamp) STATE.priceRamp.dailyStepPct = val; // affects an in-progress ramp too, not just future ones
     saveState();
+    postPriceRampSettingsToBackend(ensurePriceRampSettings(), 'Admin');
   }
 }
 
@@ -10494,6 +10495,7 @@ function saveDistributionPricing() {
   dp.ceilingPerCrate = parseFloat(document.getElementById('dp-ceiling')?.value) || 0;
   dp.soloDispatchThresholdCrates = parseInt(document.getElementById('dp-solo-threshold')?.value) || 300;
   saveState();
+  postDistributionPricingSettingsToBackend(dp, 'Admin');
   previewDistributionEnvelope();
   computeSale();
   const statusEl = document.getElementById('dp-settings-status');
@@ -17168,6 +17170,100 @@ async function postOwnerPinToBackend(pin, updatedBy) {
   } catch(networkErr) {}
 }
 
+// Distribution pricing — added after the original 13, found missed
+// during Phase 2E verification. Same singleton-blob pattern.
+async function syncDistributionPricingSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/distribution-pricing-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensureDistributionPricing(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postDistributionPricingSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/distribution-pricing-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncPriceRampSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/price-ramp-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensurePriceRampSettings(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postPriceRampSettingsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/price-ramp-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncCommissionTierSettingsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/commission-tier-settings`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings || !data.settings.tiers) return;
+    STATE.commissionTiers = data.settings.tiers;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postCommissionTierSettingsToBackend(tiers, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/commission-tier-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: { tiers }, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
+async function syncShipperDetailsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/shipper-details`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return;
+    Object.assign(ensureShipperDetails(), data.settings);
+    saveState();
+  } catch(networkErr) {}
+}
+async function postShipperDetailsToBackend(settings, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/shipper-details`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings, updatedBy: updatedBy || null }),
+    });
+  } catch(networkErr) {}
+}
+
 async function postBatchRemainingToBackend(batchId, remaining) {
   const token = await erpGetAuthToken();
   if(!token) return;
@@ -17550,6 +17646,7 @@ function saveCommissionTierStructure() {
   const oldTiers = JSON.parse(JSON.stringify(tiers));
   STATE.commissionTiers = updated;
   saveState();
+  postCommissionTierSettingsToBackend(updated, 'Admin');
   renderCommissionTierEditor();
   renderCommission();
   renderSalesLogTierCards();
@@ -21013,6 +21110,7 @@ function saveShipperDetails() {
   s.contact  = document.getElementById('lg-farm-contact').value.trim();
   s.address  = document.getElementById('lg-farm-address').value.trim();
   saveState();
+  postShipperDetailsToBackend(s, 'Admin');
   showToast('✓ Shipper details saved.');
 }
 
@@ -26258,6 +26356,10 @@ document.addEventListener('DOMContentLoaded', () => {
   syncBrandingReadinessSettingsFromBackend();
   syncTimeValueRateFromBackend();
   syncOwnerPinFromBackend();
+  syncDistributionPricingSettingsFromBackend();
+  syncPriceRampSettingsFromBackend();
+  syncCommissionTierSettingsFromBackend();
+  syncShipperDetailsFromBackend();
 
   populateSelects();
   renderDashboard();
