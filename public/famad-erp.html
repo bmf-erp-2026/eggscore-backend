@@ -1338,6 +1338,87 @@ input[type=number]{-moz-appearance:textfield;}
     }
   }
 
+  async function postPromoToBackend(promo) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/promotions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          name: promo.name, segment: promo.segment, discount: promo.discount,
+          minCrates: promo.minCrates, until: promo.until, desc: promo.desc, created: promo.created,
+        }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
+  }
+
+  async function patchPromoToBackend(backendId, fields) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/promotions/${backendId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(fields),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget, same as everywhere else.
+    }
+  }
+
+  // No stable code for promotions either, same tradeoff as suppliers —
+  // first-sync merge keyed on name. Promotions are lower-stakes than
+  // suppliers (no financial/biosecurity data riding on them), so this
+  // fragility matters even less here.
+  async function syncPromotionsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendPromos;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/promotions`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendPromos = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.promotions) STATE.promotions = [];
+    const byBackendId = new Map(STATE.promotions.filter(p => p.backendId).map(p => [p.backendId, p]));
+    const byName       = new Map(STATE.promotions.filter(p => !p.backendId).map(p => [(p.name || '').trim().toLowerCase(), p]));
+
+    backendPromos.forEach(row => {
+      let existing = byBackendId.get(row.id) || byName.get((row.name || '').trim().toLowerCase());
+      if(existing) {
+        existing.name       = row.name;
+        existing.segment    = row.segment;
+        existing.discount   = row.discount;
+        existing.minCrates  = row.min_crates;
+        existing.until      = row.until;
+        existing.desc       = row.description;
+        existing.active     = row.active;
+        existing.created    = row.created;
+        existing.expiredAt  = row.expired_at;
+        existing.expiredHow = row.expired_how;
+        existing.backendId  = row.id;
+      } else {
+        STATE.promotions.push({
+          id: 'sync-' + row.id, name: row.name, segment: row.segment, discount: row.discount,
+          minCrates: row.min_crates, until: row.until || '—', desc: row.description || '',
+          active: row.active, created: row.created, expiredAt: row.expired_at, expiredHow: row.expired_how,
+          backendId: row.id,
+        });
+      }
+    });
+    saveState();
+  }
+
   // Suppliers have no CID-equivalent stable code, so first-sync merge
   // is keyed on name (case-insensitive) — same fragile-but-workable
   // tradeoff the old customer-matching used before CIDs existed. Once
@@ -1346,8 +1427,6 @@ input[type=number]{-moz-appearance:textfield;}
   // is a small, manually curated list, but worth knowing about.
   async function syncSuppliersFromBackend() {
     const token = await erpGetAuthToken();
-    if(!token) return;
-    let backendSuppliers;
     try {
       const resp = await fetch(`${BACKEND_URL}/suppliers`, {
         headers: { 'Authorization': `Bearer ${token}` },
@@ -14409,7 +14488,9 @@ function savePromo() {
   const until   = document.getElementById('pm-until')?.value;
   const desc    = document.getElementById('pm-desc')?.value.trim() || '';
   if(!name) { showToast('⚠ Promo name required.'); return; }
-  STATE.promotions.unshift({ id:'p'+Date.now(), name, segment, discount, minCrates:min, until:until||'—', desc, active:true, created:new Date().toISOString().split('T')[0] });
+  const newPromo = { id:'p'+Date.now(), name, segment, discount, minCrates:min, until:until||'—', desc, active:true, created:new Date().toISOString().split('T')[0] };
+  STATE.promotions.unshift(newPromo);
+  postPromoToBackend(newPromo).then(row => { if(row) newPromo.backendId = row.id; saveState(); });
   saveState();
   closeModal('modal-promo');
   showToast('✓ Promotion launched: ' + name);
@@ -14441,6 +14522,7 @@ function autoExpirePromos() {
       p.expiredAt  = new Date().toISOString();
       p.expiredHow = 'auto';
       anyExpired   = true;
+      if(p.backendId) patchPromoToBackend(p.backendId, { active: false, expiredAt: p.expiredAt, expiredHow: 'auto' });
       logInfo('promo',
         `Promo auto-expired — "${p.name}"`,
         `Valid until ${p.until} · Segment: ${p.segment}`
@@ -14466,6 +14548,7 @@ function deactivatePromo(id) {
     p.active     = false;
     p.expiredAt  = new Date().toISOString();
     p.expiredHow = 'manual';
+    if(p.backendId) patchPromoToBackend(p.backendId, { active: false, expiredAt: p.expiredAt, expiredHow: 'manual' });
     saveState();
     if(currentModule === 'promotions') renderPromotions();
     showToast('Promotion ended.');
@@ -26470,6 +26553,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncCommissionTierSettingsFromBackend();
   syncShipperDetailsFromBackend();
   syncSuppliersFromBackend();
+  syncPromotionsFromBackend();
 
   populateSelects();
   renderDashboard();
