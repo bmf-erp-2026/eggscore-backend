@@ -948,6 +948,27 @@ input[type=number]{-moz-appearance:textfield;}
     return session?.access_token || null;
   }
 
+  // Rough lifecycle rank for order statuses. Used only to detect
+  // direction of travel during sync — never to validate a transition,
+  // since the backend is always the actual source of truth for which
+  // transitions are legal.
+  function orderStatusRank(status) {
+    switch(status) {
+      case 'reserved':
+      case 'pending':
+        return 0;
+      case 'confirmed':
+      case 'in_transit':
+        return 1;
+      case 'fulfilled':
+      case 'rejected':
+      case 'cancelled':
+        return 2;
+      default:
+        return 0;
+    }
+  }
+
   // Pulls real orders from the live backend and merges them into the
   // same local cache every existing screen already reads via
   // loadOrders() — so none of the other call sites need to change.
@@ -997,15 +1018,32 @@ input[type=number]{-moz-appearance:textfield;}
         // rather than silently disappear for a payment that actually
         // does need checking.
         existing.paymentMethod = row.payment_method || existing.paymentMethod || 'transfer';
-        if(!existing.status || existing.status === 'pending') {
+        const localRank   = orderStatusRank(existing.status);
+        const backendRank = orderStatusRank(row.status);
+        if(!existing.status || backendRank > localRank) {
+          // FIX: previously this branch only fired when existing.status
+          // was falsy or exactly 'pending' — so a locally-cached order
+          // sitting at any OTHER status (reserved, confirmed...) could
+          // never be pulled forward, even once another device had
+          // since fulfilled/rejected/cancelled it on the backend. That
+          // device's local cache would show the order as still open
+          // indefinitely, with no mechanism to ever notice it had
+          // already been actioned elsewhere — a real risk of a second
+          // staff member re-fulfilling an already-completed order.
           existing.status = row.status;
-        } else if(existing.status !== row.status && row.status === 'pending' &&
-                   (existing.status === 'rejected' || existing.status === 'confirmed' || existing.status === 'fulfilled')) {
+        } else if(backendRank < localRank &&
+                   (existing.status === 'rejected' || existing.status === 'confirmed' || existing.status === 'fulfilled') &&
+                   row.status === 'pending') {
           // We already decided this locally (rejected/confirmed), but the
           // backend still shows pending — an earlier PATCH attempt must
           // have failed silently. Retry it now instead of leaving it
           // stuck until the next status change happens to fix it.
           patchOrderStatusOnBackend(row.ref, { status: existing.status });
+        } else if(backendRank === localRank && existing.status !== row.status) {
+          // Same lifecycle stage, different exact label (e.g. confirmed
+          // vs in_transit) — neither side is stale here, so just take
+          // the backend's label as the tie-breaker.
+          existing.status = row.status;
         }
       } else {
         byRef.set(row.ref, {
