@@ -12895,12 +12895,6 @@ function generateInvoice(saleId) {
   tfoot td{padding:8px 10px;font-size:11px;font-weight:600;}
   tfoot tr.total td{border-top:2px solid #111;font-family:'Syne',sans-serif;font-size:14px;}
 
-  .balance-box{background:${isSettled?'#d4edda':'#fff8e1'};border:1px solid ${isSettled?'#c3e6cb':'#ffe082'};
-    border-radius:6px;padding:12px 14px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;}
-  .balance-box .bl{font-size:11px;color:#555;}
-  .balance-box .bv{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;
-    color:${isSettled?'#155724':'#856404'};}
-
   .wa-share{display:block;text-align:center;margin:16px 0;padding:12px;background:#25D366;
     color:#fff;text-decoration:none;border-radius:8px;font-family:'Syne',sans-serif;
     font-size:13px;font-weight:700;}
@@ -12950,7 +12944,7 @@ function generateInvoice(saleId) {
   </thead>
   <tbody>
     <tr>
-      <td>Eggs — wholesale, delivered (${s.batchId || 'stock'})</td>
+      <td>Eggs — wholesale (${s.batchId || 'stock'})</td>
       <td>${s.crates} crates</td>
       <td>₦${(s.effPrice || s.price).toLocaleString()}/crate</td>
       <td>₦${((s.gross)+(s.deliveryTotal||0)).toLocaleString()}</td>
@@ -12972,11 +12966,6 @@ function generateInvoice(saleId) {
     </tr>
   </tfoot>
 </table>
-
-<div class="balance-box">
-  <div class="bl">${isSettled ? 'This invoice has been fully settled.' : 'Balance remaining on this invoice:'}</div>
-  <div class="bv">${isSettled ? '₦0 — PAID' : '₦' + remaining.toLocaleString()}</div>
-</div>
 
 <a class="wa-share no-print" href="${waLink}" target="_blank">
   💬 Share this invoice via WhatsApp
