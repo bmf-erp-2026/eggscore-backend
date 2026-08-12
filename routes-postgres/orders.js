@@ -38,7 +38,8 @@ function genReferralCode(name) {
 
 router.post('/', requireEitherAuth(), async (req, res) => {
   const { customerName, phone, location, crates, eggPricePerCrate, deliveryPerCrate, notes, paymentMethod,
-          referredByCustomerName, reservationCustomerType, reservedAt, reservationWindowHours, reservationExpiresAt, status } = req.body;
+          referredByCustomerName, reservationCustomerType, reservedAt, reservationWindowHours, reservationExpiresAt, status,
+          confirmedExistingCid } = req.body;
   if(!customerName || !crates || crates < 1) {
     return res.status(400).json({ error: 'customerName and a positive crates value are required.' });
   }
@@ -52,7 +53,28 @@ router.post('/', requireEitherAuth(), async (req, res) => {
   // enrollment celebration or the quieter "welcome back" version.
   let customerId = null, customerCid = null, isNewCustomer = false;
   const normalisedPhone = normalisePhone(phone);
-  if(normalisedPhone) {
+
+  // A returning customer ordering from a new number is invisible to the
+  // phone-only lookup below — the portal recognises her by NAME (see
+  // checkPhoneMismatch() client-side) and, once confirmed, sends her
+  // real CID directly here. Trusting it outright would risk merging two
+  // different people who share a name on a mistaken guess, so the
+  // client only ever sends this after either an unambiguous phone match
+  // or an explicit "yes, that's me" from the customer — never a bare
+  // name-only guess. Refreshing her phone here is exactly right in
+  // this case: it's the same real person, just calling from a new number.
+  if(confirmedExistingCid) {
+    const existing = await db.prepare('SELECT id, cid FROM customers WHERE cid = ?').get(confirmedExistingCid);
+    if(existing) {
+      customerId  = existing.id;
+      customerCid = existing.cid;
+      if(normalisedPhone) {
+        await db.prepare('UPDATE customers SET phone = ? WHERE id = ?').run(phone, existing.id);
+      }
+    }
+  }
+
+  if(!customerId && normalisedPhone) {
     const allCustomers = await db.prepare('SELECT id, cid, phone FROM customers').all();
     const match = allCustomers.find(c => normalisePhone(c.phone) === normalisedPhone);
     if(match) {
