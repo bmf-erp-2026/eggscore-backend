@@ -401,7 +401,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           </div>
           <div class="form-group">
             <label class="form-label">Phone Number <span class="req">*</span></label>
-            <input class="form-input" id="c-phone" type="tel" placeholder="080X XXXX XXXX" oninput="updateOrderCalc()"/>
+            <input class="form-input" id="c-phone" type="tel" placeholder="080X XXXX XXXX" oninput="updateOrderCalc();checkPhoneMismatch()"/>
           </div>
         </div>
         <div class="form-row">
@@ -423,6 +423,16 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         </div>
         <div id="customer-match-box" style="display:none" class="alert ok">
           ✓ Account recognised — <span id="match-name"></span> · <span id="match-loyalty"></span>
+        </div>
+        <div id="phone-mismatch-confirm" style="display:none;background:rgba(240,180,40,0.08);border:1px solid rgba(240,180,40,0.3);
+          border-radius:8px;padding:12px 14px;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;color:var(--cream);line-height:1.6">
+          <div id="phone-mismatch-msg" style="margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn-sm" onclick="confirmSameCustomer(true)"
+              style="background:var(--lime);color:#0a0e14;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace;font-size:9.5px">Yes, that's me</button>
+            <button type="button" class="btn-sm" onclick="confirmSameCustomer(false)"
+              style="background:transparent;color:var(--mist);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-family:'DM Mono',monospace;font-size:9.5px">No, different person</button>
+          </div>
         </div>
         <div id="my-loyalty-panel" style="display:none;background:rgba(240,180,40,0.06);border:1px solid rgba(240,180,40,0.25);
           border-radius:8px;padding:12px 14px;margin-top:8px"></div>
@@ -923,6 +933,12 @@ async function saveOrder(order) {
         referredByCustomerName: order.referredByCustomerName || null,
         reservationCustomerType: order.reservationCustomerType || null,
         reservedAt: order.reservedAt || null,
+        // Tells the backend to trust the portal's own name-based
+        // recognition over its blind phone-only lookup — see
+        // checkPhoneMismatch()/confirmSameCustomer() for how this gets
+        // set. null in every case except a confirmed returning customer
+        // ordering from a new number.
+        confirmedExistingCid: resolveConfirmedExistingCid(),
         // FIX: these two were never sent at all — every other reservation
         // field (customer type, reservedAt) at least made it to the
         // backend, but the window length and expiry timestamp existed
@@ -1792,6 +1808,7 @@ function showMatch(c) {
   renderWalletNotice(c.name);
   refreshPortalWalletBalance(c.name);
   renderMyLoyaltyPanel(c.name);
+  checkPhoneMismatch();
   updateOrderCalc();
 }
 function hideMatch() {
@@ -1805,7 +1822,69 @@ function hideMatch() {
   if(wnote) wnote.style.display = 'none';
   const loyaltyPanel = document.getElementById('my-loyalty-panel');
   if(loyaltyPanel) loyaltyPanel.style.display = 'none';
+  checkPhoneMismatch();
   updateOrderCalc();
+}
+
+// ── Phone-mismatch confirmation ──────────────────────────────
+// The portal recognises a returning customer by NAME alone (the search
+// above), but the backend's own order-time customer resolution matches
+// by PHONE alone — so a returning customer typing a new number was
+// silently getting a brand-new duplicate profile, even though the app
+// had already recognised her by name a moment earlier. This closes that
+// gap: when the typed phone doesn't match the name-matched customer's
+// phone on file, ask once rather than guessing either way. "Yes" tells
+// the backend to link this order to her real existing profile (and
+// refresh her phone number on file); "No" leaves her to be treated as a
+// genuinely new customer, since a name match alone isn't proof enough
+// to safely merge two people who happen to share a name.
+function checkPhoneMismatch() {
+  const box = document.getElementById('phone-mismatch-confirm');
+  if(!box) return;
+  const c = portalState.matchedCustomer;
+  if(!c) { box.style.display = 'none'; portalState.phoneMismatchConfirmed = undefined; return; }
+
+  const typedPhone   = normalizePhone(document.getElementById('c-phone')?.value);
+  const matchedPhone = normalizePhone(c.phone);
+
+  if(typedPhone && matchedPhone && typedPhone !== matchedPhone) {
+    // Only (re)prompt when the typed number actually changes — avoids
+    // re-asking on every keystroke once already answered.
+    if(portalState.phoneMismatchLastChecked !== typedPhone) {
+      portalState.phoneMismatchConfirmed  = undefined;
+      portalState.phoneMismatchLastChecked = typedPhone;
+      box.style.display = 'block';
+      const msg = document.getElementById('phone-mismatch-msg');
+      if(msg) msg.textContent = `We found an existing profile for ${c.name} with a different phone number on file — is that you, just ordering from a new number?`;
+    }
+  } else {
+    box.style.display = 'none';
+    portalState.phoneMismatchConfirmed = (typedPhone && matchedPhone && typedPhone === matchedPhone) ? true : undefined;
+  }
+}
+
+function confirmSameCustomer(isSame) {
+  portalState.phoneMismatchConfirmed = isSame;
+  const box = document.getElementById('phone-mismatch-confirm');
+  if(box) box.style.display = 'none';
+  showToast(isSame
+    ? `✓ Linked to ${portalState.matchedCustomer?.name}'s existing profile.`
+    : 'Noted — this order will be treated as a new profile.');
+}
+
+// Called at order-submission time. Returns the matched customer's CID
+// when it's safe to trust — either the typed phone already agrees with
+// what's on file (no ambiguity at all), or the customer explicitly
+// confirmed "yes, that's me" to the mismatch prompt above. Returns null
+// whenever there's unresolved ambiguity, so the backend's own phone-only
+// matching handles it the normal way instead.
+function resolveConfirmedExistingCid() {
+  const c = portalState.matchedCustomer;
+  if(!c || !c.cid) return null;
+  const typedPhone   = normalizePhone(document.getElementById('c-phone')?.value);
+  const matchedPhone = normalizePhone(c.phone);
+  if(!typedPhone || !matchedPhone || typedPhone === matchedPhone) return c.cid;
+  return portalState.phoneMismatchConfirmed === true ? c.cid : null;
 }
 
 /* ── Wallet balance notice ───────────────────────────────────
