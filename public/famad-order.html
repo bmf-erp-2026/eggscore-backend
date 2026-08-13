@@ -35,29 +35,29 @@ input[type=number]{-moz-appearance:textfield;}
 /* ── HEADER ── */
 .portal-header{text-align:center;padding:32px 0 24px;position:relative;}
 .ph-logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--blue);letter-spacing:-.5px;}
-.ph-logo span{color:var(--amber);font-size:12px;font-weight:400;font-family:'DM Mono',monospace;margin-left:4px;letter-spacing:1px;}
+.ph-logo span{color:var(--amber);font-size:13px;font-weight:400;font-family:'DM Mono',monospace;margin-left:4px;letter-spacing:1px;}
 .ph-title{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--cream);margin-top:16px;line-height:1.1;}
-.ph-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);margin-top:8px;line-height:1.6;}
-.ph-badge{display:inline-flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:9px;padding:4px 12px;border-radius:20px;background:rgba(109,217,109,0.08);border:1px solid rgba(109,217,109,0.2);color:var(--lime);margin-top:12px;}
+.ph-sub{font-family:'DM Mono',monospace;font-size:12px;color:var(--mist);margin-top:8px;line-height:1.6;}
+.ph-badge{display:inline-flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:10px;padding:4px 12px;border-radius:20px;background:rgba(109,217,109,0.08);border:1px solid rgba(109,217,109,0.2);color:var(--lime);margin-top:12px;}
 .ph-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--lime);animation:pulse 1.4s infinite;}
 .ph-progressive-banner{display:inline-flex;align-items:center;gap:7px;font-family:'Syne',sans-serif;font-weight:700;
-  font-size:12px;padding:8px 16px;border-radius:20px;margin-top:10px;color:var(--teal);
+  font-size:13px;padding:8px 16px;border-radius:20px;margin-top:10px;color:var(--teal);
   background:rgba(61,214,192,0.1);border:1px solid rgba(61,214,192,0.35);
   box-shadow:0 0 16px rgba(61,214,192,0.25);animation:progGlow 2.6s ease-in-out infinite;}
-.ph-progressive-banner .sub{font-family:'DM Mono',monospace;font-weight:400;font-size:9px;color:var(--mist);display:block;margin-top:2px}
+.ph-progressive-banner .sub{font-family:'DM Mono',monospace;font-weight:400;font-size:10px;color:var(--mist);display:block;margin-top:2px}
 @keyframes progGlow{0%,100%{box-shadow:0 0 10px rgba(61,214,192,0.2);}50%{box-shadow:0 0 20px rgba(61,214,192,0.45);}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* ── STOCK TICKER ── */
 .stock-ticker{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:20px;display:grid;grid-template-columns:minmax(100px,auto) 1fr minmax(120px,auto);align-items:start;gap:12px;}
-.st-left{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);}
+.st-left{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);}
 .st-avail{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;}
 .st-avail.good{color:var(--lime);}
 .st-avail.low{color:var(--amber);}
 .st-avail.none{color:var(--red);}
 .st-right{text-align:right;min-height:64px;}
-.st-price{font-family:'DM Mono',monospace;font-size:13px;color:var(--cream);font-weight:500;}
-.st-pprice{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px;}
+.st-price{font-family:'DM Mono',monospace;font-size:14px;color:var(--cream);font-weight:500;}
+.st-pprice{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:2px;}
 
 /* ── PANELS ── */
 .panel{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
@@ -71,11 +71,11 @@ input[type=number]{-moz-appearance:textfield;}
 .wiz-dot-wrap:not(:last-child)::after{content:'';position:absolute;top:13px;left:56%;width:88%;height:2px;background:var(--border);z-index:0;}
 .wiz-dot-wrap.done:not(:last-child)::after{background:var(--lime);}
 .wiz-dot{width:26px;height:26px;border-radius:50%;background:var(--card);border:2px solid var(--border);
-  display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);
+  display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:12px;color:var(--mist);
   z-index:1;transition:all .2s ease;}
 .wiz-dot-wrap.active .wiz-dot{border-color:var(--blue);color:var(--blue);background:rgba(74,158,255,0.1);}
 .wiz-dot-wrap.done .wiz-dot{border-color:var(--lime);color:var(--lime);background:rgba(109,217,109,0.1);}
-.wiz-label{font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:5px;text-align:center;letter-spacing:0.3px;}
+.wiz-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:5px;text-align:center;letter-spacing:0.3px;}
 .wiz-dot-wrap.active .wiz-label{color:var(--blue);font-weight:600;}
 /* Upcoming stops (post-submission: Confirm/Feedback/You're In) — visible
    on the line for reassurance, same as a metro map shows stations ahead,
@@ -88,15 +88,15 @@ input[type=number]{-moz-appearance:textfield;}
 .wiz-nav[data-step-nav="1"]{display:flex;}
 .wiz-nav button{flex:1;}
 .panel-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);background:var(--raised);}
-.panel-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--cream);}
-.panel-tag{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);letter-spacing:1px;}
+.panel-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--cream);}
+.panel-tag{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);letter-spacing:1px;}
 .panel-body{padding:18px;}
 
 /* ── FORM ── */
 .form-group{display:flex;flex-direction:column;gap:5px;margin-bottom:13px;}
-.form-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);letter-spacing:1px;text-transform:uppercase;}
+.form-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);letter-spacing:1px;text-transform:uppercase;}
 .form-label .req{color:var(--red);}
-.form-input,.form-select{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--cream);font-family:'DM Mono',monospace;font-size:13px;outline:none;transition:border-color .15s,box-shadow .15s;width:100%;}
+.form-input,.form-select{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--cream);font-family:'DM Mono',monospace;font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s;width:100%;}
 .form-input:focus,.form-select:focus{border-color:var(--blue-dim);box-shadow:0 0 0 3px rgba(74,158,255,0.08);}
 .form-input::placeholder{color:var(--ink);}
 
@@ -111,7 +111,7 @@ input[type=number]{-moz-appearance:textfield;}
 .vr-close{background:none;border:none;color:var(--mist);font-size:18px;cursor:pointer;
   padding:2px 6px;}
 .vr-close:hover{color:var(--cream);}
-.vr-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.6;
+.vr-sub{font-family:'DM Mono',monospace;font-size:12px;color:var(--dust);line-height:1.6;
   margin-bottom:18px;}
 .vr-success{display:none;text-align:center;padding:20px 0;}
 .vr-success.active{display:block;}
@@ -129,12 +129,12 @@ input.cs-val{background:none;border:none;outline:none;width:100%;padding:0;-moz-
 input.cs-val::-webkit-outer-spin-button, input.cs-val::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 input.cs-val:focus{background:rgba(74,158,255,0.08);}
 .cs-jump-btn{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 4px;
-  font-family:'DM Mono',monospace;font-size:10px;color:var(--blue);cursor:pointer;transition:background .15s;text-align:center;}
+  font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);cursor:pointer;transition:background .15s;text-align:center;}
 .cs-jump-btn:hover{background:rgba(74,158,255,0.1);}
 
 /* ── COMPUTED ── */
 .computed-box{background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:8px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;}
-.cb-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--blue-dim);text-transform:uppercase;letter-spacing:1px;}
+.cb-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--blue-dim);text-transform:uppercase;letter-spacing:1px;}
 .cb-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--blue);}
 .computed-box.lime{background:rgba(109,217,109,0.06);border-color:rgba(109,217,109,0.2);}
 .computed-box.lime .cb-label{color:#3a7a3a;}
@@ -148,25 +148,25 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 .pay-opt.small-only{border-color:rgba(37,211,102,0.2);}
 .pay-opt.small-only.selected{border-color:var(--wa);background:rgba(37,211,102,0.08);}
 .pay-opt .po-icon{font-size:20px;margin-bottom:4px;}
-.pay-opt .po-name{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:var(--dust);}
+.pay-opt .po-name{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--dust);}
 .pay-opt.selected .po-name{color:var(--cream);}
-.pay-opt .po-desc{font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:2px;}
+.pay-opt .po-desc{font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:2px;}
 .pay-opt.locked{opacity:0.4;cursor:not-allowed;position:relative;}
-.pay-opt.locked::after{content:'LARGE ORDERS ONLY';position:absolute;top:4px;right:4px;font-family:'DM Mono',monospace;font-size:6.5px;color:var(--amber);letter-spacing:.5px;}
+.pay-opt.locked::after{content:'LARGE ORDERS ONLY';position:absolute;top:4px;right:4px;font-family:'DM Mono',monospace;font-size:7.5px;color:var(--amber);letter-spacing:.5px;}
 
 /* ── SECURITY NOTICE ── */
 .security-box{background:rgba(240,192,64,0.05);border:1px solid rgba(240,192,64,0.2);border-radius:8px;padding:12px 14px;margin-bottom:14px;}
 .sb-hdr{display:flex;align-items:center;gap:7px;margin-bottom:6px;}
 .sb-icon{font-size:14px;}
-.sb-title{font-family:'DM Mono',monospace;font-size:9px;color:var(--sun);letter-spacing:1.5px;text-transform:uppercase;}
-.sb-body{font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.6;}
+.sb-title{font-family:'DM Mono',monospace;font-size:10px;color:var(--sun);letter-spacing:1.5px;text-transform:uppercase;}
+.sb-body{font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.6;}
 
 /* ── BANK DETAILS ── */
 .bank-card{background:var(--raised);border:1px solid var(--border-b);border-radius:8px;padding:14px 16px;margin-top:12px;}
 .bank-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(74,158,255,0.05);}
 .bank-row:last-child{border-bottom:none;}
-.br-label{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);}
-.br-val{font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);font-weight:500;}
+.br-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);}
+.br-val{font-family:'DM Mono',monospace;font-size:12px;color:var(--cream);font-weight:500;}
 
 /* ── SUBMIT ── */
 .submit-btn{width:100%;padding:15px;background:var(--blue);border:none;border-radius:10px;color:var(--bg);font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;margin-top:4px;}
@@ -180,29 +180,29 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 .wa-fallback{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;background:rgba(37,211,102,0.06);border:1px solid rgba(37,211,102,0.2);border-radius:10px;margin-top:12px;cursor:pointer;text-decoration:none;transition:all .2s;}
 .wa-fallback:hover{background:rgba(37,211,102,0.12);}
 .volume-request-banner:hover{background:rgba(74,158,255,0.12);}
-.wa-fallback span{font-family:'DM Mono',monospace;font-size:11px;color:var(--wa);}
+.wa-fallback span{font-family:'DM Mono',monospace;font-size:12px;color:var(--wa);}
 
 /* ── SUCCESS SCREEN ── */
 .success-screen{display:none;text-align:center;padding:32px 20px;}
 .success-screen.show{display:block;}
 .ss-icon{font-size:56px;margin-bottom:16px;}
 .ss-title{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--lime);margin-bottom:8px;}
-.ss-sub{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);line-height:1.7;margin-bottom:20px;}
+.ss-sub{font-family:'DM Mono',monospace;font-size:12px;color:var(--mist);line-height:1.7;margin-bottom:20px;}
 .ref-badge{display:inline-block;font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--blue);background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.3);padding:10px 20px;border-radius:8px;margin:12px 0;letter-spacing:2px;}
 .payment-instructions{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:left;margin:16px 0;}
-.pi-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--cream);margin-bottom:10px;}
+.pi-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--cream);margin-bottom:10px;}
 .pi-step{display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;}
-.pi-num{width:20px;height:20px;border-radius:50%;background:rgba(74,158,255,0.15);border:1px solid rgba(74,158,255,0.3);color:var(--blue);font-family:'DM Mono',monospace;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
-.pi-text{font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.5;}
+.pi-num{width:20px;height:20px;border-radius:50%;background:rgba(74,158,255,0.15);border:1px solid rgba(74,158,255,0.3);color:var(--blue);font-family:'DM Mono',monospace;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.pi-text{font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.5;}
 .pi-text strong{color:var(--cream);}
 
 /* ── PROMO BANNER ── */
 .promo-banner{background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.2);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;}
 .pb-icon{font-size:16px;}
-.pb-text{font-family:'DM Mono',monospace;font-size:10px;color:var(--teal);line-height:1.5;}
+.pb-text{font-family:'DM Mono',monospace;font-size:11px;color:var(--teal);line-height:1.5;}
 
 /* ── ALERT ── */
-.alert{padding:10px 14px;border-radius:8px;font-family:'DM Mono',monospace;font-size:10px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;}
+.alert{padding:10px 14px;border-radius:8px;font-family:'DM Mono',monospace;font-size:11px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;}
 .alert.warn{background:rgba(224,144,48,0.08);border:1px solid rgba(224,144,48,0.2);color:var(--amber);}
 .alert.err{background:rgba(224,72,72,0.08);border:1px solid rgba(224,72,72,0.2);color:var(--red);}
 .alert.ok{background:rgba(109,217,109,0.08);border:1px solid rgba(109,217,109,0.2);color:var(--lime);}
@@ -215,10 +215,10 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 .del-choice.selected{border-color:var(--blue);background:rgba(74,158,255,0.07);}
 .del-choice.selected.delivery{border-color:var(--teal);background:rgba(61,214,192,0.07);}
 .dc-icon{font-size:24px;margin-bottom:6px;}
-.dc-name{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--dust);}
+.dc-name{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--dust);}
 .del-choice.selected .dc-name{color:var(--blue);}
 .del-choice.selected.delivery .dc-name{color:var(--teal);}
-.dc-desc{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px;line-height:1.5;}
+.dc-desc{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:3px;line-height:1.5;}
 
 .zone-selector{margin-bottom:14px;}
 .zone-opts{display:flex;flex-direction:column;gap:7px;}
@@ -229,12 +229,12 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 .zone-opt.selected{border-color:var(--teal);background:rgba(61,214,192,0.06);}
 .zo-left{display:flex;align-items:center;gap:10px;}
 .zo-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
-.zo-name{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--dust);}
+.zo-name{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--dust);}
 .zone-opt.selected .zo-name{color:var(--teal);}
-.zo-range{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px;}
+.zo-range{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:2px;}
 .zo-right{text-align:right;}
-.zo-levy{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--cream);}
-.zo-per{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px;}
+.zo-levy{font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--cream);}
+.zo-per{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:2px;}
 
 .location-input-wrap{margin-bottom:14px;}
 
@@ -244,15 +244,15 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
   border-bottom:1px solid rgba(74,158,255,0.05);}
 .ob-row:last-child{border-bottom:none;padding-top:8px;margin-top:4px;}
 .ob-row.total{border-top:1px solid var(--border-b);padding-top:10px;}
-.ob-label{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);}
-.ob-val{font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);font-weight:500;}
+.ob-label{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);}
+.ob-val{font-family:'DM Mono',monospace;font-size:12px;color:var(--cream);font-weight:500;}
 .ob-val.egg{color:var(--blue);}
 .ob-val.delivery{color:var(--teal);}
 .ob-val.total{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--lime);}
-.ob-label.total{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:var(--cream);}
+.ob-label.total{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--cream);}
 
 .collect-info{background:rgba(74,158,255,0.05);border:1px solid rgba(74,158,255,0.15);
-  border-radius:8px;padding:10px 13px;font-family:'DM Mono',monospace;font-size:10px;
+  border-radius:8px;padding:10px 13px;font-family:'DM Mono',monospace;font-size:11px;
   color:var(--dust);line-height:1.6;margin-bottom:14px;}
 
 @media(max-width:420px){.delivery-choice{grid-template-columns:1fr;}}
@@ -301,13 +301,13 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         <span class="sub">Add to your home screen for one-tap ordering next time.</span>
       </span>
       <div style="margin-top:8px;">
-        <button id="pwa-install-btn" onclick="triggerPwaInstall()" style="display:none;width:100%;padding:10px;background:var(--blue);border:none;border-radius:10px;color:var(--bg);font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;">📲 Install App</button>
-        <div id="pwa-ios-instructions" style="display:none;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);text-align:center;margin-top:4px;">
+        <button id="pwa-install-btn" onclick="triggerPwaInstall()" style="display:none;width:100%;padding:10px;background:var(--blue);border:none;border-radius:10px;color:var(--bg);font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">📲 Install App</button>
+        <div id="pwa-ios-instructions" style="display:none;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);text-align:center;margin-top:4px;">
           Tap the Share icon <strong>⬆</strong> below, then <strong>"Add to Home Screen"</strong>
         </div>
       </div>
       <div style="text-align:center;margin-top:4px;">
-        <a href="#" onclick="dismissPwaBanner();return false;" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--dust);text-decoration:underline;">Not now</a>
+        <a href="#" onclick="dismissPwaBanner();return false;" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);text-decoration:underline;">Not now</a>
       </div>
     </div>
 
@@ -344,16 +344,16 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <!-- STOCK STATUS -->
     <div class="stock-ticker" id="stock-ticker" style="padding:16px 18px">
       <div class="st-left" style="flex:0 0 auto">
-        <div style="font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px">Stock Available</div>
+        <div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px">Stock Available</div>
         <div class="st-avail good" id="avail-display">—</div>
-        <div style="font-size:9px;margin-top:3px;color:var(--mist)">crates ready to order</div>
+        <div style="font-size:10px;margin-top:3px;color:var(--mist)">crates ready to order</div>
       </div>
 
       <!-- WARNING TRIANGLE — price stability notice, sitting between stock and price -->
       <div style="flex:1;min-width:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;
         text-align:center;padding:0 14px;border-left:1px dashed var(--border);border-right:1px dashed var(--border)">
         <div style="font-size:26px;line-height:1;margin-bottom:5px;color:var(--amber)">⚠</div>
-        <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);line-height:1.5;max-width:200px">
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);line-height:1.5;max-width:200px">
           Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.
         </div>
       </div>
@@ -362,9 +362,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         <div class="st-price" id="price-display">₦5,700/crate</div>
         <div class="st-pprice" id="portal-price-sub">delivered price, per crate</div>
         <div id="portal-batch-note" style="display:none;font-family:'DM Mono',monospace;
-          font-size:8.5px;color:var(--teal);margin-top:3px"></div>
+          font-size:9.5px;color:var(--teal);margin-top:3px"></div>
         <div id="promo-price-note" style="display:none;font-family:'DM Mono',monospace;
-          font-size:9px;color:var(--teal);margin-top:3px"></div>
+          font-size:10px;color:var(--teal);margin-top:3px"></div>
       </div>
     </div>
 
@@ -375,7 +375,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       padding:14px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.25);border-radius:10px;
       margin-bottom:16px;cursor:pointer;transition:all .2s">
       <span style="font-size:14px">📦</span>
-      <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);font-weight:600">Need more than <span id="vol-request-stock-count">this</span>? Make a volume request →</span>
+      <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--blue);font-weight:600">Need more than <span id="vol-request-stock-count">this</span>? Make a volume request →</span>
     </div>
 
     <!-- ACTIVE PROMO BANNER -->
@@ -406,7 +406,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Location / Market <span class="req">*</span></label>
+            <label class="form-label">Delivery Location <span class="req">*</span></label>
             <input class="form-input" id="c-location" placeholder="e.g. Mushin, Lagos"/>
           </div>
           <div class="form-group">
@@ -418,30 +418,30 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           <div class="form-group">
             <label class="form-label">Referred By <span style="color:var(--mist)">(optional — a friend's referral code)</span></label>
             <input class="form-input" id="c-referral-code" placeholder="e.g. BEL-TUND123" oninput="checkReferralCode()"/>
-            <div id="referral-check-msg" style="display:none;font-family:'DM Mono',monospace;font-size:9px;margin-top:4px"></div>
+            <div id="referral-check-msg" style="display:none;font-family:'DM Mono',monospace;font-size:10px;margin-top:4px"></div>
           </div>
         </div>
         <div id="customer-match-box" style="display:none" class="alert ok">
           ✓ Account recognised — <span id="match-name"></span> · <span id="match-loyalty"></span>
         </div>
         <div id="phone-mismatch-confirm" style="display:none;background:rgba(240,180,40,0.08);border:1px solid rgba(240,180,40,0.3);
-          border-radius:8px;padding:12px 14px;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;color:var(--cream);line-height:1.6">
+          border-radius:8px;padding:12px 14px;margin-top:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);line-height:1.6">
           <div id="phone-mismatch-msg" style="margin-bottom:8px"></div>
           <div style="display:flex;gap:8px">
             <button type="button" class="btn-sm" onclick="confirmSameCustomer(true)"
-              style="background:var(--lime);color:#0a0e14;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace;font-size:9.5px">Yes, that's me</button>
+              style="background:var(--lime);color:#0a0e14;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px">Yes, that's me</button>
             <button type="button" class="btn-sm" onclick="confirmSameCustomer(false)"
-              style="background:transparent;color:var(--mist);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-family:'DM Mono',monospace;font-size:9.5px">No, different person</button>
+              style="background:transparent;color:var(--mist);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px">No, different person</button>
           </div>
         </div>
         <div id="my-loyalty-panel" style="display:none;background:rgba(240,180,40,0.06);border:1px solid rgba(240,180,40,0.25);
           border-radius:8px;padding:12px 14px;margin-top:8px"></div>
         <div id="price-change-notice" style="display:none;font-family:'DM Mono',monospace;
-          font-size:9.5px;color:var(--amber);background:rgba(224,144,48,0.07);
+          font-size:10.5px;color:var(--amber);background:rgba(224,144,48,0.07);
           border:1px solid rgba(224,144,48,0.2);border-radius:7px;padding:8px 11px;
           margin-top:8px;line-height:1.6"></div>
         <div id="wallet-notice" style="display:none;font-family:'DM Mono',monospace;
-          font-size:9.5px;color:var(--lime);background:rgba(109,217,109,0.07);
+          font-size:10.5px;color:var(--lime);background:rgba(109,217,109,0.07);
           border:1px solid rgba(109,217,109,0.2);border-radius:7px;padding:8px 11px;
           margin-top:8px;line-height:1.6"></div>
       </div>
@@ -470,7 +470,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
             <button class="cs-btn" onclick="adjustCrates(1)" style="font-size:16px">+</button>
             <button class="cs-btn" onclick="adjustCrates(10)">+</button>
           </div>
-          <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:5px">
+          <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:5px">
             <span>Min: 1 crate · type a number directly for large orders</span>
             <span id="max-display">Max: — crates available</span>
           </div>
@@ -488,7 +488,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           🎯 Promo discount applied — <span id="discount-detail"></span>
         </div>
         <div id="wallet-nudge" style="display:none;font-family:'DM Mono',monospace;
-          font-size:9.5px;color:var(--teal);background:rgba(61,214,192,0.07);
+          font-size:10.5px;color:var(--teal);background:rgba(61,214,192,0.07);
           border:1px solid rgba(61,214,192,0.2);border-radius:7px;padding:8px 11px;
           margin-top:8px;line-height:1.6"></div>
 
@@ -544,13 +544,13 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           <div id="ob-savings-row" style="display:none;margin-top:10px;padding:10px 12px;
             background:rgba(109,217,109,0.07);border:1px solid rgba(109,217,109,0.25);border-radius:8px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12.5px;color:var(--lime)">🎉 You saved</span>
+              <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13.5px;color:var(--lime)">🎉 You saved</span>
               <span style="font-family:'DM Mono',monospace;font-weight:700;font-size:14px;color:var(--lime)" id="ob-savings-total">—</span>
             </div>
-            <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:4px" id="ob-savings-breakdown"></div>
+            <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:4px" id="ob-savings-breakdown"></div>
           </div>
           <div id="ob-wallet-progress-wrap" style="display:none;margin-top:6px">
-            <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-bottom:3px">
+            <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-bottom:3px">
               <span>Wallet covers this order</span>
               <span id="ob-wallet-progress-pct">0%</span>
             </div>
@@ -559,7 +559,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
             </div>
           </div>
         </div>
-        <div id="ob-wallet-note" style="display:none;font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);line-height:1.6;margin-top:4px">
+        <div id="ob-wallet-note" style="display:none;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin-top:4px">
           ℹ Wallet balance shown is an estimate — the amount you actually owe is confirmed by BMF EggScore Limited when your order is verified.
         </div>
       </div>
@@ -607,7 +607,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         </div>
 
         <div id="bank-details" class="bank-card">
-          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px">Payment details sent after confirmation</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px">Payment details sent after confirmation</div>
           <div class="bank-row"><span class="br-label">Bank</span><span class="br-val">First Bank Nigeria</span></div>
           <div class="bank-row"><span class="br-label">Account Name</span><span class="br-val">BMF EggScore Limited</span></div>
           <div class="bank-row"><span class="br-label">Account No.</span><span class="br-val">3012 345 678</span></div>
@@ -616,18 +616,18 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
         <div id="payment-commitment-box" style="display:none;margin-top:12px;padding:12px 14px;
           background:rgba(240,144,40,0.07);border:1px solid rgba(240,144,40,0.3);border-radius:8px">
-          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--amber);margin-bottom:6px">
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--amber);margin-bottom:6px">
             ⏱ Large first order — payment confirmation needed sooner
           </div>
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7;margin-bottom:10px" id="payment-commitment-text"></div>
-          <label style="display:flex;align-items:flex-start;gap:8px;font-family:'DM Mono',monospace;font-size:10px;color:var(--cream);cursor:pointer">
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:10px" id="payment-commitment-text"></div>
+          <label style="display:flex;align-items:flex-start;gap:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);cursor:pointer">
             <input type="checkbox" id="payment-commitment-ack" style="margin-top:2px"/>
             <span>I understand and will complete payment by the time stated above.</span>
           </label>
         </div>
 
         <div id="ussd-details" style="display:none" class="bank-card">
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7">
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">
             Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>
             Account: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>
             Use your <strong style="color:var(--blue)">order reference</strong> as narration.
@@ -635,7 +635,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         </div>
 
         <div id="cash-details" style="display:none" class="bank-card">
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7">
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">
             Cash payment collected on delivery.<br/>
             A BMF EggScore Limited sales rep will contact you to arrange delivery and collect payment.
           </div>
@@ -643,7 +643,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
         <div id="paystack-section" style="display:none">
           <div class="bank-card" style="margin-top:12px">
-            <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7;margin-bottom:12px">
+            <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:12px">
               Secure card payment processed by Paystack.<br/>
               Available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.
             </div>
@@ -670,13 +670,13 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
            a generic rejection. -->
       <div id="large-firsttimer-panel" style="display:none;background:var(--card);border:1px solid var(--amber);border-radius:10px;padding:16px 18px;margin-bottom:16px">
         <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--cream);margin-bottom:8px">⏳ We see this is a big first order</div>
-        <div id="large-firsttimer-text" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:14px"></div>
-        <a id="large-firsttimer-wa-btn" href="#" target="_blank" style="display:block;text-align:center;background:var(--teal);color:#000;padding:12px;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;text-decoration:none">
+        <div id="large-firsttimer-text" style="font-family:'DM Mono',monospace;font-size:12px;color:var(--dust);line-height:1.7;margin-bottom:14px"></div>
+        <a id="large-firsttimer-wa-btn" href="#" target="_blank" style="display:block;text-align:center;background:var(--teal);color:#000;padding:12px;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;text-decoration:none">
           💬 Message us now — we'll prioritize this
         </a>
       </div>
 
-      <div id="reservation-preview" style="display:none;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--violet);
+      <div id="reservation-preview" style="display:none;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--violet);
         background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.25);border-radius:7px;padding:10px 12px;margin-bottom:10px;line-height:1.7"></div>
 
       <button class="submit-btn" id="main-submit-btn" onclick="submitOrder()">
@@ -704,7 +704,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div class="ss-sub">Your order has been submitted to<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong></div>
     <div class="ref-badge" id="success-ref">BEL-ORD-——</div>
     <div class="ss-sub">Screenshot this reference. BMF EggScore Limited will confirm via WhatsApp shortly.</div>
-    <div class="ss-sub" id="success-trust-line" style="font-size:9.5px;color:var(--mist);margin-top:2px"></div>
+    <div class="ss-sub" id="success-trust-line" style="font-size:10.5px;color:var(--mist);margin-top:2px"></div>
 
     <!-- ENROLLMENT CARD — stop 7 on the metro map ("You're In"). Filled
          in dynamically by showSuccess() from what the order response
@@ -729,10 +729,10 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
          only exists where a real, completed order exists to give
          feedback about. -->
     <div style="max-width:560px;margin:20px auto 0 auto;text-align:center">
-      <div style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--mist);margin-bottom:8px">
+      <div style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--mist);margin-bottom:8px">
         We can improve, happy to have your feedback
       </div>
-      <button class="submit-btn wiz-btn-ghost" id="more-toggle-btn" style="width:auto;padding:8px 16px;font-size:11px;margin-top:0" onclick="toggleMoreSection()">
+      <button class="submit-btn wiz-btn-ghost" id="more-toggle-btn" style="width:auto;padding:8px 16px;font-size:12px;margin-top:0" onclick="toggleMoreSection()">
         💬 Feedback &amp; Order Policies <span id="more-toggle-arrow">▾</span>
       </button>
     </div>
@@ -744,7 +744,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           <div class="panel-tag">earns loyalty points</div>
         </div>
         <div class="panel-body">
-          <div id="fb-known-identity" style="display:none;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--teal);margin-bottom:10px;padding:8px 10px;background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.2);border-radius:6px">
+          <div id="fb-known-identity" style="display:none;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--teal);margin-bottom:10px;padding:8px 10px;background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.2);border-radius:6px">
             ✓ Submitting as <strong id="fb-known-name" style="color:var(--cream)"></strong> · <span id="fb-known-phone"></span>
             <a href="#" onclick="event.preventDefault();editFeedbackIdentity()" style="color:var(--blue);margin-left:6px">not you?</a>
           </div>
@@ -767,7 +767,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
             <textarea class="form-textarea" id="fb-text" placeholder="What's working, what isn't, what you'd like to see…" style="min-height:70px"></textarea>
           </div>
           <button class="submit-btn" onclick="submitFeedback()">Submit Feedback</button>
-          <div id="fb-status" style="display:none;margin-top:8px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--lime)"></div>
+          <div id="fb-status" style="display:none;margin-top:8px;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--lime)"></div>
         </div>
       </div>
 
@@ -776,7 +776,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           <div class="panel-title">📜 Our Order Policies</div>
           <div class="panel-tag">honouring these builds your loyalty score</div>
         </div>
-        <div class="panel-body" id="portal-policy-list" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust);line-height:1.9"></div>
+        <div class="panel-body" id="portal-policy-list" style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--dust);line-height:1.9"></div>
       </div>
     </div>
   </div>
@@ -819,7 +819,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         <textarea class="form-input" id="vr-notes" placeholder="Any other detail that helps us plan…" style="min-height:54px;resize:vertical"></textarea>
       </div>
 
-      <div id="vr-err" style="display:none;color:var(--red);font-family:'DM Mono',monospace;font-size:10px;margin-bottom:12px"></div>
+      <div id="vr-err" style="display:none;color:var(--red);font-family:'DM Mono',monospace;font-size:11px;margin-bottom:12px"></div>
 
       <button class="submit-btn" onclick="submitVolumeRequest()">Send Volume Request</button>
     </div>
@@ -828,7 +828,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div id="vr-success-state" class="vr-success">
       <div class="vr-success-icon">✅</div>
       <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--lime);margin-bottom:8px">Request Received</div>
-      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:18px">
+      <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--dust);line-height:1.7;margin-bottom:18px">
         BMF EggScore Limited will reach out shortly to confirm volume, pricing, and timing for your order.
       </div>
       <button class="submit-btn" onclick="closeVolumeRequestModal()" style="background:var(--surface);border:1px solid var(--border);color:var(--cream)">Close</button>
@@ -1186,7 +1186,7 @@ function renderAvailableStockDisplay() {
       noteEl    = document.createElement('div');
       noteEl.id = noteId;
       noteEl.style.cssText =
-        "font-family:'DM Mono',monospace;font-size:9px;color:var(--amber);margin-top:4px";
+        "font-family:'DM Mono',monospace;font-size:10px;color:var(--amber);margin-top:4px";
       avail?.parentElement?.appendChild(noteEl);
     }
     noteEl.textContent = committed + ' crates held for pending orders';
@@ -1509,7 +1509,7 @@ function updatePaymentCommitmentBox() {
 // Looks up an entered referral code against the real backend now,
 // instead of the broken loadERPData().customers read. A customer can't
 // refer themselves.
-async function resolveReferralCode(code, ownName) {
+async function resolveReferralCode(code, ownCid, ownName) {
   if(!code) return null;
   try {
     const resp = await fetch(`${BACKEND_URL}/customers/by-referral?code=${encodeURIComponent(code.trim().toUpperCase())}`, {
@@ -1518,6 +1518,14 @@ async function resolveReferralCode(code, ownName) {
     if(!resp.ok) return null;
     const match = await resp.json();
     if(!match) return null;
+    // Self-referral guard. A customer entering their OWN referral code —
+    // deliberately or by pasting the wrong code — should never credit
+    // itself. CID is the reliable check (it's the same identity used
+    // elsewhere once a customer's recognised by name or code); the name
+    // comparison is kept only as a fallback for the rare case where no
+    // CID identity is available yet, e.g. a self-referral attempt from
+    // someone who hasn't been recognised on this visit at all.
+    if(ownCid && match.cid && match.cid === ownCid) return null;
     if(match.name === ownName) return null;
     return match.name;
   } catch(networkErr) {
@@ -1529,13 +1537,14 @@ let referralDebounceTimer = null;
 function checkReferralCode() {
   const code = document.getElementById('c-referral-code')?.value.trim();
   const ownName = document.getElementById('c-name')?.value.trim();
+  const ownCid  = portalState.matchedCustomer?.cid || null;
   const msgEl = document.getElementById('referral-check-msg');
   if(!msgEl) return;
   if(!code) { msgEl.style.display = 'none'; return; }
 
   clearTimeout(referralDebounceTimer);
   referralDebounceTimer = setTimeout(async () => {
-    const referrer = await resolveReferralCode(code, ownName);
+    const referrer = await resolveReferralCode(code, ownCid, ownName);
     msgEl.style.display = 'block';
     if(referrer) {
       msgEl.style.color = 'var(--lime)';
@@ -1697,18 +1706,18 @@ async function renderMyLoyaltyPanel(customerName) {
   panel.style.display = 'block';
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--sun)">🏅 Your Loyalty: ${profile.loyaltyLevel}</span>
-      <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--sun)">${profile.loyaltyPoints} pts</span>
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--sun)">🏅 Your Loyalty: ${profile.loyaltyLevel}</span>
+      <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--sun)">${profile.loyaltyPoints} pts</span>
     </div>
-    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--dust);line-height:1.8">
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.8">
       Advocacy ${profile.breakdown.advocacy} · Feedback ${profile.breakdown.feedback} ·
       Communication ${profile.breakdown.communication} · Respect ${profile.breakdown.respect}
     </div>
     ${profile.referralCode ? `
-    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:8px;padding-top:8px;border-top:1px solid rgba(240,180,40,0.15)">
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:8px;padding-top:8px;border-top:1px solid rgba(240,180,40,0.15)">
       Your referral code: <strong style="color:var(--sun)">${profile.referralCode}</strong> — share it, earn points when they buy.
     </div>` : `
-    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:8px">
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:8px">
       Your referral code will appear after your first order.
     </div>`}
   `;
@@ -2628,7 +2637,7 @@ async function submitReservation() {
     deliveryTotal, grandTotal,
     promoApplied: promo ? promo.name : null, promoDiscount,
     loyaltyTier: portalState.matchedCustomer?.loyalty || 'New',
-    referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
+    referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, portalState.matchedCustomer?.cid || null, name),
     status: 'reserved',
     source: 'portal',
     reservationCustomerType: customerType,
@@ -2751,7 +2760,7 @@ async function submitOrder() {
     promoApplied:   promo ? promo.name : null,
     promoDiscount,
     loyaltyTier:    portalState.matchedCustomer?.loyalty || 'New',
-    referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, name),
+    referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, portalState.matchedCustomer?.cid || null, name),
     paymentCommitmentDeadline, // set only for first-time/large-volume/bank-transfer orders — the customer's own stated deadline
     status:         'pending',
     source:         'portal',
@@ -2817,18 +2826,18 @@ function showSuccess(order, paid) {
   if(enrollCard && order.customerCid) {
     if(order.isNewCustomer) {
       enrollCard.innerHTML = `
-        <div style="font-size:13px;margin-bottom:4px">🎉 You're now an EggScore customer!</div>
-        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px">
+        <div style="font-size:14px;margin-bottom:4px">🎉 You're now an EggScore customer!</div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);margin-bottom:10px">
           Your Customer ID is <strong style="color:var(--teal)">${order.customerCid}</strong> — quote it next time for faster ordering.
         </div>
-        <button class="submit-btn" style="width:auto;padding:8px 16px;font-size:11px;margin-top:0"
+        <button class="submit-btn" style="width:auto;padding:8px 16px;font-size:12px;margin-top:0"
           onclick="rememberMyDetails('${order.customerName.replace(/'/g,"\\'")}','${order.phone}','${order.location.replace(/'/g,"\\'")}','${order.customerCid}');
           this.textContent='✓ Saved on this device';this.disabled=true;">
           Remember me on this device
         </button>`;
     } else {
       enrollCard.innerHTML = `
-        <div style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--teal)">
+        <div style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--teal)">
           Welcome back — Customer ID <strong>${order.customerCid}</strong>
         </div>`;
     }
@@ -2848,7 +2857,7 @@ function showSuccess(order, paid) {
     const typeLabel = order.reservationCustomerType === 'returning' ? 'returning customer' : 'new customer';
     piEl.innerHTML = `
       <div class="pi-title">🕐 Reservation Held</div>
-      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--violet);line-height:1.8">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--violet);line-height:1.8">
         ${order.crates} crates held at <strong>${eggAmt}</strong> = <strong style="color:var(--lime)">${total}</strong>.<br>
         Held for <strong>${order.reservationWindowHours} hours</strong> as a <strong>${typeLabel}</strong> — until
         <strong>${expires.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</strong>.<br>
@@ -2861,7 +2870,7 @@ function showSuccess(order, paid) {
   } else if(paid) {
     piEl.innerHTML = `
       <div class="pi-title">✅ Payment Confirmed</div>
-      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--lime)">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lime)">
         Card payment of ${total} was successful. Order is confirmed.
       </div>`;
   } else if(order.paymentMethod === 'cash') {
