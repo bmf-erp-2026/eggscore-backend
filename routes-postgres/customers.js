@@ -90,8 +90,8 @@ router.get('/by-code', requireEitherAuth(), async (req, res) => {
 router.get('/by-referral', requireEitherAuth(), async (req, res) => {
   const code = (req.query.code || '').trim().toUpperCase();
   if(!code) return res.json(null);
-  const row = await db.prepare(`SELECT name FROM customers WHERE referral_code = ?`).get(code);
-  res.json(row ? { name: row.name } : null);
+  const row = await db.prepare(`SELECT name, cid FROM customers WHERE referral_code = ?`).get(code);
+  res.json(row ? { name: row.name, cid: row.cid } : null);
 });
 
 module.exports = router;
