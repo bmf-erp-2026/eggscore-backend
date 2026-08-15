@@ -1986,7 +1986,27 @@ async function computePortalLoyaltyProfile(erp, customerName) {
   // and order status, neither of which the backend orders table actually
   // stores yet (a separate, larger gap — the ERP sets these fields only
   // on its own local, unsynced order objects). Unchanged from before.
-  const referred = orders.filter(o => o.referredByCustomerName === customerName && o.status === 'fulfilled');
+  //
+  // FIX: previously counted every fulfilled order carrying this
+  // customer's referral code, with no check on whether the person
+  // placing it was actually new. That let two already-established
+  // customers trade codes back and forth ("use my code, I'll use
+  // yours") and farm Advocacy points indefinitely, since neither of
+  // them was ever a genuinely new referral. Now a referral only counts
+  // if it was that referred customer's actual first-ever fulfilled
+  // order — closes both the same-customer-reusing-the-code case and
+  // the two-returning-customers-trading-codes case in one fix, since
+  // neither scenario involves a real first purchase.
+  const allFulfilled = orders.filter(o => o.status === 'fulfilled');
+  const firstOrderByCustomer = {};
+  allFulfilled.forEach(o => {
+    const existing = firstOrderByCustomer[o.customerName];
+    if(!existing || o.date < existing.date) firstOrderByCustomer[o.customerName] = o;
+  });
+  const referred = allFulfilled.filter(o =>
+    o.referredByCustomerName === customerName &&
+    firstOrderByCustomer[o.customerName] === o
+  );
   const advByQ = {};
   referred.forEach(o => { const q = getPortalQuarterKey(o.date); advByQ[q] = (advByQ[q]||0) + ly.pointsPerReferral; });
   const advocacy = Object.values(advByQ).reduce((a,p) => a + Math.min(ly.referralCapPerQuarter, p), 0);
