@@ -19014,7 +19014,23 @@ function getOrCreateReferralCode(customerName) {
 // dominate the relationship score on volume alone.
 function computeAdvocacyPoints(customerName) {
   const s = ensureLoyaltySettings();
-  const referred = loadOrders().filter(o => o.referredByCustomerName === customerName && o.status === 'fulfilled');
+  // FIX: previously counted every fulfilled order carrying this
+  // customer's referral code, with no check on whether the person
+  // placing it was actually new — letting two already-established
+  // customers trade codes back and forth to farm Advocacy points
+  // indefinitely. A referral only counts now if it was that referred
+  // customer's actual first-ever fulfilled order. See famad-order.html's
+  // matching fix in computePortalLoyaltyProfile() for the full reasoning.
+  const allFulfilled = loadOrders().filter(o => o.status === 'fulfilled');
+  const firstOrderByCustomer = {};
+  allFulfilled.forEach(o => {
+    const existing = firstOrderByCustomer[o.customerName];
+    if(!existing || o.date < existing.date) firstOrderByCustomer[o.customerName] = o;
+  });
+  const referred = allFulfilled.filter(o =>
+    o.referredByCustomerName === customerName &&
+    firstOrderByCustomer[o.customerName] === o
+  );
   const byQuarter = {};
   referred.forEach(o => {
     const q = getQuarterKey(o.date);
