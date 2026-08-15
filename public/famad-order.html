@@ -329,10 +329,10 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     </div>
     <h1 class="ph-title">Place Your<br/>Egg Order</h1>
     <p class="ph-sub">Direct ordering — no calls needed<br/>Your order reaches us instantly</p>
-    <div class="ph-badge"><span class="ph-badge-dot"></span> Portal Live</div>
+    <div class="ph-badge"><span class="ph-badge-dot"></span> <span data-i18n="hdr.live">Portal Live</span></div>
 
     <div class="lang-select" style="display:flex;align-items:center;justify-content:center;gap:8px;row-gap:6px;flex-wrap:wrap;margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px">
-      <span style="color:var(--mist)">🌐 Language:</span>
+      <span style="color:var(--mist)">🌐 <span data-i18n="hdr.language_label">Language:</span></span>
       <span class="lang-opt lang-opt-active" data-lang="en" onclick="setLanguage('en')"
         style="cursor:pointer;padding:4px 10px;border-radius:12px;border:1px solid var(--border)">English</span>
       <span class="lang-opt" data-lang="pcm" onclick="setLanguage('pcm')"
@@ -345,21 +345,21 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       .lang-opt-active{background:var(--blue);color:var(--bg);border-color:var(--blue) !important;font-weight:600;}
     </style>
 
-    <div><span class="ph-progressive-banner">📦 We offer volume discount pricing<span class="sub">The more crates you order, the less you pay per crate — automatically</span></span></div>
+    <div><span class="ph-progressive-banner">📦 <span data-i18n="hdr.volume_title">We offer volume discount pricing</span><span class="sub" data-i18n="hdr.volume_sub">The more crates you order, the less you pay per crate — automatically</span></span></div>
 
     <div id="pwa-install-banner" style="display:none;margin-top:8px;">
       <span class="ph-progressive-banner" style="color:var(--blue);background:rgba(74,158,255,0.1);border-color:rgba(74,158,255,0.35);box-shadow:0 0 16px rgba(74,158,255,0.25);">
-        📲 Install this as an app — one visit now, no link needed again
-        <span class="sub">Add to your home screen for one-tap ordering next time.</span>
+        📲 <span data-i18n="pwa.title">Install this as an app — one visit now, no link needed again</span>
+        <span class="sub" data-i18n="pwa.sub">Add to your home screen for one-tap ordering next time.</span>
       </span>
       <div style="margin-top:8px;">
-        <button id="pwa-install-btn" onclick="triggerPwaInstall()" style="display:none;width:100%;padding:10px;background:var(--blue);border:none;border-radius:10px;color:var(--bg);font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">📲 Install App</button>
+        <button id="pwa-install-btn" onclick="triggerPwaInstall()" style="display:none;width:100%;padding:10px;background:var(--blue);border:none;border-radius:10px;color:var(--bg);font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;"><span data-i18n="pwa.btn">📲 Install App</span></button>
         <div id="pwa-ios-instructions" style="display:none;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);text-align:center;margin-top:4px;">
-          Tap the Share icon <strong>⬆</strong> below, then <strong>"Add to Home Screen"</strong>
+          <span data-i18n="pwa.ios">Tap the Share icon <strong>⬆</strong> below, then <strong>"Add to Home Screen"</strong></span>
         </div>
       </div>
       <div style="text-align:center;margin-top:4px;">
-        <a href="#" onclick="dismissPwaBanner();return false;" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);text-decoration:underline;">Not now</a>
+        <a href="#" onclick="dismissPwaBanner();return false;" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);text-decoration:underline;" data-i18n="pwa.notnow">Not now</a>
       </div>
     </div>
 
@@ -373,20 +373,20 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
          order-form-section) so it stays visible through the success and
          feedback screens too, instead of vanishing once the form is done. -->
     <div class="wizard-indicator" id="wizard-indicator">
-      <div class="wiz-dot-wrap active" data-wiz="1" onclick="goToWizardStep(1)"><div class="wiz-dot">1</div><div class="wiz-label">Details</div></div>
-      <div class="wiz-dot-wrap" data-wiz="2" onclick="goToWizardStep(2)"><div class="wiz-dot">2</div><div class="wiz-label">Order</div></div>
-      <div class="wiz-dot-wrap" data-wiz="3" onclick="goToWizardStep(3)"><div class="wiz-dot">3</div><div class="wiz-label">Review</div></div>
-      <div class="wiz-dot-wrap" data-wiz="4" onclick="goToWizardStep(4)"><div class="wiz-dot">4</div><div class="wiz-label">Payment</div></div>
-      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="5"><div class="wiz-dot">5</div><div class="wiz-label">Confirm</div></div>
-      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="6"><div class="wiz-dot">6</div><div class="wiz-label">Feedback</div></div>
-      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="7"><div class="wiz-dot">7</div><div class="wiz-label">You're In</div></div>
+      <div class="wiz-dot-wrap active" data-wiz="1" onclick="goToWizardStep(1)"><div class="wiz-dot">1</div><div class="wiz-label" data-i18n="wiz.details">Details</div></div>
+      <div class="wiz-dot-wrap" data-wiz="2" onclick="goToWizardStep(2)"><div class="wiz-dot">2</div><div class="wiz-label" data-i18n="wiz.order">Order</div></div>
+      <div class="wiz-dot-wrap" data-wiz="3" onclick="goToWizardStep(3)"><div class="wiz-dot">3</div><div class="wiz-label" data-i18n="wiz.review">Review</div></div>
+      <div class="wiz-dot-wrap" data-wiz="4" onclick="goToWizardStep(4)"><div class="wiz-dot">4</div><div class="wiz-label" data-i18n="wiz.payment">Payment</div></div>
+      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="5"><div class="wiz-dot">5</div><div class="wiz-label" data-i18n="wiz.confirm">Confirm</div></div>
+      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="6"><div class="wiz-dot">6</div><div class="wiz-label" data-i18n="wiz.feedback">Feedback</div></div>
+      <div class="wiz-dot-wrap wiz-upcoming" data-wiz="7"><div class="wiz-dot">7</div><div class="wiz-label" data-i18n="wiz.yourein">You're In</div></div>
     </div>
 
     <!-- PREFER WHATSAPP — a genuine alternative to the form, so it has to
          be visible before any of it, not discovered after finishing it. -->
     <a href="https://wa.me/2348068371725?text=Hello%20BMF%20EggScore%20Limited%2C%20I%27d%20like%20to%20place%20an%20order%20via%20WhatsApp."
       target="_blank" class="wa-fallback" style="max-width:400px;margin:14px auto 0 auto">
-      <span>💬</span><span>Prefer WhatsApp? Order here →</span>
+      <span>💬</span><span data-i18n="wa.order_here">Prefer WhatsApp? Order here →</span>
     </a>
   </div>
 
@@ -396,9 +396,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <!-- STOCK STATUS -->
     <div class="stock-ticker" id="stock-ticker" style="padding:16px 18px">
       <div class="st-left" style="flex:0 0 auto">
-        <div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px">Stock Available</div>
+        <div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px" data-i18n="stock.available">Stock Available</div>
         <div class="st-avail good" id="avail-display">—</div>
-        <div style="font-size:10px;margin-top:3px;color:var(--mist)">crates ready to order</div>
+        <div style="font-size:10px;margin-top:3px;color:var(--mist)" data-i18n="stock.ready">crates ready to order</div>
       </div>
 
       <!-- WARNING TRIANGLE — price stability notice, sitting between stock and price -->
@@ -406,13 +406,13 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         text-align:center;padding:0 14px;border-left:1px dashed var(--border);border-right:1px dashed var(--border)">
         <div style="font-size:26px;line-height:1;margin-bottom:5px;color:var(--amber)">⚠</div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);line-height:1.5;max-width:200px">
-          Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.
+          <span data-i18n="stock.price_note">Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.</span>
         </div>
       </div>
 
       <div class="st-right" style="flex:0 0 auto">
         <div class="st-price" id="price-display">₦5,700/crate</div>
-        <div class="st-pprice" id="portal-price-sub">delivered price, per crate</div>
+        <div class="st-pprice" id="portal-price-sub" data-i18n="stock.delivered_price">delivered price, per crate</div>
         <div id="portal-batch-note" style="display:none;font-family:'DM Mono',monospace;
           font-size:9.5px;color:var(--teal);margin-top:3px"></div>
         <div id="promo-price-note" style="display:none;font-family:'DM Mono',monospace;
@@ -427,7 +427,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       padding:14px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.25);border-radius:10px;
       margin-bottom:16px;cursor:pointer;transition:all .2s">
       <span style="font-size:14px">📦</span>
-      <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--blue);font-weight:600">Need more than <span id="vol-request-stock-count">this</span>? Make a volume request →</span>
+      <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--blue);font-weight:600"><span data-i18n="vol.need_more">Need more than</span> <span id="vol-request-stock-count">this</span>? <span data-i18n="vol.make_request">Make a volume request →</span></span>
     </div>
 
     <!-- ACTIVE PROMO BANNER -->
@@ -442,48 +442,48 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <!-- STEP 1: IDENTIFY -->
     <div class="panel wizard-step active" data-step="1" id="wizard-step-1">
       <div class="panel-hdr">
-        <div class="panel-title">① Your Details</div>
-        <div class="panel-tag">identify your account</div>
+        <div class="panel-title">① <span data-i18n="s1.title">Your Details</span></div>
+        <div class="panel-tag" data-i18n="s1.tag">identify your account</div>
       </div>
       <div class="panel-body">
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Your Name / Business <span class="req">*</span></label>
+            <label class="form-label"><span data-i18n="s1.name_label">Your Name / Business</span> <span class="req">*</span></label>
             <input class="form-input" id="c-name" placeholder="e.g. Alhaji Musa Supplies" oninput="lookupCustomer()"/>
           </div>
           <div class="form-group">
-            <label class="form-label">Phone Number <span class="req">*</span></label>
+            <label class="form-label"><span data-i18n="s1.phone_label">Phone Number</span> <span class="req">*</span></label>
             <input class="form-input" id="c-phone" type="tel" placeholder="080X XXXX XXXX" oninput="updateOrderCalc();checkPhoneMismatch()"/>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Delivery Location <span class="req">*</span></label>
+            <label class="form-label"><span data-i18n="s1.location_label">Delivery Location</span> <span class="req">*</span></label>
             <input class="form-input" id="c-location" placeholder="e.g. Mushin, Lagos"/>
           </div>
           <div class="form-group">
-            <label class="form-label">Customer Code <span style="color:var(--mist)">(optional)</span></label>
+            <label class="form-label"><span data-i18n="s1.code_label">Customer Code</span> <span style="color:var(--mist)" data-i18n="common.optional">(optional)</span></label>
             <input class="form-input" id="c-code" placeholder="e.g. BEL-C001" oninput="lookupByCode()"/>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Referred By <span style="color:var(--mist)">(optional — a friend's referral code)</span></label>
+            <label class="form-label"><span data-i18n="s1.referral_label">Referred By</span> <span style="color:var(--mist)" data-i18n="s1.referral_hint">(optional — a friend's referral code)</span></label>
             <input class="form-input" id="c-referral-code" placeholder="e.g. BEL-TUND123" oninput="checkReferralCode()"/>
             <div id="referral-check-msg" style="display:none;font-family:'DM Mono',monospace;font-size:10px;margin-top:4px"></div>
           </div>
         </div>
         <div id="customer-match-box" style="display:none" class="alert ok">
-          ✓ Account recognised — <span id="match-name"></span> · <span id="match-loyalty"></span>
+          ✓ <span data-i18n="s1.recognised">Account recognised —</span> <span id="match-name"></span> · <span id="match-loyalty"></span>
         </div>
         <div id="phone-mismatch-confirm" style="display:none;background:rgba(240,180,40,0.08);border:1px solid rgba(240,180,40,0.3);
           border-radius:8px;padding:12px 14px;margin-top:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);line-height:1.6">
           <div id="phone-mismatch-msg" style="margin-bottom:8px"></div>
           <div style="display:flex;gap:8px">
             <button type="button" class="btn-sm" onclick="confirmSameCustomer(true)"
-              style="background:var(--lime);color:var(--bg);border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px">Yes, that's me</button>
+              style="background:var(--lime);color:var(--bg);border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px" data-i18n="s1.yes_me">Yes, that's me</button>
             <button type="button" class="btn-sm" onclick="confirmSameCustomer(false)"
-              style="background:transparent;color:var(--mist);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px">No, different person</button>
+              style="background:transparent;color:var(--mist);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px" data-i18n="s1.no_different">No, different person</button>
           </div>
         </div>
         <div id="my-loyalty-panel" style="display:none;background:rgba(240,180,40,0.06);border:1px solid rgba(240,180,40,0.25);
@@ -500,19 +500,19 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     </div><!-- /wizard-step-1 -->
 
     <div class="wiz-nav" data-step-nav="1">
-      <button class="submit-btn" style="margin-top:0" onclick="goToWizardStep(2)">Continue to Order →</button>
+      <button class="submit-btn" style="margin-top:0" onclick="goToWizardStep(2)" data-i18n="s1.continue">Continue to Order →</button>
     </div>
 
     <!-- STEP 2: ORDER -->
     <div class="panel wizard-step" data-step="2" id="wizard-step-2">
       <div class="panel-hdr">
-        <div class="panel-title">② Your Order</div>
-        <div class="panel-tag" id="order-tag">select quantity</div>
+        <div class="panel-title">② <span data-i18n="s2.title">Your Order</span></div>
+        <div class="panel-tag" id="order-tag" data-i18n="s2.tag">select quantity</div>
       </div>
       <div class="panel-body">
 
         <div class="form-group">
-          <label class="form-label">Crates to Order <span class="req">*</span></label>
+          <label class="form-label"><span data-i18n="s2.crates_label">Crates to Order</span> <span class="req">*</span></label>
           <div class="crate-stepper">
             <button class="cs-btn" onclick="adjustCrates(-10)">−</button>
             <button class="cs-btn" onclick="adjustCrates(-1)" style="font-size:16px">‒</button>
@@ -523,7 +523,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
             <button class="cs-btn" onclick="adjustCrates(10)">+</button>
           </div>
           <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:5px">
-            <span>Min: 1 crate · type a number directly for large orders</span>
+            <span data-i18n="s2.min_hint">Min: 1 crate · type a number directly for large orders</span>
             <span id="max-display">Max: — crates available</span>
           </div>
           <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px" id="cs-jump-row">
@@ -535,9 +535,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           </div>
         </div>
 
-        <div id="stock-warn" class="alert warn" style="display:none">⚠ Requested quantity exceeds available stock.</div>
+        <div id="stock-warn" class="alert warn" style="display:none">⚠ <span data-i18n="s2.stock_warn">Requested quantity exceeds available stock.</span></div>
         <div id="discount-applied" class="alert ok" style="display:none">
-          🎯 Promo discount applied — <span id="discount-detail"></span>
+          🎯 <span data-i18n="s2.promo_applied">Promo discount applied —</span> <span id="discount-detail"></span>
         </div>
         <div id="wallet-nudge" style="display:none;font-family:'DM Mono',monospace;
           font-size:10.5px;color:var(--teal);background:rgba(61,214,192,0.07);
@@ -545,65 +545,65 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           margin-top:8px;line-height:1.6"></div>
 
         <div class="form-group">
-          <label class="form-label">Delivery Notes <span style="color:var(--mist)">(optional)</span></label>
+          <label class="form-label"><span data-i18n="s2.notes_label">Delivery Notes</span> <span style="color:var(--mist)" data-i18n="common.optional">(optional)</span></label>
           <input class="form-input" id="c-notes" placeholder="Delivery address, timing preference, special instructions…"/>
         </div>
       </div>
     </div><!-- /wizard-step-2 -->
 
     <div class="wiz-nav" data-step-nav="2">
-      <button class="submit-btn wiz-btn-ghost" style="flex:0.6;margin-top:0" onclick="goToWizardStep(1)">← Back</button>
-      <button class="submit-btn" style="flex:1;margin-top:0" onclick="goToWizardStep(3)">Continue to Review →</button>
+      <button class="submit-btn wiz-btn-ghost" style="flex:0.6;margin-top:0" onclick="goToWizardStep(1)" data-i18n="common.back">← Back</button>
+      <button class="submit-btn" style="flex:1;margin-top:0" onclick="goToWizardStep(3)" data-i18n="s2.continue">Continue to Review →</button>
     </div>
 
     <!-- STEP 2.5: DELIVERY PREFERENCE -->
     <!-- STEP 3: ORDER BREAKDOWN -->
     <div class="panel wizard-step" data-step="3" id="wizard-step-3">
       <div class="panel-hdr">
-        <div class="panel-title">③ Order Breakdown</div>
-        <div class="panel-tag">before payment</div>
+        <div class="panel-title">③ <span data-i18n="s3.title">Order Breakdown</span></div>
+        <div class="panel-tag" data-i18n="s3.tag">before payment</div>
       </div>
       <div class="panel-body">
         <div class="order-breakdown">
           <div class="ob-row">
-            <div class="ob-label">Egg price</div>
+            <div class="ob-label" data-i18n="s3.egg_price">Egg price</div>
             <div class="ob-val egg" id="ob-egg-price">—</div>
           </div>
           <div class="ob-row">
-            <div class="ob-label">Crates ordered</div>
+            <div class="ob-label" data-i18n="s3.crates_ordered">Crates ordered</div>
             <div class="ob-val" id="ob-crates">—</div>
           </div>
           <div class="ob-row">
-            <div class="ob-label">Egg subtotal</div>
+            <div class="ob-label" data-i18n="s3.egg_subtotal">Egg subtotal</div>
             <div class="ob-val egg" id="ob-egg-subtotal">—</div>
           </div>
           <div class="ob-row" id="ob-promo-row" style="display:none">
-            <div class="ob-label">Promo discount</div>
+            <div class="ob-label" data-i18n="s3.promo_discount">Promo discount</div>
             <div class="ob-val" style="color:var(--lime)" id="ob-promo-val">—</div>
           </div>
           <div class="ob-row" id="ob-wallet-row" style="display:none">
-            <div class="ob-label">Wallet credit applied</div>
+            <div class="ob-label" data-i18n="s3.wallet_applied">Wallet credit applied</div>
             <div class="ob-val" style="color:var(--lime)" id="ob-wallet-val">—</div>
           </div>
           <div class="ob-row total">
-            <div class="ob-label total" id="ob-total-label">Total Payable</div>
+            <div class="ob-label total" id="ob-total-label" data-i18n="s3.total_payable">Total Payable</div>
             <div class="ob-val total" id="ob-total">—</div>
           </div>
           <div class="ob-row" id="ob-balance-row" style="display:none">
-            <div class="ob-label" style="color:var(--lime);font-weight:600">Balance to pay</div>
+            <div class="ob-label" style="color:var(--lime);font-weight:600" data-i18n="s3.balance_to_pay">Balance to pay</div>
             <div class="ob-val total" style="color:var(--lime)" id="ob-balance-val">—</div>
           </div>
           <div id="ob-savings-row" style="display:none;margin-top:10px;padding:10px 12px;
             background:rgba(109,217,109,0.07);border:1px solid rgba(109,217,109,0.25);border-radius:8px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13.5px;color:var(--lime)">🎉 You saved</span>
+              <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13.5px;color:var(--lime)">🎉 <span data-i18n="s3.you_saved">You saved</span></span>
               <span style="font-family:'DM Mono',monospace;font-weight:700;font-size:14px;color:var(--lime)" id="ob-savings-total">—</span>
             </div>
             <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:4px" id="ob-savings-breakdown"></div>
           </div>
           <div id="ob-wallet-progress-wrap" style="display:none;margin-top:6px">
             <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-bottom:3px">
-              <span>Wallet covers this order</span>
+              <span data-i18n="s3.wallet_covers">Wallet covers this order</span>
               <span id="ob-wallet-progress-pct">0%</span>
             </div>
             <div style="background:var(--card);border-radius:5px;height:7px;overflow:hidden">
@@ -612,58 +612,58 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           </div>
         </div>
         <div id="ob-wallet-note" style="display:none;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin-top:4px">
-          ℹ Wallet balance shown is an estimate — the amount you actually owe is confirmed by BMF EggScore Limited when your order is verified.
+          ℹ <span data-i18n="s3.wallet_note">Wallet balance shown is an estimate — the amount you actually owe is confirmed by BMF EggScore Limited when your order is verified.</span>
         </div>
       </div>
     </div><!-- /wizard-step-3 -->
 
     <div class="wiz-nav" data-step-nav="3">
-      <button class="submit-btn wiz-btn-ghost" style="flex:0.6;margin-top:0" onclick="goToWizardStep(2)">← Back</button>
-      <button class="submit-btn" style="flex:1;margin-top:0" onclick="goToWizardStep(4)">Continue to Payment →</button>
+      <button class="submit-btn wiz-btn-ghost" style="flex:0.6;margin-top:0" onclick="goToWizardStep(2)" data-i18n="common.back">← Back</button>
+      <button class="submit-btn" style="flex:1;margin-top:0" onclick="goToWizardStep(4)" data-i18n="s3.continue">Continue to Payment →</button>
     </div>
 
     <!-- STEP 4: PAYMENT METHOD -->
     <div class="panel wizard-step" data-step="4" id="wizard-step-4">
       <div class="panel-hdr">
-        <div class="panel-title">④ Payment Method</div>
-        <div class="panel-tag" id="pay-tag">choose how you'll pay</div>
+        <div class="panel-title">④ <span data-i18n="s4.title">Payment Method</span></div>
+        <div class="panel-tag" id="pay-tag" data-i18n="s4.tag">choose how you'll pay</div>
       </div>
       <div class="panel-body">
 
         <div class="security-box">
-          <div class="sb-hdr"><span class="sb-icon">🔐</span><span class="sb-title">Secure Ordering</span></div>
-          <div class="sb-body">Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong></div>
+          <div class="sb-hdr"><span class="sb-icon">🔐</span><span class="sb-title" data-i18n="s4.secure_title">Secure Ordering</span></div>
+          <div class="sb-body" data-i18n="s4.secure_body">Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong></div>
         </div>
 
         <div class="pay-options" id="pay-options">
           <div class="pay-opt selected" data-pay="bank" onclick="selectPayment(this)">
             <div class="po-icon">🏦</div>
-            <div class="po-name">Bank Transfer</div>
-            <div class="po-desc">Pay after confirmation</div>
+            <div class="po-name" data-i18n="s4.bank_name">Bank Transfer</div>
+            <div class="po-desc" data-i18n="s4.bank_desc">Pay after confirmation</div>
           </div>
           <div class="pay-opt small-only locked" id="pay-ussd" data-pay="ussd" onclick="selectPayment(this)">
             <div class="po-icon">📱</div>
             <div class="po-name">USSD / *737#</div>
-            <div class="po-desc">≤ 30 crates only</div>
+            <div class="po-desc" data-i18n="s4.small_only">≤ 30 crates only</div>
           </div>
           <div class="pay-opt" data-pay="cash" onclick="selectPayment(this)">
             <div class="po-icon">💵</div>
-            <div class="po-name">Cash on Delivery</div>
-            <div class="po-desc">Pay on receipt</div>
+            <div class="po-name" data-i18n="s4.cash_name">Cash on Delivery</div>
+            <div class="po-desc" data-i18n="s4.cash_desc">Pay on receipt</div>
           </div>
           <div class="pay-opt small-only locked" id="pay-paystack" data-pay="paystack" onclick="selectPayment(this)">
             <div class="po-icon">💳</div>
-            <div class="po-name">Card Payment</div>
-            <div class="po-desc">≤ 30 crates only</div>
+            <div class="po-name" data-i18n="s4.card_name">Card Payment</div>
+            <div class="po-desc" data-i18n="s4.small_only">≤ 30 crates only</div>
           </div>
         </div>
 
         <div id="bank-details" class="bank-card">
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px">Payment details sent after confirmation</div>
-          <div class="bank-row"><span class="br-label">Bank</span><span class="br-val">First Bank Nigeria</span></div>
-          <div class="bank-row"><span class="br-label">Account Name</span><span class="br-val">BMF EggScore Limited</span></div>
-          <div class="bank-row"><span class="br-label">Account No.</span><span class="br-val">3012 345 678</span></div>
-          <div class="bank-row"><span class="br-label">Narration</span><span class="br-val" id="bank-narration" style="color:var(--blue)">Your order ref. — after submission</span></div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px" data-i18n="s4.details_sent">Payment details sent after confirmation</div>
+          <div class="bank-row"><span class="br-label" data-i18n="s4.bank_label">Bank</span><span class="br-val">First Bank Nigeria</span></div>
+          <div class="bank-row"><span class="br-label" data-i18n="s4.acct_name_label">Account Name</span><span class="br-val">BMF EggScore Limited</span></div>
+          <div class="bank-row"><span class="br-label" data-i18n="s4.acct_no_label">Account No.</span><span class="br-val">3012 345 678</span></div>
+          <div class="bank-row"><span class="br-label" data-i18n="s4.narration_label">Narration</span><span class="br-val" id="bank-narration" style="color:var(--blue)" data-i18n="s4.narration_placeholder">Your order ref. — after submission</span></div>
         </div>
 
         <div id="payment-commitment-box" style="display:none;margin-top:12px;padding:12px 14px;
@@ -679,27 +679,27 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
         <div id="ussd-details" style="display:none" class="bank-card">
           <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">
-            Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>
+            <span data-i18n="s4.ussd_instructions">Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>
             Account: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>
-            Use your <strong style="color:var(--blue)">order reference</strong> as narration.
+            Use your <strong style="color:var(--blue)">order reference</strong> as narration.</span>
           </div>
         </div>
 
         <div id="cash-details" style="display:none" class="bank-card">
           <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">
-            Cash payment collected on delivery.<br/>
-            A BMF EggScore Limited sales rep will contact you to arrange delivery and collect payment.
+            <span data-i18n="s4.cash_instructions">Cash payment collected on delivery.<br/>
+            A BMF EggScore Limited sales rep will contact you to arrange delivery and collect payment.</span>
           </div>
         </div>
 
         <div id="paystack-section" style="display:none">
           <div class="bank-card" style="margin-top:12px">
             <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:12px">
-              Secure card payment processed by Paystack.<br/>
-              Available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.
+              <span data-i18n="s4.paystack_instructions">Secure card payment processed by Paystack.<br/>
+              Available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.</span>
             </div>
             <button class="submit-btn" id="paystack-btn" onclick="initPaystack()" style="background:var(--wa);margin-top:0">
-              💳 Pay Now via Paystack
+              <span data-i18n="s4.paystack_btn">💳 Pay Now via Paystack</span>
             </button>
           </div>
         </div>
@@ -707,12 +707,12 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     </div><!-- /wizard-step-4 -->
 
     <div class="wiz-nav" data-step-nav="4">
-      <button class="submit-btn wiz-btn-ghost" style="width:100%;margin-top:0" onclick="goToWizardStep(3)">← Back</button>
+      <button class="submit-btn wiz-btn-ghost" style="width:100%;margin-top:0" onclick="goToWizardStep(3)" data-i18n="common.back">← Back</button>
     </div>
 
     <!-- SUBMIT (part of step 4) -->
     <div class="wizard-step" data-step="4" id="wizard-step-4-actions">
-      <div id="form-err" class="alert err" style="display:none">Please fill all required fields before submitting.</div>
+      <div id="form-err" class="alert err" style="display:none" data-i18n="s4.form_err">Please fill all required fields before submitting.</div>
 
       <!-- Large first-time order, blocked by the new-customer cap —
            deliberately a richer, warmer panel than the plain error
@@ -720,10 +720,10 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
            this is a real, substantial order worth fast-tracking, not
            a generic rejection. -->
       <div id="large-firsttimer-panel" style="display:none;background:var(--card);border:1px solid var(--amber);border-radius:10px;padding:16px 18px;margin-bottom:16px">
-        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--cream);margin-bottom:8px">⏳ We see this is a big first order</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--cream);margin-bottom:8px">⏳ <span data-i18n="s4.big_first_order">We see this is a big first order</span></div>
         <div id="large-firsttimer-text" style="font-family:'DM Mono',monospace;font-size:12px;color:var(--dust);line-height:1.7;margin-bottom:14px"></div>
         <a id="large-firsttimer-wa-btn" href="#" target="_blank" style="display:block;text-align:center;background:var(--teal);color:var(--bg);padding:12px;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;text-decoration:none">
-          💬 Message us now — we'll prioritize this
+          <span data-i18n="s4.message_us_now">💬 Message us now — we'll prioritize this</span>
         </a>
       </div>
 
@@ -731,18 +731,18 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.25);border-radius:7px;padding:10px 12px;margin-bottom:10px;line-height:1.7"></div>
 
       <button class="submit-btn" id="main-submit-btn" onclick="submitOrder()">
-        🥚 Place Order
+        <span data-i18n="s4.place_order">🥚 Place Order</span>
       </button>
 
     <button class="submit-btn" id="reserve-submit-btn" style="margin-top:8px;background:rgba(155,127,232,0.12);
       border:1px solid rgba(155,127,232,0.4);color:var(--violet)" onclick="submitReservation()">
-      🕐 Reserve Instead — Hold This Order
+      <span data-i18n="s4.reserve_instead">🕐 Reserve Instead — Hold This Order</span>
     </button>
 
     <!-- WA FALLBACK -->
     <a id="wa-fallback-link" href="#" class="wa-fallback" target="_blank">
       <span>💬</span>
-      <span>Prefer WhatsApp? Send these details directly →</span>
+      <span data-i18n="s4.wa_send_directly">Prefer WhatsApp? Send these details directly →</span>
     </a>
     </div><!-- /wizard-step-4-actions -->
 
@@ -751,10 +751,10 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
   <!-- SUCCESS SCREEN -->
   <div class="success-screen" id="success-screen">
     <div class="ss-icon">✅</div>
-    <div class="ss-title">Order Received!</div>
-    <div class="ss-sub">Your order has been submitted to<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong></div>
+    <div class="ss-title" data-i18n="ss.title">Order Received!</div>
+    <div class="ss-sub" data-i18n="ss.submitted_to">Your order has been submitted to<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong></div>
     <div class="ref-badge" id="success-ref">BEL-ORD-——</div>
-    <div class="ss-sub">Screenshot this reference. BMF EggScore Limited will confirm via WhatsApp shortly.</div>
+    <div class="ss-sub" data-i18n="ss.screenshot_ref">Screenshot this reference. BMF EggScore Limited will confirm via WhatsApp shortly.</div>
     <div class="ss-sub" id="success-trust-line" style="font-size:10.5px;color:var(--mist);margin-top:2px"></div>
 
     <!-- ENROLLMENT CARD — stop 7 on the metro map ("You're In"). Filled
@@ -767,11 +767,11 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div class="payment-instructions" id="success-payment"></div>
 
     <a id="success-wa-link" href="#" class="wa-fallback" target="_blank" style="margin-top:0">
-      <span>💬</span><span>Send your payment complaints via WhatsApp</span>
+      <span>💬</span><span data-i18n="ss.wa_complaints">Send your payment complaints via WhatsApp</span>
     </a>
 
     <button class="submit-btn" onclick="resetPortal()" style="margin-top:16px;background:var(--surface);border:1px solid var(--border);color:var(--cream)">
-      ↩ Place Another Order
+      <span data-i18n="ss.place_another">↩ Place Another Order</span>
     </button>
 
     <!-- FEEDBACK & POLICIES — relocated here deliberately. Previously
@@ -781,51 +781,51 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
          feedback about. -->
     <div style="max-width:560px;margin:20px auto 0 auto;text-align:center">
       <div style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--mist);margin-bottom:8px">
-        We can improve, happy to have your feedback
+        <span data-i18n="ss.improve_feedback">We can improve, happy to have your feedback</span>
       </div>
       <button class="submit-btn wiz-btn-ghost" id="more-toggle-btn" style="width:auto;padding:8px 16px;font-size:12px;margin-top:0" onclick="toggleMoreSection()">
-        💬 Feedback &amp; Order Policies <span id="more-toggle-arrow">▾</span>
+        <span data-i18n="ss.feedback_policies">💬 Feedback &amp; Order Policies</span> <span id="more-toggle-arrow">▾</span>
       </button>
     </div>
 
     <div id="more-section" style="display:none">
       <div class="panel" id="feedback-section" style="max-width:560px;margin:16px auto">
         <div class="panel-hdr">
-          <div class="panel-title">💬 Share Feedback</div>
-          <div class="panel-tag">earns loyalty points</div>
+          <div class="panel-title">💬 <span data-i18n="fb.title">Share Feedback</span></div>
+          <div class="panel-tag" data-i18n="fb.tag">earns loyalty points</div>
         </div>
         <div class="panel-body">
           <div id="fb-known-identity" style="display:none;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--teal);margin-bottom:10px;padding:8px 10px;background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.2);border-radius:6px">
             ✓ Submitting as <strong id="fb-known-name" style="color:var(--cream)"></strong> · <span id="fb-known-phone"></span>
-            <a href="#" onclick="event.preventDefault();editFeedbackIdentity()" style="color:var(--blue);margin-left:6px">not you?</a>
+            <a href="#" onclick="event.preventDefault();editFeedbackIdentity()" style="color:var(--blue);margin-left:6px">data-i18n="fb.not_you">not you?</a>
           </div>
           <div class="form-group" style="margin-bottom:10px" id="fb-name-group">
-            <label class="form-label">Your Name / Business</label>
+            <label class="form-label" data-i18n="s1.name_label">Your Name / Business</label>
             <input class="form-input" id="fb-name" placeholder="So we know who to thank"/>
           </div>
           <div class="form-group" style="margin-bottom:10px">
-            <label class="form-label">Rating</label>
+            <label class="form-label" data-i18n="fb.rating_label">Rating</label>
             <select class="form-select" id="fb-rating">
-              <option value="5">★★★★★ Excellent</option>
-              <option value="4">★★★★☆ Good</option>
-              <option value="3">★★★☆☆ Okay</option>
-              <option value="2">★★☆☆☆ Below expectations</option>
-              <option value="1">★☆☆☆☆ Poor</option>
+              <option value="5" data-i18n="fb.r5">★★★★★ Excellent</option>
+              <option value="4" data-i18n="fb.r4">★★★★☆ Good</option>
+              <option value="3" data-i18n="fb.r3">★★★☆☆ Okay</option>
+              <option value="2" data-i18n="fb.r2">★★☆☆☆ Below expectations</option>
+              <option value="1" data-i18n="fb.r1">★☆☆☆☆ Poor</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom:12px">
-            <label class="form-label">Your Feedback</label>
+            <label class="form-label" data-i18n="fb.text_label">Your Feedback</label>
             <textarea class="form-textarea" id="fb-text" placeholder="What's working, what isn't, what you'd like to see…" style="min-height:70px"></textarea>
           </div>
-          <button class="submit-btn" onclick="submitFeedback()">Submit Feedback</button>
+          <button class="submit-btn" onclick="submitFeedback()" data-i18n="fb.submit">Submit Feedback</button>
           <div id="fb-status" style="display:none;margin-top:8px;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--lime)"></div>
         </div>
       </div>
 
       <div class="panel" id="policies-section" style="max-width:560px;margin:0 auto 16px auto">
         <div class="panel-hdr">
-          <div class="panel-title">📜 Our Order Policies</div>
-          <div class="panel-tag">honouring these builds your loyalty score</div>
+          <div class="panel-title">📜 <span data-i18n="pol.title">Our Order Policies</span></div>
+          <div class="panel-tag" data-i18n="pol.tag">honouring these builds your loyalty score</div>
         </div>
         <div class="panel-body" id="portal-policy-list" style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--dust);line-height:1.9"></div>
       </div>
@@ -842,47 +842,47 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <!-- Request form state -->
     <div id="vr-form-state">
       <div class="vr-hdr">
-        <div class="vr-title">Request a Larger Volume</div>
+        <div class="vr-title" data-i18n="vr.title">Request a Larger Volume</div>
         <button class="vr-close" onclick="closeVolumeRequestModal()">✕</button>
       </div>
       <div class="vr-sub">
-        Need more than what's currently shown as available? Tell us how much, and BMF EggScore Limited will reach out directly to confirm sourcing and timing — no need to split your order or call first.
+        <span data-i18n="vr.sub">Need more than what's currently shown as available? Tell us how much, and BMF EggScore Limited will reach out directly to confirm sourcing and timing — no need to split your order or call first.</span>
       </div>
 
       <div class="form-group">
-        <label class="form-label">Crates Needed <span class="req">*</span></label>
+        <label class="form-label"><span data-i18n="vr.qty_label">Crates Needed</span> <span class="req">*</span></label>
         <input class="form-input" type="number" id="vr-qty" placeholder="e.g. 1000" min="1"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Your Name / Business <span class="req">*</span></label>
+        <label class="form-label"><span data-i18n="s1.name_label">Your Name / Business</span> <span class="req">*</span></label>
         <input class="form-input" id="vr-name" placeholder="e.g. Sagamu Junction Depot"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Phone Number <span class="req">*</span></label>
+        <label class="form-label"><span data-i18n="s1.phone_label">Phone Number</span> <span class="req">*</span></label>
         <input class="form-input" type="tel" id="vr-phone" placeholder="e.g. 0807 444 5555"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Needed By <span style="color:var(--mist)">(optional)</span></label>
+        <label class="form-label"><span data-i18n="vr.needed_by">Needed By</span> <span style="color:var(--mist)" data-i18n="common.optional">(optional)</span></label>
         <input class="form-input" type="date" id="vr-needed-by"/>
       </div>
       <div class="form-group" style="margin-bottom:18px">
-        <label class="form-label">Notes <span style="color:var(--mist)">(optional)</span></label>
+        <label class="form-label"><span data-i18n="vr.notes_label">Notes</span> <span style="color:var(--mist)" data-i18n="common.optional">(optional)</span></label>
         <textarea class="form-input" id="vr-notes" placeholder="Any other detail that helps us plan…" style="min-height:54px;resize:vertical"></textarea>
       </div>
 
       <div id="vr-err" style="display:none;color:var(--red);font-family:'DM Mono',monospace;font-size:11px;margin-bottom:12px"></div>
 
-      <button class="submit-btn" onclick="submitVolumeRequest()">Send Volume Request</button>
+      <button class="submit-btn" onclick="submitVolumeRequest()" data-i18n="vr.send">Send Volume Request</button>
     </div>
 
     <!-- Success state -->
     <div id="vr-success-state" class="vr-success">
       <div class="vr-success-icon">✅</div>
-      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--lime);margin-bottom:8px">Request Received</div>
+      <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--lime);margin-bottom:8px" data-i18n="vr.received_title">Request Received</div>
       <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--dust);line-height:1.7;margin-bottom:18px">
-        BMF EggScore Limited will reach out shortly to confirm volume, pricing, and timing for your order.
+        <span data-i18n="vr.received_body">BMF EggScore Limited will reach out shortly to confirm volume, pricing, and timing for your order.</span>
       </div>
-      <button class="submit-btn" onclick="closeVolumeRequestModal()" style="background:var(--surface);border:1px solid var(--border);color:var(--cream)">Close</button>
+      <button class="submit-btn" onclick="closeVolumeRequestModal()" style="background:var(--surface);border:1px solid var(--border);color:var(--cream)" data-i18n="vr.close">Close</button>
     </div>
 
   </div>
@@ -983,6 +983,18 @@ const MESSAGES = {
         <span style="color:var(--mist)">Having trouble paying — bank issues, distance, a large order, or someone else paying on your behalf?
         Tell us on WhatsApp and we'll work it out with you.</span>`,
     typeLabel: (returning) => returning ? 'returning customer' : 'new customer',
+    paymentConfirmedTitle: () => `✅ Payment Confirmed`,
+    paymentConfirmedBody: (total) => `Card payment of ${total} was successful. Order is confirmed.`,
+    codTitle: () => `Cash on Delivery`,
+    codStep1: () => `A BMF EggScore Limited rep will contact you to arrange delivery.`,
+    codStep2: (total) => `Have <strong style="color:var(--lime)">${total}</strong> ready.`,
+    codStep3: (ref) => `Quote ref <strong>${ref}</strong> to the BMF EggScore Limited rep.`,
+    howToPayTitle: (method) => `How to Pay — ${method}`,
+    bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> to:<br/>🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited`,
+    bankStep2: (ref) => `Use <strong>${ref}</strong> as your narration/reference.`,
+    bankStep3: () => `<strong style="color:var(--sun)">Do not pay to any other account.</strong> BMF EggScore Limited's verified account is the only one above.`,
+    committedNote: (committed) => `${committed} crates held for pending orders`,
+    maxAvailable: (available) => `Max: ${available} crates available to order`,
   },
   pcm: {
     activeReservationBlock: () =>
@@ -996,7 +1008,7 @@ const MESSAGES = {
     paymentCommitmentHeader: () =>
       `⏱ Big order for first-timer — we need you confirm payment sharp sharp`,
     paymentCommitmentBody: (deadline, hours) =>
-      `As na your first time to order plenty like this, we go need you confirm payment before <strong style="color:var(--cream)">${formatDeadline(deadline)}</strong> (${hours}h from now — e dey change daily as stock dey waka). If you no confirm before then, we go release the package make another person fit grab am.`,
+      `As na your first time to order plenty like this, we go need you confirm payment before <strong style="color:var(--cream)">${formatDeadline(deadline)}</strong> (${hours}h from now — e dey change daily as stock dey waka). If you no clear am before that time, we go let package waka make another person fit grab am.`,
     paymentCommitmentCheckbox: () =>
       `I hear, I go complete the payment before the time wey dem talk up there.`,
     reservationHeldTitle: () => `Omo, We Don Secure Your Package`,
@@ -1010,17 +1022,187 @@ const MESSAGES = {
         <span style="color:var(--mist)">If payment dey choke — maybe your bank network dey do anyhow, distance sef plenti, order too heavy, or na another guy go do the sub —
         yarn us for WhatsApp, we go reason am together make e clear road.</span>`,
     typeLabel: (returning) => returning ? 'our regular' : 'fresh blood',
+    paymentConfirmedTitle: () => `✅ Confirmation Don Show`,
+    paymentConfirmedBody: (total) => `Card payment of ${total} don successful. Order don confirm.`,
+    codTitle: () => `Cash on Delivery`,
+    codStep1: () => `BMF EggScore Limited rep go buzz you to arrange delivery.`,
+    codStep2: (total) => `Get <strong style="color:var(--lime)">${total}</strong> ready.`,
+    codStep3: (ref) => `Quote ref <strong>${ref}</strong> give the BMF EggScore Limited rep.`,
+    howToPayTitle: (method) => `How You Go Pay — ${method}`,
+    bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> go:<br/>🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited`,
+    bankStep2: (ref) => `Use <strong>${ref}</strong> as your transfer gist.`,
+    bankStep3: () => `<strong style="color:var(--sun)">No pay enter any other akant.</strong> Na only the one wey dey up there don clear as BMF EggScore Limited's akant.`,
+    committedNote: (committed) => `${committed} crates, naim we keep for who fes you buy`,
+    maxAvailable: (available) => `Max: ${available} crates wey dey available make you order`,
   },
 };
 function T() { return MESSAGES[portalState.language] || MESSAGES.en; }
+
+// ── Static UI text — the rest of the interaction beyond the messaging
+// cluster above. Bob's call: choosing Pidgin should mean the whole
+// portal speaks Pidgin, not just the high-stakes messages — a form
+// that's part-English-part-Pidgin reads more jarring than staying in
+// English entirely. Same authentic street register as the messaging
+// cluster, not textbook Pidgin. Applied via data-i18n attributes rather
+// than rewriting how each element's HTML is built, so this layers on
+// top of the existing markup instead of touching it.
+const UI_STRINGS = {
+  en: {
+    'wiz.details': 'Details', 'wiz.order': 'Order', 'wiz.review': 'Review',
+    'wiz.payment': 'Payment', 'wiz.confirm': 'Confirm', 'wiz.feedback': 'Feedback', 'wiz.yourein': "You're In",
+    'hdr.live': 'Portal Live', 'hdr.language_label': 'Language:',
+    'hdr.volume_title': 'We offer volume discount pricing',
+    'hdr.volume_sub': 'The more crates you order, the less you pay per crate — automatically',
+    'pwa.title': 'Install this as an app — one visit now, no link needed again',
+    'pwa.sub': 'Add to your home screen for one-tap ordering next time.',
+    'pwa.btn': '📲 Install App',
+    'pwa.ios': 'Tap the Share icon <strong>⬆</strong> below, then <strong>"Add to Home Screen"</strong>',
+    'pwa.notnow': 'Not now',
+    'wa.order_here': 'Prefer WhatsApp? Order here →',
+    'stock.available': 'Stock Available', 'stock.ready': 'crates ready to order',
+    'stock.price_note': 'Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.',
+    'stock.delivered_price': 'delivered price, per crate',
+    'vol.need_more': 'Need more than', 'vol.make_request': 'Make a volume request →',
+    'common.optional': '(optional)', 'common.back': '← Back',
+    's1.title': 'Your Details', 's1.tag': 'identify your account',
+    's1.name_label': 'Your Name / Business', 's1.phone_label': 'Phone Number',
+    's1.location_label': 'Delivery Location', 's1.code_label': 'Customer Code',
+    's1.referral_label': 'Referred By', 's1.referral_hint': "(optional — a friend's referral code)",
+    's1.recognised': 'Account recognised —', 's1.yes_me': "Yes, that's me", 's1.no_different': 'No, different person',
+    's1.continue': 'Continue to Order →',
+    's2.title': 'Your Order', 's2.tag': 'select quantity', 's2.crates_label': 'Crates to Order',
+    's2.min_hint': 'Min: 1 crate · type a number directly for large orders',
+    's2.stock_warn': 'Requested quantity exceeds available stock.',
+    's2.promo_applied': 'Promo discount applied —', 's2.notes_label': 'Delivery Notes',
+    's2.continue': 'Continue to Review →',
+    's3.title': 'Order Breakdown', 's3.tag': 'before payment', 's3.egg_price': 'Egg price',
+    's3.crates_ordered': 'Crates ordered', 's3.egg_subtotal': 'Egg subtotal',
+    's3.promo_discount': 'Promo discount', 's3.wallet_applied': 'Wallet credit applied',
+    's3.total_payable': 'Total Payable', 's3.balance_to_pay': 'Balance to pay', 's3.you_saved': 'You saved',
+    's3.wallet_covers': 'Wallet covers this order',
+    's3.wallet_note': 'Wallet balance shown is an estimate — the amount you actually owe is confirmed by BMF EggScore Limited when your order is verified.',
+    's3.continue': 'Continue to Payment →',
+    's4.title': 'Payment Method', 's4.tag': "choose how you'll pay",
+    's4.secure_title': 'Secure Ordering',
+    's4.secure_body': 'Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong>',
+    's4.bank_name': 'Bank Transfer', 's4.bank_desc': 'Pay after confirmation',
+    's4.small_only': '≤ 30 crates only', 's4.cash_name': 'Cash on Delivery', 's4.cash_desc': 'Pay on receipt',
+    's4.card_name': 'Card Payment', 's4.details_sent': 'Payment details sent after confirmation',
+    's4.bank_label': 'Bank', 's4.acct_name_label': 'Account Name', 's4.acct_no_label': 'Account No.',
+    's4.narration_label': 'Narration', 's4.narration_placeholder': 'Your order ref. — after submission',
+    's4.ussd_instructions': 'Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>Account: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>Use your <strong style="color:var(--blue)">order reference</strong> as narration.',
+    's4.cash_instructions': 'Cash payment collected on delivery.<br/>A BMF EggScore Limited sales rep will contact you to arrange delivery and collect payment.',
+    's4.paystack_instructions': 'Secure card payment processed by Paystack.<br/>Available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.',
+    's4.paystack_btn': '💳 Pay Now via Paystack',
+    's4.form_err': 'Please fill all required fields before submitting.',
+    's4.big_first_order': 'We see this is a big first order',
+    's4.message_us_now': "💬 Message us now — we'll prioritize this",
+    's4.place_order': '🥚 Place Order', 's4.reserve_instead': '🕐 Reserve Instead — Hold This Order',
+    's4.wa_send_directly': 'Prefer WhatsApp? Send these details directly →',
+    'ss.title': 'Order Received!', 'ss.submitted_to': 'Your order has been submitted to<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong>',
+    'ss.screenshot_ref': 'Screenshot this reference. BMF EggScore Limited will confirm via WhatsApp shortly.',
+    'ss.wa_complaints': 'Send your payment complaints via WhatsApp',
+    'ss.place_another': '↩ Place Another Order', 'ss.improve_feedback': 'We can improve, happy to have your feedback',
+    'ss.feedback_policies': '💬 Feedback &amp; Order Policies',
+    'fb.title': 'Share Feedback', 'fb.tag': 'earns loyalty points', 'fb.not_you': 'not you?',
+    'fb.rating_label': 'Rating', 'fb.r5': '★★★★★ Excellent', 'fb.r4': '★★★★☆ Good', 'fb.r3': '★★★☆☆ Okay',
+    'fb.r2': '★★☆☆☆ Below expectations', 'fb.r1': '★☆☆☆☆ Poor',
+    'fb.text_label': 'Your Feedback', 'fb.submit': 'Submit Feedback',
+    'pol.title': 'Our Order Policies', 'pol.tag': 'honouring these builds your loyalty score',
+    'vr.title': 'Request a Larger Volume',
+    'vr.sub': "Need more than what's currently shown as available? Tell us how much, and BMF EggScore Limited will reach out directly to confirm sourcing and timing — no need to split your order or call first.",
+    'vr.qty_label': 'Crates Needed', 'vr.needed_by': 'Needed By', 'vr.notes_label': 'Notes',
+    'vr.send': 'Send Volume Request', 'vr.received_title': 'Request Received',
+    'vr.received_body': 'BMF EggScore Limited will reach out shortly to confirm volume, pricing, and timing for your order.',
+    'vr.close': 'Close',
+  },
+  pcm: {
+    'wiz.details': 'Details', 'wiz.order': 'Order', 'wiz.review': 'Check Am',
+    'wiz.payment': 'Payment', 'wiz.confirm': 'Confirm', 'wiz.feedback': 'Talk Your Mind', 'wiz.yourein': 'You Don Enter',
+    'hdr.live': 'Portal Dey Live', 'hdr.language_label': 'Language:',
+    'hdr.volume_title': 'Enjoy awoof when you order plenty',
+    'hdr.volume_sub': 'The more crates you order, the less you go pay per crate — fiam!',
+    'pwa.title': 'Install am as app — one time visit now, no need link again',
+    'pwa.sub': 'Add am to your home screen make next time you fit order with just one tap.',
+    'pwa.btn': '📲 Install App',
+    'pwa.ios': 'Tap the Share icon <strong>⬆</strong> wey dey below, then tap <strong>"Add to Home Screen"</strong>',
+    'pwa.notnow': 'Not now',
+    'wa.order_here': 'You prefer WhatsApp? Order here →',
+    'stock.available': 'Stock Wey Dey', 'stock.ready': 'crates ready make you order',
+    'stock.price_note': 'Price dey follow how stock dey cost now, e fit shift small between orders. You get question about price? Buzz us anytime.',
+    'stock.delivered_price': 'shinkili money to land one crate for ya doormot',
+    'vol.need_more': 'You need pass', 'vol.make_request': 'Oya press here →',
+    'common.optional': '(no compulsion)', 'common.back': '← Go Back',
+    's1.title': 'Your Details', 's1.tag': 'make we know who you be',
+    's1.name_label': 'Your Name / Business', 's1.phone_label': 'Phone Number',
+    's1.location_label': 'Where We Go Deliver Am', 's1.code_label': 'Customer Code',
+    's1.referral_label': 'Who Refer You', 's1.referral_hint': "(no compulsion — your padi's referral code)",
+    's1.recognised': 'We sabi you —', 's1.yes_me': 'Yes, na me', 's1.no_different': 'No, na different person',
+    's1.continue': 'Go Order Now →',
+    's2.title': 'Your Order', 's2.tag': 'pick how much you want', 's2.crates_label': 'Crates You Want',
+    's2.min_hint': 'Minimum: 1 crate · type number sef for big orders',
+    's2.stock_warn': 'The number wey you want pass wetin dey available.',
+    's2.promo_applied': 'Promo awoof don land —', 's2.notes_label': 'Delivery Notes',
+    's2.continue': 'Go Check Am →',
+    's3.title': 'Breakdown', 's3.tag': 'as money mata be', 's3.egg_price': 'Egg price',
+    's3.crates_ordered': 'Crates wey you order', 's3.egg_subtotal': 'Egg subtotal',
+    's3.promo_discount': 'Promo Awoof', 's3.wallet_applied': 'Wallet credit wey we use',
+    's3.total_payable': 'Total Wey You Go Pay', 's3.balance_to_pay': 'How Much Remain', 's3.you_saved': 'Wetin you save',
+    's3.wallet_covers': 'Wallet don cover this order',
+    's3.wallet_note': 'Wallet balance wey dey show na rough figure — the real amount wey you owe na wetin BMF EggScore Limited go confirm once dem clear your order.',
+    's3.continue': 'Go Payment →',
+    's4.title': 'How You Go Pay', 's4.tag': 'pick how you wan pay',
+    's4.secure_title': 'Secure Ordering',
+    's4.secure_body': 'Your order don record, code wey follow am don generate. Payment gist go come from our number wey don clear — <strong style="color:var(--cream)">never pay anybody wey send you akant details without your order ref number.</strong>',
+    's4.bank_name': 'Bank Transfer', 's4.bank_desc': 'Pay after we confirm',
+    's4.small_only': '≤ 30 crates only', 's4.cash_name': 'Cash on Delivery', 's4.cash_desc': 'Pay when e reach',
+    's4.card_name': 'Card Payment', 's4.details_sent': 'Payment gist go land after we confirm',
+    's4.bank_label': 'Bank', 's4.acct_name_label': 'Akant Name', 's4.acct_no_label': 'Akant No.',
+    's4.narration_label': 'Transfer Gist', 's4.narration_placeholder': 'Your order ref. — after you send am',
+    's4.ussd_instructions': 'Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> for your phone<br/>Akant: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>Use your <strong style="color:var(--blue)">ref number</strong> as your transfer gist.',
+    's4.cash_instructions': 'Cash payment na when e reach you go pay.<br/>BMF EggScore Limited sales rep go buzz you to arrange delivery and collect the money.',
+    's4.paystack_instructions': 'Card payment wey secure, Paystack dey process am.<br/>E dey available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.',
+    's4.paystack_btn': '💳 Pay Now via Paystack',
+    's4.form_err': 'Abeg fill all the star box dem before you send am.',
+    's4.big_first_order': 'We see say na big order for your first time',
+    's4.message_us_now': '💬 Buzz us now — we go rush am for you',
+    's4.place_order': '🥚 Place The Order', 's4.reserve_instead': '🕐 Reserve Am Instead — Hold This Order',
+    's4.wa_send_directly': 'You prefer WhatsApp? Send the details there straight →',
+    'ss.title': 'Order Don Land!', 'ss.submitted_to': 'Your order don submit go<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong>',
+    'ss.screenshot_ref': 'Screenshot this reference. BMF EggScore Limited go confirm via WhatsApp soon.',
+    'ss.wa_complaints': 'Send your payment wahala via WhatsApp',
+    'ss.place_another': '↩ Place Another Order', 'ss.improve_feedback': 'We wan improve, we go like hear from you',
+    'ss.feedback_policies': '💬 Talk Your Mind &amp; Our Order Rules',
+    'fb.title': 'Talk Your Mind', 'fb.tag': 'e go join your bonus mark', 'fb.not_you': 'no be you?',
+    'fb.rating_label': 'How You See Am', 'fb.r5': '★★★★★ Ogbongé', 'fb.r4': '★★★★☆ Beta',
+    'fb.r3': '★★★☆☆ E Do', 'fb.r2': '★★☆☆☆ No Reach Level', 'fb.r1': '★☆☆☆☆ Bad',
+    'fb.text_label': 'Wetin You Wan Talk', 'fb.submit': 'Send Am',
+    'pol.title': 'Our Order Rules', 'pol.tag': 'if you respect am, e go add to your loyalty score',
+    'vr.title': 'Ask For Big Plenty',
+    'vr.sub': "You need pass wetin dey show as available? Tell us how much, BMF EggScore Limited go buzz you direct to confirm sourcing and timing — no need to split your order or call first.",
+    'vr.qty_label': 'How Many Crate You Wan', 'vr.needed_by': 'When You Need Am', 'vr.notes_label': 'Notes',
+    'vr.send': 'Send Am', 'vr.received_title': 'We Don Receive Am',
+    'vr.received_body': 'BMF EggScore Limited go buzz you soon to confirm how many crate, price, and timing for your order.',
+    'vr.close': 'Close',
+  },
+};
+function applyUIStrings() {
+  const dict = UI_STRINGS[portalState.language] || UI_STRINGS.en;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if(dict[key] !== undefined) el.innerHTML = dict[key];
+  });
+}
 function setLanguage(lang) {
   portalState.language = lang;
   localStorage.setItem('feds_language', lang);
   document.querySelectorAll('.lang-opt').forEach(el => {
     el.classList.toggle('lang-opt-active', el.dataset.lang === lang);
   });
+  applyUIStrings();
   // Re-run whichever live message currently on screen needs refreshing.
   updatePaymentCommitmentBox();
+  renderAvailableStockDisplay();
   updateOrderCalc();
 }
 function toggleTheme() {
@@ -1335,7 +1517,7 @@ function renderAvailableStockDisplay() {
     avail.className   = 'st-avail ' + (available > 200 ? 'good' : available > 50 ? 'low' : 'none');
   }
   if(volReqCount) volReqCount.textContent = available.toLocaleString() + ' crates';
-  if(maxEl) maxEl.textContent = 'Max: ' + available + ' crates available to order';
+  if(maxEl) maxEl.textContent = T().maxAvailable(available);
 
   // Show committed note if any pending orders are holding stock
   const noteId  = 'committed-note';
@@ -1348,7 +1530,7 @@ function renderAvailableStockDisplay() {
         "font-family:'DM Mono',monospace;font-size:10px;color:var(--amber);margin-top:4px";
       avail?.parentElement?.appendChild(noteEl);
     }
-    noteEl.textContent = committed + ' crates held for pending orders';
+    noteEl.textContent = T().committedNote(committed);
   } else if(noteEl) {
     noteEl.textContent = '';
   }
@@ -3020,35 +3202,33 @@ function showSuccess(order, paid) {
       </div>`;
   } else if(paid) {
     piEl.innerHTML = `
-      <div class="pi-title">✅ Payment Confirmed</div>
+      <div class="pi-title">${T().paymentConfirmedTitle()}</div>
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lime)">
-        Card payment of ${total} was successful. Order is confirmed.
+        ${T().paymentConfirmedBody(total)}
       </div>`;
   } else if(order.paymentMethod === 'cash') {
     piEl.innerHTML = `
-      <div class="pi-title">Cash on Delivery</div>
+      <div class="pi-title">${T().codTitle()}</div>
       <div class="pi-step"><div class="pi-num">1</div><div class="pi-text">
-        A BMF EggScore Limited rep will contact you to arrange delivery.
+        ${T().codStep1()}
       </div></div>
       <div class="pi-step"><div class="pi-num">2</div><div class="pi-text">
-        Have <strong style="color:var(--lime)">${total}</strong> ready.
+        ${T().codStep2(total)}
       </div></div>
       <div class="pi-step"><div class="pi-num">3</div><div class="pi-text">
-        Quote ref <strong>${order.ref}</strong> to the BMF EggScore Limited rep.
+        ${T().codStep3(order.ref)}
       </div></div>`;
   } else {
     piEl.innerHTML = `
-      <div class="pi-title">How to Pay — ${order.paymentMethod==='ussd'?'USSD':'Bank Transfer'}</div>
+      <div class="pi-title">${T().howToPayTitle(order.paymentMethod==='ussd'?'USSD':'Bank Transfer')}</div>
       <div class="pi-step"><div class="pi-num">1</div><div class="pi-text">
-        Transfer <strong style="color:var(--lime)">${total}</strong> to:<br/>
-        🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited
+        ${T().bankStep1(total)}
       </div></div>
       <div class="pi-step"><div class="pi-num">2</div><div class="pi-text">
-        Use <strong>${order.ref}</strong> as your narration/reference.
+        ${T().bankStep2(order.ref)}
       </div></div>
       <div class="pi-step"><div class="pi-num">3</div><div class="pi-text">
-        <strong style="color:var(--sun)">Do not pay to any other account.</strong>
-        BMF EggScore Limited's verified account is the only one above.
+        ${T().bankStep3()}
       </div></div>`;
   }
 
@@ -3125,6 +3305,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.lang-opt').forEach(el => {
     el.classList.toggle('lang-opt-active', el.dataset.lang === portalState.language);
   });
+  applyUIStrings();
   syncThemeToggleLabel();
 });
 </script>
