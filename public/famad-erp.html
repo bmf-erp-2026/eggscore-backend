@@ -18783,7 +18783,7 @@ function computeCreditScore(customerName) {
 
   if(creditLimit <= 0 && creditSales.length === 0) {
     return {
-      tier: 'grey', label: 'No Data', score: null,
+      tier: 'grey', label: 'No Data', score: null, onTimeRate: null,
       factors: [], exposure: 0, creditLimit: 0,
       summary: 'Cash-only customer or no credit history recorded.'
     };
