@@ -19322,18 +19322,24 @@ function clearTierUpgrade(clearanceId) {
   if(!STATE.customerBadgeClearances) STATE.customerBadgeClearances = [];
   const cl = STATE.customerBadgeClearances.find(x => x.id === clearanceId);
   if(!cl) { showToast('⚠ Clearance record not found.'); return; }
-  const cust = STATE.customers.find(c => c.name === cl.customerName);
-  if(!cust) { showToast('⚠ Customer not found.'); return; }
+  // Update EVERY customer record sharing this name, not just the first
+  // match — legacy/no-cid customers are known to have duplicate records
+  // under the same name, and leaving a duplicate's loyalty stale means
+  // refreshTierClearanceQueue() immediately re-flags it, making the
+  // clear look like it silently failed.
+  const matches = STATE.customers.filter(c => c.name === cl.customerName);
+  if(!matches.length) { showToast('⚠ Customer not found.'); return; }
 
-  cust.loyalty  = cl.toTier;
+  matches.forEach(c => { c.loyalty = cl.toTier; });
   cl.status     = 'cleared';
   cl.clearedAt  = new Date().toISOString();
   cl.clearedBy  = 'owner';
   saveState();
 
-  logOk('credit', `Badge cleared — ${cust.name}: ${cl.fromTier} → ${cl.toTier}`, `Cleared by owner`);
+  logOk('credit', `Badge cleared — ${cl.customerName}: ${cl.fromTier} → ${cl.toTier}`,
+    matches.length > 1 ? `Cleared by owner — applied to ${matches.length} duplicate records under this name` : `Cleared by owner`);
   renderCustomerScorecard();
-  showToast(`✓ ${cust.name} cleared to ${cl.toTier}.`);
+  showToast(`✓ ${cl.customerName} cleared to ${cl.toTier}.`);
 }
 
 function holdTierUpgrade(clearanceId) {
