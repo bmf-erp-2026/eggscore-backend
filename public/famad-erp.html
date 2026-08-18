@@ -5572,9 +5572,16 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="panel-tag">automates advocacy, feedback, communication &amp; respect — all fine-tuneable</div>
     </div>
     <div class="panel-body">
+      <div class="panel-tag" style="margin:-4px 0 8px;color:var(--mist)">Advocacy — base points per referral, plus a rate per crate that increases at each tier (bigger single orders earn more per crate, not just more total)</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px">
+        <div><label class="form-label">Base Points / Referral</label><input class="form-input" type="number" id="ly-adv-base" style="text-align:center"/></div>
+        <div><label class="form-label">Tier 1 Ceiling (crates)</label><input class="form-input" type="number" id="ly-adv-t1-ceil" style="text-align:center"/></div>
+        <div><label class="form-label">Tier 1 Rate (pts/crate)</label><input class="form-input" type="number" step="0.1" id="ly-adv-t1-rate" style="text-align:center"/></div>
+        <div><label class="form-label">Tier 2 Ceiling (crates)</label><input class="form-input" type="number" id="ly-adv-t2-ceil" style="text-align:center"/></div>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
-        <div><label class="form-label">Points / Referral</label><input class="form-input" type="number" id="ly-ref-points" style="text-align:center"/></div>
-        <div><label class="form-label">Referral Cap / Quarter</label><input class="form-input" type="number" id="ly-ref-cap" style="text-align:center"/></div>
+        <div><label class="form-label">Tier 2 Rate (pts/crate)</label><input class="form-input" type="number" step="0.1" id="ly-adv-t2-rate" style="text-align:center"/></div>
+        <div><label class="form-label">Tier 3 Rate (pts/crate, above Tier 2)</label><input class="form-input" type="number" step="0.1" id="ly-adv-t3-rate" style="text-align:center"/></div>
         <div><label class="form-label">Feedback Form Points</label><input class="form-input" type="number" id="ly-fb-points" style="text-align:center"/></div>
         <div><label class="form-label">Impactful Bonus</label><input class="form-input" type="number" id="ly-fb-bonus" style="text-align:center"/></div>
       </div>
@@ -8980,9 +8987,24 @@ const DEFAULT_STATE = {
   customerBadgeClearances: [], // { id, customerName, fromTier, toTier, suggestedAt, clearedAt, clearedBy, status:'pending'|'cleared' }
   relationshipTags: [], // { id, customerName, type, note, loggedBy, loggedAt } — manual, kept for edge cases the automated engine below can't see (e.g. product trial)
   loyaltySettings: {
-    // Advocacy — referral codes, converted buyers only, capped per quarter so
-    // volume-farming low-value referrals can't dominate the relationship score
-    pointsPerReferral: 10, referralCapPerQuarter: 40,
+    // Advocacy — referral codes, converted buyers only. Volume-weighted,
+    // not headcount-weighted: a referral's value scales with how much
+    // the referred customer actually bought, using progressive per-crate
+    // tiers (same mental model as commission/price ramps elsewhere in
+    // this ERP) — 2 referrals buying 50 crates each should outscore 20
+    // referrals buying 5 crates each, which flat linear scaling can't
+    // produce when totals tie. No quarterly cap — the first-order-only
+    // check in computeAdvocacyPoints() is the real anti-farming defense,
+    // not an arbitrary ceiling; the uncapped total feeds the planned
+    // quarterly referral leaderboard. Illustrative starting values,
+    // explicitly WIP per Bob, Aug 2026 — subject to revision once real
+    // order-size distribution is reviewed.
+    advocacyBasePoints: 2,
+    advocacyVolumeTiers: [
+      { upTo: 10, perCrate: 1.0 },
+      { upTo: 30, perCrate: 1.5 },
+      { upTo: 999999, perCrate: 2.5 },
+    ],
     // Feedback — flat points per submission, owner-flagged bonus for genuinely
     // impactful ones (EggScore's judgment, never automated)
     feedbackFormPoints: 5, feedbackImpactfulBonus: 10, feedbackCapPerQuarter: 30,
@@ -16580,8 +16602,12 @@ function renderCustomerScorecard() {
 
 function renderLoyaltySettingsFields() {
   const ly = ensureLoyaltySettings();
+  const t = ly.advocacyVolumeTiers || [];
   const fields = {
-    'ly-ref-points': ly.pointsPerReferral, 'ly-ref-cap': ly.referralCapPerQuarter,
+    'ly-adv-base': ly.advocacyBasePoints,
+    'ly-adv-t1-ceil': t[0]?.upTo, 'ly-adv-t1-rate': t[0]?.perCrate,
+    'ly-adv-t2-ceil': t[1]?.upTo, 'ly-adv-t2-rate': t[1]?.perCrate,
+    'ly-adv-t3-rate': t[2]?.perCrate,
     'ly-fb-points': ly.feedbackFormPoints, 'ly-fb-bonus': ly.feedbackImpactfulBonus, 'ly-fb-cap': ly.feedbackCapPerQuarter,
     'ly-comm-30': ly.commThirtyMinPoints, 'ly-comm-1h': ly.commOneHourPoints, 'ly-comm-24h': ly.commOneDayPoints,
     'ly-respect-base': ly.respectNoIncidentPoints, 'ly-respect-policy': ly.respectPerPolicyPoints,
@@ -16594,8 +16620,12 @@ function renderLoyaltySettingsFields() {
 
 function saveLoyaltySettings() {
   const ly = ensureLoyaltySettings();
-  ly.pointsPerReferral       = parseFloat(document.getElementById('ly-ref-points').value) || 0;
-  ly.referralCapPerQuarter   = parseFloat(document.getElementById('ly-ref-cap').value) || 0;
+  ly.advocacyBasePoints = parseFloat(document.getElementById('ly-adv-base').value) || 0;
+  ly.advocacyVolumeTiers = [
+    { upTo: parseFloat(document.getElementById('ly-adv-t1-ceil').value) || 0, perCrate: parseFloat(document.getElementById('ly-adv-t1-rate').value) || 0 },
+    { upTo: parseFloat(document.getElementById('ly-adv-t2-ceil').value) || 0, perCrate: parseFloat(document.getElementById('ly-adv-t2-rate').value) || 0 },
+    { upTo: 999999, perCrate: parseFloat(document.getElementById('ly-adv-t3-rate').value) || 0 },
+  ];
   ly.feedbackFormPoints      = parseFloat(document.getElementById('ly-fb-points').value) || 0;
   ly.feedbackImpactfulBonus  = parseFloat(document.getElementById('ly-fb-bonus').value) || 0;
   ly.feedbackCapPerQuarter   = parseFloat(document.getElementById('ly-fb-cap').value) || 0;
@@ -18972,12 +19002,51 @@ function computeObjectiveScore(customerName) {
 function ensureLoyaltySettings() {
   if(!STATE.loyaltySettings) {
     STATE.loyaltySettings = {
-      pointsPerReferral: 10, referralCapPerQuarter: 40,
+      // Volume-weighted Advocacy — replaces the old flat
+      // pointsPerReferral + referralCapPerQuarter. Bob's call, Aug 2026:
+      // a referral's value should scale with how much the referred
+      // customer actually bought, not just headcount — 2 referrals
+      // buying 50 crates each should outscore 20 referrals buying 5
+      // crates each. Progressive per-crate tiers (same mental model as
+      // commission/price ramps elsewhere in this ERP) achieve that;
+      // flat linear scaling can't, since it rewards headcount whenever
+      // totals tie. No quarterly cap anymore — the first-order-only
+      // check in computeAdvocacyPoints() is the real anti-farming
+      // defense, not an arbitrary ceiling; the uncapped total is what
+      // feeds the planned quarterly referral leaderboard. Illustrative
+      // starting values, explicitly WIP — confirmed by Bob to compute
+      // against for now, subject to revision once real order-size
+      // distribution is reviewed.
+      advocacyBasePoints: 2,
+      advocacyVolumeTiers: [
+        { upTo: 10, perCrate: 1.0 },
+        { upTo: 30, perCrate: 1.5 },
+        { upTo: 999999, perCrate: 2.5 },
+      ],
       feedbackFormPoints: 5, feedbackImpactfulBonus: 10, feedbackCapPerQuarter: 30,
       commThirtyMinPoints: 4, commOneHourPoints: 2, commOneDayPoints: 1,
       respectNoIncidentPoints: 5, respectPerPolicyPoints: 1,
       loyaltyLevelThresholds: { silver: 20, gold: 45, platinum: 70 },
     };
+    saveState();
+  }
+  // MIGRATION: an install with settings already synced from Supabase
+  // (from before this change) will have STATE.loyaltySettings already
+  // populated with the OLD shape (pointsPerReferral/referralCapPerQuarter)
+  // — the block above only runs when loyaltySettings is completely
+  // absent, so it never fires for an existing account. Without this,
+  // advocacyVolumeTiers would be undefined and computeAdvocacyPoints()
+  // would throw the moment anyone's Advocacy score gets computed.
+  // Backfill silently, once, on whatever object is actually in memory —
+  // the obsolete fields are left in place (harmless, just unused) rather
+  // than deleted, in case anything else still references them.
+  if(!STATE.loyaltySettings.advocacyVolumeTiers) {
+    STATE.loyaltySettings.advocacyBasePoints = 2;
+    STATE.loyaltySettings.advocacyVolumeTiers = [
+      { upTo: 10, perCrate: 1.0 },
+      { upTo: 30, perCrate: 1.5 },
+      { upTo: 999999, perCrate: 2.5 },
+    ];
     saveState();
   }
   return STATE.loyaltySettings;
@@ -19012,6 +19081,26 @@ function getOrCreateReferralCode(customerName) {
 // reservation or pending order that never went anywhere earns nothing.
 // Capped per quarter so mass-recruiting low-value referrals can't
 // dominate the relationship score on volume alone.
+// Progressive per-crate scoring for a single order — same mental model
+// as the commission/price-ramp tiers used elsewhere in this ERP. Only
+// the crates within each band earn that band's rate, not the whole
+// order at the top rate reached.
+function computeCratesPointsForOrder(crates, tiers) {
+  let remaining = crates;
+  let prevCap = 0;
+  let pts = 0;
+  for(const tier of tiers) {
+    const bandSize = Math.min(remaining, tier.upTo - prevCap);
+    if(bandSize > 0) {
+      pts += bandSize * tier.perCrate;
+      remaining -= bandSize;
+    }
+    prevCap = tier.upTo;
+    if(remaining <= 0) break;
+  }
+  return pts;
+}
+
 function computeAdvocacyPoints(customerName) {
   const s = ensureLoyaltySettings();
   // FIX: previously counted every fulfilled order carrying this
@@ -19031,12 +19120,17 @@ function computeAdvocacyPoints(customerName) {
     o.referredByCustomerName === customerName &&
     firstOrderByCustomer[o.customerName] === o
   );
+  // Volume-weighted, not headcount-weighted, and no artificial cap —
+  // see the comment on advocacyVolumeTiers in ensureLoyaltySettings()
+  // for the full reasoning. Quarterly bucketing kept (feeds the planned
+  // referral leaderboard) but nothing clips a quarter's total anymore.
   const byQuarter = {};
   referred.forEach(o => {
     const q = getQuarterKey(o.date);
-    byQuarter[q] = (byQuarter[q] || 0) + s.pointsPerReferral;
+    const pts = s.advocacyBasePoints + computeCratesPointsForOrder(o.crates || 0, s.advocacyVolumeTiers);
+    byQuarter[q] = (byQuarter[q] || 0) + pts;
   });
-  return Object.values(byQuarter).reduce((a, pts) => a + Math.min(s.referralCapPerQuarter, pts), 0);
+  return Object.values(byQuarter).reduce((a, pts) => a + pts, 0);
 }
 
 function computeFeedbackPoints(customerName) {

@@ -1973,12 +1973,47 @@ function getPortalQuarterKey(dateStr) {
   const d = new Date(dateStr);
   return `${d.getFullYear()}-Q${Math.floor(d.getMonth()/3)+1}`;
 }
+// Progressive per-crate scoring for a single order — same mental model
+// as the commission/price-ramp tiers used in the ERP, and the identical
+// calculation to famad-erp.html's computeCratesPointsForOrder(). Only
+// the crates within each band earn that band's rate, not the whole
+// order at the top rate reached.
+function computeCratesPointsForOrderPortal(crates, tiers) {
+  let remaining = crates;
+  let prevCap = 0;
+  let pts = 0;
+  for(const tier of tiers) {
+    const bandSize = Math.min(remaining, tier.upTo - prevCap);
+    if(bandSize > 0) {
+      pts += bandSize * tier.perCrate;
+      remaining -= bandSize;
+    }
+    prevCap = tier.upTo;
+    if(remaining <= 0) break;
+  }
+  return pts;
+}
+
 async function computePortalLoyaltyProfile(erp, customerName) {
   const ly = erp.loyaltySettings || {
-    pointsPerReferral:10, referralCapPerQuarter:40, feedbackFormPoints:5, feedbackImpactfulBonus:10, feedbackCapPerQuarter:30,
+    // Illustrative starting values, explicitly WIP per Bob — see the
+    // matching comment in famad-erp.html's ensureLoyaltySettings() for
+    // the full reasoning behind volume-weighted, uncapped Advocacy.
+    advocacyBasePoints:2,
+    advocacyVolumeTiers:[{upTo:10,perCrate:1.0},{upTo:30,perCrate:1.5},{upTo:999999,perCrate:2.5}],
+    feedbackFormPoints:5, feedbackImpactfulBonus:10, feedbackCapPerQuarter:30,
     commThirtyMinPoints:4, commOneHourPoints:2, commOneDayPoints:1, respectNoIncidentPoints:5, respectPerPolicyPoints:1,
     loyaltyLevelThresholds: { silver:20, gold:45, platinum:70 },
   };
+  // MIGRATION: erp.loyaltySettings may exist but still have the OLD
+  // shape (pointsPerReferral/referralCapPerQuarter, from before this
+  // change) — the fallback above only fires when it's completely
+  // absent. Without this, advocacyVolumeTiers stays undefined and the
+  // tier loop below throws. Backfill in place rather than blocking.
+  if(!ly.advocacyVolumeTiers) {
+    ly.advocacyBasePoints = 2;
+    ly.advocacyVolumeTiers = [{upTo:10,perCrate:1.0},{upTo:30,perCrate:1.5},{upTo:999999,perCrate:2.5}];
+  }
   const orders = loadOrders();
 
   // Advocacy — still computed locally. The backend /loyalty endpoint
@@ -2008,8 +2043,12 @@ async function computePortalLoyaltyProfile(erp, customerName) {
     firstOrderByCustomer[o.customerName] === o
   );
   const advByQ = {};
-  referred.forEach(o => { const q = getPortalQuarterKey(o.date); advByQ[q] = (advByQ[q]||0) + ly.pointsPerReferral; });
-  const advocacy = Object.values(advByQ).reduce((a,p) => a + Math.min(ly.referralCapPerQuarter, p), 0);
+  referred.forEach(o => {
+    const q = getPortalQuarterKey(o.date);
+    const pts = ly.advocacyBasePoints + computeCratesPointsForOrderPortal(o.crates || 0, ly.advocacyVolumeTiers);
+    advByQ[q] = (advByQ[q]||0) + pts;
+  });
+  const advocacy = Object.values(advByQ).reduce((a,p) => a + p, 0);
 
   // Communication — still local, same reason as advocacy above (reservedAt/
   // convertedAt/cancelledAt aren't backend-persisted either). Unchanged.
