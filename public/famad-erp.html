@@ -3409,6 +3409,9 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="modal-title">FIFO Batch Register</div>
       <button class="modal-close" onclick="closeModal('modal-batch-viewer')">✕</button>
     </div>
+    <div style="padding:0 20px 10px">
+      <input class="form-input" id="batch-viewer-search" placeholder="🔍 Search supplier, batch ID, or date…" style="padding:4px 8px;font-size:10px;height:28px;width:100%" oninput="renderBatchViewer()"/>
+    </div>
     <div id="batch-viewer-body"></div>
   </div>
 </div>
@@ -4807,14 +4810,20 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="panel">
       <div class="panel-hdr">
         <div class="panel-title">Customer Segmentation</div>
-        <div class="panel-tag">churn risk · value tier · LTV</div>
+        <div class="panel-hdr-actions">
+          <input class="form-input" id="seg-churn-search" placeholder="🔍 Search customer…" style="padding:4px 8px;font-size:10px;height:28px;width:150px" oninput="renderSegmentation()"/>
+          <div class="panel-tag">churn risk · value tier · LTV</div>
+        </div>
       </div>
       <div class="panel-body" id="seg-churn-list"></div>
     </div>
     <div class="panel">
       <div class="panel-hdr">
         <div class="panel-title">Lifetime Value Ranking</div>
-        <div class="panel-tag">total spend · crates · LTV</div>
+        <div class="panel-hdr-actions">
+          <input class="form-input" id="seg-ltv-search" placeholder="🔍 Search customer…" style="padding:4px 8px;font-size:10px;height:28px;width:150px" oninput="renderLTVRanking()"/>
+          <div class="panel-tag">total spend · crates · LTV</div>
+        </div>
       </div>
       <div class="panel-body panel-scroll" id="seg-ltv-list"></div>
     </div>
@@ -5280,7 +5289,13 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 
   <div class="panel">
-    <div class="panel-hdr"><div class="panel-title">Recent Reservations</div><div class="panel-tag">last 25, most recent first</div></div>
+    <div class="panel-hdr">
+      <div class="panel-title">Recent Reservations</div>
+      <div class="panel-hdr-actions">
+        <input class="form-input" id="resv-recent-search" placeholder="🔍 Search customer…" style="padding:4px 8px;font-size:10px;height:28px;width:180px" oninput="renderReservationIntelligence()"/>
+        <div class="panel-tag">last 25, most recent first</div>
+      </div>
+    </div>
     <div class="panel-body panel-scroll" id="resv-recent-table"></div>
   </div>
 
@@ -5389,7 +5404,10 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">📍 Destination Reference</div>
-      <div class="panel-tag">Ogun–Lagos corridor to start — add real destinations as coverage grows</div>
+      <div class="panel-hdr-actions">
+        <input class="form-input" id="lg-dest-search" placeholder="🔍 Search destination…" style="padding:4px 8px;font-size:10px;height:28px;width:180px" oninput="renderLogistics()"/>
+        <div class="panel-tag">Ogun–Lagos corridor to start — add real destinations as coverage grows</div>
+      </div>
     </div>
     <div class="panel-body">
       <div id="lg-destination-list" style="margin-bottom:10px"></div>
@@ -5615,7 +5633,10 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">💬 Feedback Submissions</div>
-      <div class="panel-tag">from the portal — flag genuinely impactful ones for bonus points</div>
+      <div class="panel-hdr-actions">
+        <input class="form-input" id="fb-review-search" placeholder="🔍 Search customer or text…" style="padding:4px 8px;font-size:10px;height:28px;width:180px" oninput="renderFeedbackReview()"/>
+        <div class="panel-tag">from the portal — flag genuinely impactful ones for bonus points</div>
+      </div>
     </div>
     <div class="panel-body panel-scroll" id="feedback-review-panel"></div>
   </div>
@@ -5721,7 +5742,13 @@ input[type=number]{-moz-appearance:textfield;}
 
   <!-- FULFILLED ORDERS TABLE -->
   <div class="panel">
-    <div class="panel-hdr"><div class="panel-title">Order History</div><div class="panel-tag">fulfilled &amp; closed</div></div>
+    <div class="panel-hdr">
+      <div class="panel-title">Order History</div>
+      <div class="panel-hdr-actions">
+        <input class="form-input" id="ord-history-search" placeholder="🔍 Search customer or ref…" style="padding:4px 8px;font-size:10px;height:28px;width:180px" oninput="renderOrders()"/>
+        <div class="panel-tag">fulfilled &amp; closed</div>
+      </div>
+    </div>
     <div class="panel-body panel-scroll">
       <table class="data-table">
         <thead><tr><th>Ref</th><th>Customer</th><th>Crates</th><th>Value</th><th>Payment</th><th>Date</th><th>Status</th></tr></thead>
@@ -5884,7 +5911,10 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">④ Recipient List &amp; Phone Numbers</div>
-      <div class="panel-tag" id="wa-recip-tag">0 recipients</div>
+      <div class="panel-hdr-actions">
+        <input class="form-input" id="wa-recip-search" placeholder="🔍 Search name or phone…" style="padding:4px 8px;font-size:10px;height:28px;width:180px" oninput="renderWARecipients()"/>
+        <div class="panel-tag" id="wa-recip-tag">0 recipients</div>
+      </div>
     </div>
     <div class="panel-body">
       <div class="alert-banner info" style="margin-bottom:12px">
@@ -15175,15 +15205,22 @@ function renderSegmentation() {
     return;
   }
 
+  const churnSearch = (document.getElementById('seg-churn-search')?.value || '').trim().toLowerCase();
+  const searchedCusts = churnSearch ? custs.filter(c => c.name.toLowerCase().includes(churnSearch)) : custs;
+  if(churnSearch && !searchedCusts.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">No matches for "${escapeHtml(churnSearch)}".</div>`;
+    return;
+  }
+
   // Sort by churn risk score descending (highest risk first)
-  const ranked = custs.map(c => ({
+  const ranked = searchedCusts.map(c => ({
     c,
     churn: computeChurnRisk(c.name),
     ltv:   computeCustomerLTV(c.name),
     cs:    computeCreditScore(c.name),
   })).sort((a,b) => b.churn.score - a.churn.score);
 
-  el.innerHTML = ranked.slice(0, 12).map(({ c, churn, ltv, cs }) => {
+  el.innerHTML = (churnSearch ? ranked : ranked.slice(0, 12)).map(({ c, churn, ltv, cs }) => {
     const churnBadge = churn.level === 'high'
       ? `<span class="churn-high">🔴 ${churn.label}</span>`
       : churn.level === 'med'
@@ -15224,19 +15261,22 @@ function renderLTVRanking() {
   const el = document.getElementById('seg-ltv-list');
   if(!el) return;
 
-  const ranked = STATE.customers
+  const ltvSearch = (document.getElementById('seg-ltv-search')?.value || '').trim().toLowerCase();
+  const ltvCusts = ltvSearch ? STATE.customers.filter(c => c.name.toLowerCase().includes(ltvSearch)) : STATE.customers;
+
+  const ranked = ltvCusts
     .map(c => ({ c, ltv: computeCustomerLTV(c.name) }))
     .filter(x => x.ltv.orderCount > 0)
     .sort((a,b) => b.ltv.totalSpend - a.ltv.totalSpend);
 
   if(!ranked.length) {
-    el.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No purchase history yet.</div>';
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">${ltvSearch ? `No matches for "${escapeHtml(ltvSearch)}".` : 'No purchase history yet.'}</div>`;
     return;
   }
 
   const maxSpend = ranked[0]?.ltv.totalSpend || 1;
 
-  el.innerHTML = ranked.slice(0, 10).map(({ c, ltv }, i) => {
+  el.innerHTML = (ltvSearch ? ranked : ranked.slice(0, 10)).map(({ c, ltv }, i) => {
     const barPct = Math.round((ltv.totalSpend / maxSpend) * 100);
     const rankCol= i === 0 ? 'var(--lime)' : i === 1 ? 'var(--sun)' : i === 2 ? 'var(--amber)' : 'var(--border)';
     return `
@@ -16253,11 +16293,13 @@ function renderReservationIntelligence() {
   // Recent reservations table
   const recentEl = document.getElementById('resv-recent-table');
   if(recentEl) {
-    const recent = everReserved
+    const recentSearch = (document.getElementById('resv-recent-search')?.value || '').trim().toLowerCase();
+    const recentSource = recentSearch ? everReserved.filter(o => (o.customerName||'').toLowerCase().includes(recentSearch)) : everReserved;
+    const recent = recentSource
       .sort((a,b) => new Date(b.reservedAt||b.date) - new Date(a.reservedAt||a.date))
       .slice(0, 25);
     if(recent.length === 0) {
-      recentEl.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">No reservations yet.</div>`;
+      recentEl.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">${recentSearch ? `No matches for "${escapeHtml(recentSearch)}".` : 'No reservations yet.'}</div>`;
     } else {
       recentEl.innerHTML = `<table class="data-table" style="width:100%;font-size:10px">
         <thead><tr><th>Customer</th><th>Type</th><th>Crates</th><th>Window</th><th>Outcome</th><th>Date</th></tr></thead>
@@ -16677,10 +16719,14 @@ function removeOrderPolicy(policyId) {
 function renderFeedbackReview() {
   const el = document.getElementById('feedback-review-panel');
   if(!el) return;
-  const subs = loadFeedbackSubmissions().sort((a,b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+  const allSubs = loadFeedbackSubmissions().sort((a,b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+  const fbSearch = (document.getElementById('fb-review-search')?.value || '').trim().toLowerCase();
+  const subs = fbSearch
+    ? allSubs.filter(f => (f.customerName||'').toLowerCase().includes(fbSearch) || (f.text||'').toLowerCase().includes(fbSearch))
+    : allSubs;
   el.innerHTML = subs.length === 0
-    ? `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">No feedback submitted yet.</div>`
-    : subs.slice(0, 25).map(f => `
+    ? `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">${fbSearch ? `No matches for "${escapeHtml(fbSearch)}".` : 'No feedback submitted yet.'}</div>`
+    : (fbSearch ? subs : subs.slice(0, 25)).map(f => `
       <div style="padding:8px 10px;background:rgba(61,214,192,0.05);border:1px solid rgba(61,214,192,0.12);
         border-radius:7px;margin-bottom:6px">
         <div style="display:flex;justify-content:space-between;align-items:center">
@@ -18516,10 +18562,14 @@ function renderBatchViewer() {
   if(!el) return;
   const current  = getFIFOBatch();
   const lastSell = getCurrentSellingPrice();
+  const batchSearch = (document.getElementById('batch-viewer-search')?.value || '').trim().toLowerCase();
+  const batches = batchSearch
+    ? STATE.batches.filter(b => (b.supplier||'').toLowerCase().includes(batchSearch) || (b.id||'').toLowerCase().includes(batchSearch) || (b.date||'').toLowerCase().includes(batchSearch))
+    : STATE.batches;
 
-  el.innerHTML = STATE.batches.length === 0
-    ? '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No batches on record.</div>'
-    : STATE.batches.sort((a,b)=>a.date.localeCompare(b.date)).map(b => {
+  el.innerHTML = batches.length === 0
+    ? `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">${batchSearch ? `No matches for "${escapeHtml(batchSearch)}".` : 'No batches on record.'}</div>`
+    : batches.sort((a,b)=>a.date.localeCompare(b.date)).map(b => {
         const margin    = lastSell - b.cost;
         const marginCls = margin<=0?'bmc-crit':margin<200?'bmc-warn':'bmc-safe';
         const isCurrent = b===current;
@@ -20393,10 +20443,12 @@ function renderOrders() {
       : filtered.map((o,i)=>buildOrderCard(o,i+1)).join('');
   }
   const histBody = document.getElementById('ord-history-body');
-  const hist = orders.filter(o=>o.status==='fulfilled'||o.status==='rejected');
+  const histSearch = (document.getElementById('ord-history-search')?.value || '').trim().toLowerCase();
+  let hist = orders.filter(o=>o.status==='fulfilled'||o.status==='rejected');
+  if(histSearch) hist = hist.filter(o => (o.customerName||'').toLowerCase().includes(histSearch) || (o.ref||'').toLowerCase().includes(histSearch));
   if(histBody){
     histBody.innerHTML = hist.length===0
-      ? '<tr><td colspan="7" style="text-align:center;color:var(--mist);font-family:\'DM Mono\',monospace;font-size:11px;padding:16px">No fulfilled orders yet.</td></tr>'
+      ? `<tr><td colspan="7" style="text-align:center;color:var(--mist);font-family:'DM Mono',monospace;font-size:11px;padding:16px">${histSearch ? `No matches for "${escapeHtml(histSearch)}".` : 'No fulfilled orders yet.'}</td></tr>`
       : hist.map(o=>`<tr>
           <td data-label="Ref" class="mono" style="color:var(--blue)">${o.ref}</td>
           <td data-label="Customer">${o.customerName}</td>
@@ -21653,9 +21705,11 @@ function renderLogistics() {
   }
   const destEl = document.getElementById('lg-destination-list');
   if(destEl) {
-    destEl.innerHTML = dests.length === 0
-      ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">No destinations added yet.</div>`
-      : dests.map(d => `
+    const destSearch = (document.getElementById('lg-dest-search')?.value || '').trim().toLowerCase();
+    const filteredDests = destSearch ? dests.filter(d => d.name.toLowerCase().includes(destSearch)) : dests;
+    destEl.innerHTML = filteredDests.length === 0
+      ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">${destSearch ? `No matches for "${escapeHtml(destSearch)}".` : 'No destinations added yet.'}</div>`
+      : filteredDests.map(d => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px">
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(d.name)} — ${d.distanceKm}km</span>
           <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDestination('${d.id}')">Remove</button>
@@ -24663,12 +24717,23 @@ function renderWARecipients() {
   const el = document.getElementById('wa-recipient-list');
   if(!el) return;
   const custs = getSegmentCustomers(WA.selectedSegment);
-  WA.recipients = custs;
+  WA.recipients = custs; // full segment — unaffected by search, so "Launch Broadcast" always targets the whole segment
   if(custs.length === 0) {
     el.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No customers in this segment. Adjust segment or add customers.</div>';
     return;
   }
-  el.innerHTML = custs.map((c,i) => `
+  const recipSearch = (document.getElementById('wa-recip-search')?.value || '').trim().toLowerCase();
+  // Keep original index (i) even when filtered for display, since
+  // sendToOne(i)/savePhone(i,...) index into the FULL WA.recipients
+  // array — renumbering here would send to the wrong customer.
+  const visible = custs
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => !recipSearch || c.name.toLowerCase().includes(recipSearch) || (c.phone||'').includes(recipSearch));
+  if(recipSearch && !visible.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">No matches for "${escapeHtml(recipSearch)}".</div>`;
+    return;
+  }
+  el.innerHTML = visible.map(({ c, i }) => `
     <div class="recip-row ${WA.sentCount>i?'sent':'pending'}" id="recip-row-${i}">
       <div class="rr-left">
         <div class="rr-avatar">${c.name.charAt(0)}</div>
