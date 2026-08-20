@@ -11429,7 +11429,7 @@ function openEditTermsModal(custId) {
   document.getElementById('et-cust-summary').innerHTML =
     `<strong style="color:var(--cream)">${c.name}</strong><br>
      Current terms: <strong style="color:${c.creditLimit===0?'var(--red)':'var(--lime)'}">${currentTerms}</strong><br>
-     Loyalty: ${c.loyalty} · Total crates: ${(c.totalCrates||0).toLocaleString()}`;
+     Loyalty: ${c.loyalty} · Total crates: ${getCustomerTotalCrates(c.name).toLocaleString()}`;
 
   openModal('modal-edit-terms');
 }
@@ -12314,7 +12314,9 @@ function handleSave() {
   const cust = STATE.customers.find(c => c.name === customer);
   if(cust) {
     cust.lastPurchase = date;
-    cust.totalCrates  = (cust.totalCrates||0) + crates;
+    // totalCrates is no longer stored/incremented here — it's computed
+    // live from STATE.sales via getCustomerTotalCrates() everywhere it's
+    // displayed, so it can never drift or get lost across a merge.
     // Tier (loyalty) is no longer auto-assigned by raw volume here — it's
     // now driven by the Customer Scorecard (on-time payment, frequency,
     // glut-buying, tenure, relationship history) and only changes once
@@ -13448,7 +13450,7 @@ function renderCustomers() {
             </div>
           </div>
           <div class="cust-metrics">
-            <div class="cm-item"><div class="cm-val">${c.totalCrates||0}</div><div class="cm-lbl">total crates</div></div>
+            <div class="cm-item"><div class="cm-val">${getCustomerTotalCrates(c.name)}</div><div class="cm-lbl">total crates</div></div>
             <div class="cm-item"><div class="cm-val">${c.lastPurchase||'—'}</div><div class="cm-lbl">last buy</div></div>
             <div class="cm-item"><div class="cm-val">${c.creditLimit>0?fmtK(c.creditLimit):'Cash Only'}</div><div class="cm-lbl">credit limit</div></div>
             <div class="cm-item"><div class="cm-val">${custFreq(c.id)}</div><div class="cm-lbl">orders/mo</div></div>
@@ -13555,7 +13557,7 @@ function showCustomerProfile(custId) {
       ${c.referral ? `<div><div class="form-label">Referral Source</div><div style="color:var(--dust);font-size:12px;margin-top:4px">${c.referral}</div></div>` : ''}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:14px">
-      <div class="cm-item"><div class="cm-val" style="color:var(--blue)">${c.totalCrates||0}</div><div class="cm-lbl">Total Crates</div></div>
+      <div class="cm-item"><div class="cm-val" style="color:var(--blue)">${custSales.reduce((a,s)=>a+(s.crates||0),0)}</div><div class="cm-lbl">Total Crates</div></div>
       <div class="cm-item"><div class="cm-val" style="color:var(--lime)">${fmtK(totalSpend)}</div><div class="cm-lbl">Total Spend</div></div>
       <div class="cm-item"><div class="cm-val">${Math.round(avgOrder)}</div><div class="cm-lbl">Avg Order</div></div>
       <div class="cm-item"><div class="cm-val">${custSales.length}</div><div class="cm-lbl">Orders Total</div></div>
@@ -16838,7 +16840,7 @@ async function generateCRMInsights() {
     gold: STATE.customers.filter(c=>c.loyalty==='Gold').length,
     silver: STATE.customers.filter(c=>c.loyalty==='Silver').length,
     creditExposure: fmt(getTotalDebt()),
-    topCustomer: STATE.customers.sort((a,b)=>b.totalCrates-a.totalCrates)[0]?.name,
+    topCustomer: [...STATE.customers].sort((a,b)=>getCustomerTotalCrates(b.name)-getCustomerTotalCrates(a.name))[0]?.name,
     recentSales: STATE.sales.slice(0,5).map(s=>s.customer).join(', '),
     totalMTDSales: getTotalCratesMTD(),
   };
@@ -18764,6 +18766,17 @@ function getOldestOutstandingCreditDate(customerName) {
      4. Partial-payment frequency (proxy for cashflow strain)
    Customers with no credit history return 'grey' (no data).
 ═══════════════════════════════════════════════════════ */
+// Computed fresh from actual sales every time — deliberately NOT a
+// stored/incremental field. A stored running counter on the customer
+// object (the previous approach) silently loses its accumulated value
+// whenever customer records get merged or deduplicated, since the
+// count lives on whichever specific object happened to receive past
+// Record Sale actions. Computing fresh here means it's always correct
+// regardless of how many times a customer's record has been merged.
+function getCustomerTotalCrates(customerName) {
+  return STATE.sales.filter(s => s.customer === customerName).reduce((sum, s) => sum + (s.crates || 0), 0);
+}
+
 function computeCreditScore(customerName) {
   const cust = STATE.customers.find(c => c.name === customerName);
   const creditLimit = cust?.creditLimit || 0;
@@ -24492,7 +24505,7 @@ function getSegmentCustomers(seg) {
   if(seg === 'all')      return custs;
   if(seg === 'gold')     return custs.filter(c => c.loyalty === 'Gold');
   if(seg === 'silver')   return custs.filter(c => c.loyalty === 'Silver');
-  if(seg === 'highvol')  return custs.filter(c => (c.totalCrates||0) >= 200);
+  if(seg === 'highvol')  return custs.filter(c => getCustomerTotalCrates(c.name) >= 200);
   if(seg === 'inactive') return custs.filter(c => {
     if(!c.lastPurchase) return true;
     return (now - new Date(c.lastPurchase)) / 86400000 > 30;
@@ -26451,8 +26464,7 @@ function getHoldWindowTier(customerName, crates) {
     }
     return { key:'firstTime', label:'First-time buyer', ...hw.firstTime || {warn:12, decide:24} };
   }
-  const totalCrates = cust?.totalCrates ||
-    STATE.sales.filter(s=>s.customer===customerName).reduce((a,s)=>a+s.crates,0);
+  const totalCrates = getCustomerTotalCrates(customerName);
   if(totalCrates >= 1000)
     return { key:'highVolume', label:'High-volume customer', ...hw.highVolume || {warn:36, decide:72} };
   if(totalCrates >= 200)
@@ -26506,7 +26518,7 @@ function renderPendingTransfers() {
     const custSignals = [
       tier.label,
       cust?.loyalty ? `${cust.loyalty} loyalty` : '',
-      cust?.totalCrates ? `${(cust.totalCrates||0).toLocaleString()} crates lifetime` : '',
+      getCustomerTotalCrates(h.customerName) ? `${getCustomerTotalCrates(h.customerName).toLocaleString()} crates lifetime` : '',
     ].filter(Boolean).join(' · ');
     const tvDisplay = cratesHeld > 0
       ? `Stock value held: ₦${tvFinal.stockValue.toLocaleString()} · <strong style="color:${urgencyColor}">₦${tvFinal.totalAccrued.toLocaleString()} accrued</strong> (₦${tvFinal.perHourCost.toLocaleString()}/hr at 30% p.a.)`
