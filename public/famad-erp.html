@@ -2025,7 +2025,7 @@ input[type=number]{-moz-appearance:textfield;}
     saveFeedbackSubmissions(mapped);
     if(document.getElementById('feedback-review-panel')) renderFeedbackReview();
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend(); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); });
+  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
