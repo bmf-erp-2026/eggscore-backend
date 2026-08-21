@@ -39,7 +39,7 @@ function genReferralCode(name) {
 router.post('/', requireEitherAuth(), async (req, res) => {
   const { customerName, phone, location, crates, eggPricePerCrate, deliveryPerCrate, notes, paymentMethod,
           referredByCustomerName, reservationCustomerType, reservedAt, reservationWindowHours, reservationExpiresAt, status,
-          confirmedExistingCid } = req.body;
+          confirmedExistingCid, theme } = req.body;
   if(!customerName || !crates || crates < 1) {
     return res.status(400).json({ error: 'customerName and a positive crates value are required.' });
   }
@@ -100,12 +100,13 @@ router.post('/', requireEitherAuth(), async (req, res) => {
 
 const ref = genOrderRef();
   const info = await db.prepare(`
-    INSERT INTO orders (ref, customer_id, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method, referred_by_customer_name, reservation_customer_type, reserved_at, reservation_window_hours, reservation_expires_at, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (ref, customer_id, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method, referred_by_customer_name, reservation_customer_type, reserved_at, reservation_window_hours, reservation_expires_at, status, theme)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(ref, customerId, customerName, phone || null, location || null, crates,
     eggPricePerCrate || 0, deliveryPerCrate || 0, notes || null, paymentMethod || null,
     referredByCustomerName || null, reservationCustomerType || null, reservedAt || null,
-    reservationWindowHours || null, reservationExpiresAt || null, status || 'pending');  
+    reservationWindowHours || null, reservationExpiresAt || null, status || 'pending',
+    theme === 'dark' ? 'dark' : 'light');
 
   const order = await db.prepare('SELECT * FROM orders WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ ...order, customerCid, isNewCustomer });
