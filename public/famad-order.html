@@ -3366,7 +3366,25 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   applyUIStrings();
   syncThemeToggleLabel();
+  logThemeView();
 });
+
+// Fired once per browser tab session (not on every internal render) so a
+// single customer visit counts once, not once per interaction. Purely for
+// gauging light-vs-dark traffic — never blocks the page, and a failed/blocked
+// ping is silently ignored since it's not essential to using the portal.
+function logThemeView() {
+  try {
+    if(sessionStorage.getItem('feds_theme_view_logged')) return;
+    sessionStorage.setItem('feds_theme_view_logged', '1');
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    fetch(`${BACKEND_URL}/theme-views`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({ theme }),
+    }).catch(() => {});
+  } catch(e) {}
+}
 </script>
 
 <script>

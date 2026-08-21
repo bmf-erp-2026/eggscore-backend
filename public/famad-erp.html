@@ -3781,6 +3781,17 @@ input[type=number]{-moz-appearance:textfield;}
 
   <div id="dash-alerts"></div>
 
+  <!-- PORTAL THEME USAGE — light vs dark traffic on the customer portal -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-hdr">
+      <div class="panel-title">🎨 Portal Theme Usage</div>
+      <div class="panel-tag">light vs dark — customer portal traffic</div>
+    </div>
+    <div class="panel-body" id="dash-theme-usage">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">Loading…</div>
+    </div>
+  </div>
+
   <!-- MARGIN WATCH — floor & least batch cost, kept impossible to miss -->
   <div id="dash-margin-watch" style="margin-bottom:14px"></div>
   <div id="dash-cost-drift-chart" style="margin-bottom:14px"></div>
@@ -12483,6 +12494,7 @@ function renderDashboard() {
   renderDashWeeklyChart();
   renderDashAlerts();
   renderDashInsightStrip();
+  renderThemeUsage();
 
   const now = new Date();
   const el = document.getElementById('dash-month-tag');
@@ -12717,6 +12729,39 @@ function renderDashInvSnap() {
       <div class="inv-track"><div class="inv-fill warn" style="width:${Math.round(inv.damaged/inv.maxCapacity*100)}%"></div></div>
       <div class="inv-meta"><span>write-offs MTD</span><span>${fmt(inv.damaged * 5200)} cost</span></div>
     </div>`;
+}
+
+async function renderThemeUsage() {
+  const el = document.getElementById('dash-theme-usage');
+  if(!el) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/theme-views/summary`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if(!resp.ok) throw new Error('fetch failed');
+    const { light, dark } = await resp.json();
+    const total = light + dark;
+    if(total === 0) {
+      el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">No portal visits recorded yet.</div>`;
+      return;
+    }
+    const lightPct = Math.round((light / total) * 100);
+    const darkPct = 100 - lightPct;
+    el.innerHTML = `
+      <div style="display:flex;gap:16px;margin-bottom:8px">
+        <div><span style="font-family:'DM Mono',monospace;font-size:20px;color:var(--cream)">${light.toLocaleString()}</span> <span style="font-size:10px;color:var(--dust)">☀ light (${lightPct}%)</span></div>
+        <div><span style="font-family:'DM Mono',monospace;font-size:20px;color:var(--cream)">${dark.toLocaleString()}</span> <span style="font-size:10px;color:var(--dust)">🌙 dark (${darkPct}%)</span></div>
+      </div>
+      <div style="height:6px;border-radius:3px;overflow:hidden;display:flex;background:var(--raised)">
+        <div style="width:${lightPct}%;background:var(--sun)"></div>
+        <div style="width:${darkPct}%;background:var(--blue)"></div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--dust);margin-top:6px">${total.toLocaleString()} portal session${total===1?'':'s'} tracked, counted once per visit</div>`;
+  } catch(e) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">Couldn't load theme usage — try Recalculate or check connection.</div>`;
+  }
 }
 
 function renderDashAlerts() {
