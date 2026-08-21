@@ -12336,6 +12336,10 @@ function handleSave() {
     // nothing carried it into the sale record until now.
     promoApplied:  document.getElementById('s-inv')?.dataset.promoApplied || null,
     promoDiscount: parseFloat(document.getElementById('s-inv')?.dataset.promoDiscount) || 0,
+    // Frozen at the moment of sale — a snapshot of what upfront/financed/
+    // excess split applied THEN, so Purchase History shows what was
+    // actually decided even if the customer's tier/limit changes later.
+    creditSplit: computeCreditSplit(customer, gross),
   };
 
   // ── FIFO deduction — deduct from oldest batch first ──
@@ -13723,9 +13727,15 @@ function showCustomerProfile(custId) {
 
     <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--blue-dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;margin-top:14px">Purchase History</div>
     ${custSales.slice(0,5).map(s=>`
-      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(74,158,255,0.05)">
-        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">${s.date} · ${s.crates} crates · ${s.rep}</div>
-        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lime)">${fmt(s.gross)}</div>
+      <div style="padding:6px 0;border-bottom:1px solid rgba(74,158,255,0.05)">
+        <div style="display:flex;justify-content:space-between">
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">${s.date} · ${s.crates} crates · ${s.rep}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lime)">${fmt(s.gross)}</div>
+        </div>
+        ${s.creditSplit && (s.creditSplit.financed > 0 || s.creditSplit.excess > 0) ? `
+        <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--dust);margin-top:2px">
+          💵 ${fmt(s.creditSplit.upfront)} upfront · 📇 ${fmt(s.creditSplit.financed)} financed${s.creditSplit.excess > 0 ? ` · ⚠ ${fmt(s.creditSplit.excess)} excess` : ''}
+        </div>` : ''}
       </div>`).join('')}
 
     ${(()=>{
@@ -19502,6 +19512,20 @@ function getSuggestedPartPaymentPct(customerName) {
   return ensureScorecardSettings().partPaymentPct[tier] ?? 1.0;
 }
 
+// Splits a given order value against a customer's Suggested Limit and
+// Part-Pay% — anything above the limit isn't credit-eligible at all, so
+// it has to be paid upfront in full regardless of tier. The three
+// figures always sum back to orderValue exactly.
+function computeCreditSplit(customerName, orderValue) {
+  const limit   = getSuggestedCreditLimit(customerName);
+  const partPay = getSuggestedPartPaymentPct(customerName);
+  const withinLimit = Math.min(orderValue, limit);
+  const excess       = Math.max(0, orderValue - limit);
+  const upfront   = Math.round(withinLimit * partPay) + excess;
+  const financed  = Math.round(withinLimit * (1 - partPay));
+  return { upfront, financed, excess, limit, partPay };
+}
+
 function creditScoreBadge(customerName) {
   const cs = computeCreditScore(customerName);
   if(cs.tier === 'grey') return `<span class="cscore-badge cscore-grey">— ${cs.label}</span>`;
@@ -20549,6 +20573,28 @@ function buildOrderCard(o, queueNum) {
         <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)">${o.walletCreditApplied > 0 ? `💰 balance owed (₦${o.walletCreditApplied.toLocaleString()} wallet applied)` : '💰 total payable'}</div>
       </div>
     </div>
+    ${(() => {
+      const custObj = STATE.customers.find(c => c.name === o.customerName);
+      if(!custObj || custObj.creditLimit === 0) return '';
+      const orderValue = o.walletCreditApplied > 0 ? Math.max(0, (o.grandTotal||val) - o.walletCreditApplied) : (o.grandTotal||val);
+      const split = computeCreditSplit(o.customerName, orderValue);
+      return `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+        <div style="background:var(--card);border-radius:6px;padding:7px 10px">
+          <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--sun)">${fmt(split.upfront)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)">💵 upfront payment</div>
+        </div>
+        <div style="background:var(--card);border-radius:6px;padding:7px 10px">
+          <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--blue)">${fmt(split.financed)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)">📇 financed balance</div>
+        </div>
+        <div style="background:var(--card);border-radius:6px;padding:7px 10px">
+          <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:${split.excess>0?'var(--red)':'var(--mist)'}">${fmt(split.excess)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)" title="Portion above the ₦${split.limit.toLocaleString()} suggested limit — not credit-eligible, cash only">⚠ excess handling</div>
+        </div>
+      </div>`;
+    })()}
+
     ${o.notes?`<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);background:var(--card);border-radius:6px;padding:8px 10px;margin-bottom:10px">📝 ${o.notes}</div>`:''}
 
     ${isReserved ? (() => {
