@@ -11508,6 +11508,10 @@ async function confirmEditTerms() {
   });
 
   saveState(); populateSelects();
+  // Push to the backend so this survives the next sync — a purely local
+  // change here was the exact bug that made "settled" status revert
+  // earlier tonight; credit limit needs the same fix.
+  if(c.backendId) patchCustomerToBackend(c.backendId, { creditLimit: newLimit });
   closeModal('modal-edit-terms');
   if(currentModule === 'customers') renderCustomers();
 
