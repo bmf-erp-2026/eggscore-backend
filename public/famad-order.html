@@ -1294,6 +1294,7 @@ async function saveOrder(order) {
         // noticed, since its own local cache already held 'reserved' and
         // never got overwritten by the (wrong) synced value.
         status: order.status || 'pending',
+        theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light',
       }),
     });
     if(resp.ok) {
