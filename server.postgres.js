@@ -42,6 +42,7 @@ app.use('/relationship-tags', require('./routes-postgres/relationship-tags'));
 app.use('/feedback', require('./routes-postgres/feedback'));
 app.use('/loyalty', require('./routes-postgres/loyalty'));
 app.use('/ai', require('./routes-postgres/ai'));
+app.use('/theme-views', require('./routes-postgres/theme-views'));
 
 app.get('/health', (req, res) => res.json({ ok: true, service: 'eggscore-backend', mode: 'postgres', time: new Date().toISOString() }));
 
