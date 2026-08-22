@@ -13205,8 +13205,9 @@ function generateInvoice(saleId) {
     </tr>` : ''}
   </tbody>
   <tfoot>
-    ${alreadyPaid > 0 && !isSettled ? `
-    <tr><td colspan="3">Amount Received</td><td>₦${alreadyPaid.toLocaleString()}</td></tr>` : ''}
+    ${!isSettled ? `
+    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
+    <tr><td colspan="3">Financed Balance${dueDate !== '—' ? ' — due ' + dueDate : ''}</td><td style="color:#856404">₦${remaining.toLocaleString()}</td></tr>` : ''}
     <tr class="total">
       <td colspan="3">${isSettled ? 'TOTAL RECEIVED' : 'TOTAL PAYABLE'}</td>
       <td>₦${(s.gross + (s.deliveryTotal||0)).toLocaleString()}</td>
