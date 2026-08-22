@@ -1817,6 +1817,16 @@ input[type=number]{-moz-appearance:textfield;}
         // gets mapped here just silently never syncs. Explicit fallback
         // to 'new' only if the backend genuinely has no value yet.
         existing.trustTier   = row.trust_tier || 'new';
+        // loyalty_tier (Aug 22 fix) — fill-gap only, never overwrite an
+        // existing local value. Local scorecard computation is the real
+        // source of truth on whichever device runs it; sync exists so a
+        // device that has NEVER computed this customer's tier locally
+        // gets a real starting point instead of being stuck at 'New'
+        // forever (which is what every row in Supabase showed before
+        // this fix — the column existed but nothing had ever written to
+        // it, so every device without local history saw the same
+        // meaningless default).
+        existing.loyalty     = existing.loyalty || row.loyalty_tier || 'New';
         existing.backendId   = row.id; // explicit, reliable — regardless of what existing.id happens to look like
       } else {
         byCid.set(row.cid, {
@@ -1824,7 +1834,7 @@ input[type=number]{-moz-appearance:textfield;}
           contact: row.contact || '—', phone: row.phone || '—', type: row.type,
           creditLimit: row.credit_limit || 0, referral: row.referral || '',
           trustTier: row.trust_tier || 'new',
-          loyalty: 'New', lastPurchase: null, totalCrates: 0, notes: row.notes || '',
+          loyalty: row.loyalty_tier || 'New', lastPurchase: null, totalCrates: 0, notes: row.notes || '',
           backendId: row.id,
         });
       }
@@ -19589,6 +19599,10 @@ function refreshTierClearanceQueue() {
     } else if(suggestedRank < currentRank && suggestedRank >= 0) {
       const oldTier = c.loyalty;
       c.loyalty = sc.suggestedTier;
+      // loyalty_tier backend persistence (Aug 22 fix) — every row in
+      // Supabase was stuck at 'New' because nothing ever posted this
+      // field. Fire-and-forget, same pattern as trustTier.
+      if(c.backendId) patchCustomerToBackend(c.backendId, { loyaltyTier: c.loyalty });
       logWarn('credit', `Customer tier auto-downgraded — ${c.name}: ${oldTier} → ${sc.suggestedTier}`,
         `Score dropped to ${sc.finalScore}. Downgrades apply automatically — they reduce exposure, so they don't wait on clearance.`);
       changed = true;
@@ -19609,7 +19623,15 @@ function clearTierUpgrade(clearanceId) {
   const matches = STATE.customers.filter(c => c.name === cl.customerName);
   if(!matches.length) { showToast('⚠ Customer not found.'); return; }
 
-  matches.forEach(c => { c.loyalty = cl.toTier; });
+  matches.forEach(c => {
+    c.loyalty = cl.toTier;
+    // loyalty_tier backend persistence (Aug 22 fix) — posts to EVERY
+    // duplicate record sharing this name, same reasoning as the
+    // in-memory update above: a duplicate left stale on the backend
+    // would still hand a fresh device the wrong tier the next time it
+    // happens to sync that particular cid first.
+    if(c.backendId) patchCustomerToBackend(c.backendId, { loyaltyTier: cl.toTier });
+  });
   cl.status     = 'cleared';
   cl.clearedAt  = new Date().toISOString();
   cl.clearedBy  = 'owner';
