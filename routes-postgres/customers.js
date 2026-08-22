@@ -44,7 +44,7 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
 // actually reached the backend, on top of the Type/Contact fields not
 // being editable there at all until now.
 router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
-  const { phone, location, contact, type, creditLimit, trustTier } = req.body;
+  const { phone, location, contact, type, creditLimit, trustTier, loyaltyTier } = req.body;
   const existing = await db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if(!existing) return res.status(404).json({ error: 'Customer not found.' });
 
@@ -59,6 +59,12 @@ router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
   // against that list here, same permissiveness as the other free-text
   // fields above — the ERP's <select> is the real guard.
   if(trustTier !== undefined)  { fields.push('trust_tier = ?');   values.push(trustTier); }
+  // loyalty_tier (Aug 22 fix) — this column existed but nothing ever
+  // wrote to it; every row in production was stuck at its 'New'
+  // default regardless of what a customer had actually earned. Set
+  // via the ERP's local tier-clearance workflow (auto-downgrade or a
+  // manually-cleared upgrade), same permissiveness as trust_tier above.
+  if(loyaltyTier !== undefined){ fields.push('loyalty_tier = ?'); values.push(loyaltyTier); }
 
   if(fields.length === 0) return res.status(400).json({ error: 'No updatable fields provided.' });
   values.push(req.params.id);
