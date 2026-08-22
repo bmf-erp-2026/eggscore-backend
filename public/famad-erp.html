@@ -19708,11 +19708,17 @@ function setCustomerTrustTier(customerName, tier) {
 // (crate cost) is never financeable, at any tier, for any customer —
 // that money is already spent by the time goods leave the yard. Only
 // what's left of the EGG revenue (the real product margin) is ever
-// eligible for deferral, gated by trust tier. The old Suggested Limit
-// still applies as a secondary ceiling on top — belt-and-suspenders,
-// since margin is normally far smaller than the old limit anyway, but
-// it means a customer can never be extended more financed margin than
-// their order-size history has earned either.
+// eligible for deferral, gated by trust tier.
+// Deliberately does NOT reference the old Suggested Limit anymore
+// (removed same day it was added) — found via live cross-device
+// testing that customer.loyalty, the field the old limit is keyed on,
+// is never synced to the backend at all (a pre-existing gap, assigned
+// only through a local-only tier-clearance workflow). A device seeing
+// a customer fresh defaults their loyalty to 'New', which zeroed the
+// old limit and silently zeroed financing entirely regardless of
+// trust tier. The old limit was only ever a "belt and suspenders"
+// safety net on top of an already-small margin pool — not worth
+// keeping when it can silently break the whole feature per-device.
 // batchCost is cost PER CRATE, not total. deliveryTotal is passed
 // through untouched for display (totalPayable) only — it never enters
 // the floor/ceiling/financed math and is always due upfront in full.
@@ -19727,16 +19733,12 @@ function computeCreditSplit(customerName, crates, eggRevenue, deliveryTotal, bat
 
   const trustTier  = getCustomerTrustTier(customerName);
   const deferPct   = ensureScorecardSettings().marginDeferPct[trustTier] ?? 0;
-  const limit      = getSuggestedCreditLimit(customerName); // old order-size ceiling, kept as a secondary cap
 
-  const rawFinanceable = marginCeiling * deferPct;
-  const financeable    = Math.min(rawFinanceable, limit);
-  const financed       = Math.round(financeable);
-  const excess         = Math.round(Math.max(0, rawFinanceable - financeable)); // margin denied only because it hit the old order-size limit
-  const upfront        = Math.round(eggRevenue - financed); // egg-revenue portion due now; delivery is separate and always due in full
+  const financed        = Math.round(marginCeiling * deferPct);
+  const upfront          = Math.round(eggRevenue - financed); // egg-revenue portion due now; delivery is separate and always due in full
 
   return {
-    upfront, financed, excess, limit, costFloor, marginCeiling, trustTier, deferPct,
+    upfront, financed, excess: 0, costFloor, marginCeiling, trustTier, deferPct,
     deliveryTotal,
     totalPayable: eggRevenue + deliveryTotal, // for display only — what the customer sees as "total due today's terms": upfront + deliveryTotal now, financed later
   };
@@ -20822,8 +20824,8 @@ function buildOrderCard(o, queueNum) {
           <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)">📇 financed balance</div>
         </div>
         <div style="background:var(--card);border-radius:6px;padding:7px 10px">
-          <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:${split.excess>0?'var(--red)':'var(--mist)'}">${fmt(split.excess)}</div>
-          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)" title="Portion above the ₦${split.limit.toLocaleString()} suggested limit — not credit-eligible, cash only">⚠ excess handling</div>
+          <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--teal)">${split.trustTier.charAt(0).toUpperCase()+split.trustTier.slice(1)} (${Math.round(split.deferPct*100)}%)</div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)" title="Margin ceiling this order was computed against: ₦${split.marginCeiling.toLocaleString()}">🏷 trust tier</div>
         </div>
       </div>`;
     })()}
