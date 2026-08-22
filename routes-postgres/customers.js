@@ -14,18 +14,23 @@ function genReferralCode(name) {
 }
 
 router.post('/', requireSupabaseAuth(), async (req, res) => {
-  const { cid, name, location, contact, phone, type, creditLimit, referral, notes } = req.body;
+  const { cid, name, location, contact, phone, type, creditLimit, referral, notes, trustTier } = req.body;
 
   if(!name || !location) {
     return res.status(400).json({ error: 'name and location are required.' });
   }
 
   const referralCode = genReferralCode(name);
+  // trust_tier (Aug 22, Trust-Tiered Progressive Margin Financing) —
+  // gates how much of an order's MARGIN this customer may defer,
+  // separate from the loyalty tier. Defaults to 'new' (0% deferred,
+  // cash-only) for any customer created without an explicit value —
+  // never silently inherits more trust than they've earned.
   const info = await db.prepare(`
-    INSERT INTO customers (cid, name, location, contact, phone, type, credit_limit, referral, notes, referral_code)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO customers (cid, name, location, contact, phone, type, credit_limit, referral, notes, referral_code, trust_tier)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(cid || null, name, location, contact || null, phone || null, type || null,
-    creditLimit || 0, referral || null, notes || null, referralCode);
+    creditLimit || 0, referral || null, notes || null, referralCode, trustTier || 'new');
 
   res.status(201).json(await db.prepare('SELECT * FROM customers WHERE id = ?').get(info.lastInsertRowid));
 });
@@ -39,7 +44,7 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
 // actually reached the backend, on top of the Type/Contact fields not
 // being editable there at all until now.
 router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
-  const { phone, location, contact, type, creditLimit } = req.body;
+  const { phone, location, contact, type, creditLimit, trustTier } = req.body;
   const existing = await db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if(!existing) return res.status(404).json({ error: 'Customer not found.' });
 
@@ -49,6 +54,11 @@ router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
   if(contact !== undefined)    { fields.push('contact = ?');      values.push(contact); }
   if(type !== undefined)       { fields.push('type = ?');         values.push(type); }
   if(creditLimit !== undefined){ fields.push('credit_limit = ?'); values.push(creditLimit); }
+  // trust_tier — one of 'new'/'building'/'established'/'proven', set
+  // manually from the ERP's Customer Scores table. No validation
+  // against that list here, same permissiveness as the other free-text
+  // fields above — the ERP's <select> is the real guard.
+  if(trustTier !== undefined)  { fields.push('trust_tier = ?');   values.push(trustTier); }
 
   if(fields.length === 0) return res.status(400).json({ error: 'No updatable fields provided.' });
   values.push(req.params.id);
