@@ -1166,8 +1166,9 @@ input[type=number]{-moz-appearance:textfield;}
       const existing = localByEntryId.get(row.entry_id);
       if(existing) {
         // Another device may have reversed this entry since we last saw
-        // it — pull the authoritative fields forward.
-        existing.balanceAfter   = row.balance_after;
+        // it — pull the authoritative fields forward. Number(...) guards
+        // against the NUMERIC-column-returns-as-string issue below.
+        existing.balanceAfter   = Number(row.balance_after) || 0;
         existing.reversedAt     = row.reversed_at;
         existing.reversalReason = row.reversal_reason;
         existing.reversalNotes  = row.reversal_notes;
@@ -1175,10 +1176,22 @@ input[type=number]{-moz-appearance:textfield;}
         // A posting made on a different device entirely — this is the
         // actual fix. Reconstruct the shape getRemainingBalance() and
         // the Settlement History panel expect.
+        // Number(...) on amount/grossDue/balanceBefore/balanceAfter —
+        // Postgres NUMERIC columns come back from the driver as STRINGS,
+        // not JS numbers, to avoid float precision loss. Without this,
+        // getRemainingBalance()'s reduce (sum + l.amount) does STRING
+        // CONCATENATION the moment two or more entries exist for the
+        // same sale (e.g. "0"+"1246050"+"100000" = "01246050100000"),
+        // which the later `gross - paid` subtraction then parses as one
+        // enormous number, goes hugely negative, and gets floored to 0
+        // by Math.max — showing as falsely fully "Settled". Confirmed
+        // live Aug 23 (Fluffy-Diva, BEL-INV-260823-160544) via direct
+        // console inspection of a synced device's localStorage.
         STATE.settlementLog.push({
           entryId: row.entry_id, saleId: row.sale_id, saleRef: row.sale_ref,
-          customer: row.customer_name, action: row.action, amount: row.amount,
-          grossDue: row.gross_due, balanceBefore: row.balance_before, balanceAfter: row.balance_after,
+          customer: row.customer_name, action: row.action, amount: Number(row.amount) || 0,
+          grossDue: Number(row.gross_due) || 0, balanceBefore: Number(row.balance_before) || 0,
+          balanceAfter: Number(row.balance_after) || 0,
           method: row.method, by: row.recorded_by, note: row.note,
           previousPayment: row.previous_payment, reversible: row.reversible,
           reversedAt: row.reversed_at, reversalReason: row.reversal_reason,
@@ -19076,9 +19089,13 @@ function reinstateRep(repId) {
 // Running balance: sum all non-reversed partial/settled postings against this sale
 function getRemainingBalance(s) {
   if(!s) return 0;
+  // Number(...) here is a defensive second layer — the real fix is
+  // coercing at the sync boundary (syncSettlementsFromBackend()), but
+  // this ensures a stray string value can never silently break every
+  // credit balance in the app the way it did on Aug 23.
   const paid = (STATE.settlementLog || [])
     .filter(l => settlementMatchesSale(l, s) && !l.reversedAt && l.action !== 'reversed')
-    .reduce((sum, l) => sum + (l.amount || 0), 0);
+    .reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
   return Math.max(0, s.gross - paid);
 }
 
