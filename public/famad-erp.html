@@ -19009,9 +19009,27 @@ function reinstateRep(repId) {
 function getRemainingBalance(s) {
   if(!s) return 0;
   const paid = (STATE.settlementLog || [])
-    .filter(l => l.saleId === s.id && !l.reversedAt && l.action !== 'reversed')
+    .filter(l => settlementMatchesSale(l, s) && !l.reversedAt && l.action !== 'reversed')
     .reduce((sum, l) => sum + (l.amount || 0), 0);
   return Math.max(0, s.gross - paid);
+}
+
+// Matches a settlementLog entry to a sale by invoice ref (sale.inv),
+// NOT sale.id — sale.id is a purely local, device-specific identifier.
+// A device that only ever learns about a sale through sync gets it
+// under a synthetic 'sync-<backendId>' id, never the id the creating
+// device actually used — so matching by id silently fails cross-device
+// even when the correct settlement genuinely exists in the backend
+// (confirmed live: Iyo Diverse Caravan's Day-0 posting was sitting
+// there correctly, but a fresh device showed the full gross as unpaid
+// because its local sale.id didn't match the settlement's saleId).
+// saleRef survives sync intact — it's the same field syncSalesFromBackend()
+// already uses as ITS OWN merge key. Falls back to saleId for any
+// legacy entry recorded before this fix, which may have no saleRef.
+function settlementMatchesSale(entry, sale) {
+  if(!entry || !sale) return false;
+  if(sale.inv && entry.saleRef) return entry.saleRef === sale.inv;
+  return entry.saleId === sale.id;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -19077,7 +19095,7 @@ function computeCreditScore(customerName) {
   ).filter(s => {
     // Include sales that were originally credit even if now settled —
     // detect via settlementLog history for this sale
-    const hasSettlement = (STATE.settlementLog||[]).some(l => l.saleId === s.id);
+    const hasSettlement = (STATE.settlementLog||[]).some(l => settlementMatchesSale(l, s));
     return s.payment.includes('credit') || s.payment === 'part' || hasSettlement;
   });
 
@@ -19097,7 +19115,7 @@ function computeCreditScore(customerName) {
     const saleDate = new Date(s.date);
 
     // Find settlement entries for this sale
-    const settlements = (STATE.settlementLog||[]).filter(l => l.saleId === s.id && !l.reversedAt);
+    const settlements = (STATE.settlementLog||[]).filter(l => settlementMatchesSale(l, s) && !l.reversedAt);
     const fullSettle  = settlements.find(l => l.action === 'settled');
     const partials    = settlements.filter(l => l.action === 'partial');
 
@@ -19910,7 +19928,7 @@ function confirmSettlement() {
 function openReverseModal(saleId) {
   const s = STATE.sales.find(x => x.id === saleId);
   if(!s) return;
-  const log = (STATE.settlementLog||[]).find(l => l.saleId === saleId && !l.reversedAt);
+  const log = (STATE.settlementLog||[]).find(l => settlementMatchesSale(l, s) && !l.reversedAt);
 
   document.getElementById('rev-sale-id').value = saleId;
   document.getElementById('rev-reason').value = '';
@@ -19937,7 +19955,8 @@ function openReverseModal(saleId) {
 function reversalNeedsPinGate(saleId) {
   const scope = document.getElementById('rev-scope')?.value;
   if(scope === 'full') return true;
-  const log = (STATE.settlementLog||[]).find(l => l.saleId === saleId && !l.reversedAt);
+  const s = STATE.sales.find(x => x.id === saleId);
+  const log = (STATE.settlementLog||[]).find(l => settlementMatchesSale(l, s) && !l.reversedAt);
   if(!log) return false;
   const hoursAgo = (new Date() - new Date(log.at)) / 3600000;
   return hoursAgo > 24;
@@ -19955,7 +19974,8 @@ function onReversalScopeChange() {
       🔴 Full transaction reversal: claws back the rep's commission on this sale, restores the crates to their original batch (if it still exists), and permanently marks this sale as reversed. The original sale record is preserved for audit — nothing is deleted, but it no longer counts toward revenue, MTD volume, or commission anywhere in the app.
     </div>`;
   } else {
-    const log = (STATE.settlementLog||[]).find(l => l.saleId === saleId && !l.reversedAt);
+    const s = STATE.sales.find(x => x.id === saleId);
+    const log = (STATE.settlementLog||[]).find(l => settlementMatchesSale(l, s) && !l.reversedAt);
     const hoursAgo = log ? Math.floor((new Date() - new Date(log.at)) / 3600000) : 0;
     warnEl.innerHTML = gated
       ? `<div class="alert-banner warn" style="margin-bottom:14px">⚠ This settlement was recorded ${hoursAgo} hours ago — beyond the routine 24-hour window. Owner sign-off is required.</div>`
@@ -19994,7 +20014,7 @@ async function confirmReversal() {
 
   // Restore to original credit payment (applies to both scopes — a full
   // reversal still needs the payment status put back to reflect reality)
-  const log = (STATE.settlementLog||[]).find(l => l.saleId===saleId && !l.reversedAt);
+  const log = (STATE.settlementLog||[]).find(l => settlementMatchesSale(l, s) && !l.reversedAt);
   const restoreTo = log?.previousPayment || 'credit7';
   s.payment = restoreTo;
   delete s.settledAt;
