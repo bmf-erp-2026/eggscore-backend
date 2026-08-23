@@ -51,7 +51,22 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
 // log is small enough (one row per posting, not per day) that a full
 // pull is fine for now.
 router.get('/', requireSupabaseAuth(), async (req, res) => {
-  res.json(await db.prepare('SELECT * FROM settlements ORDER BY created_at DESC').all());
+  const rows = await db.prepare('SELECT * FROM settlements ORDER BY created_at DESC').all();
+  // NUMERIC columns come back from the Postgres driver as strings, not
+  // JS numbers, to avoid float precision loss — confirmed live Aug 23
+  // to cause silent balance corruption client-side the moment a sale
+  // has 2+ settlement entries (string concatenation instead of
+  // addition, e.g. "1246050"+"100000" = "1246050100000", which then
+  // parses as one enormous number and floors every balance to 0).
+  // Casting here means every consumer of this endpoint gets real
+  // numbers, not just whichever client happens to remember to convert.
+  res.json(rows.map(r => ({
+    ...r,
+    amount: Number(r.amount) || 0,
+    gross_due: Number(r.gross_due) || 0,
+    balance_before: Number(r.balance_before) || 0,
+    balance_after: Number(r.balance_after) || 0,
+  })));
 });
 
 module.exports = router;
