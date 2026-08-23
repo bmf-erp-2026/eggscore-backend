@@ -9782,6 +9782,13 @@ function autoPopulateOrderRef(customerName) {
       // tagged to a promo even when a customer genuinely used one.
       invField.dataset.promoApplied  = portalOrder.promoApplied  || '';
       invField.dataset.promoDiscount = portalOrder.promoDiscount || '0';
+      // Wallet credit already applied to this order at the Orders Inbox
+      // stage (Aug 23 fix) — previously this never carried forward, so
+      // the real sale/invoice was computed as if no wallet credit had
+      // ever been applied, even after a real wallet_transactions debit
+      // had already happened. handleSave() reads this to net it against
+      // the actual recorded sale, not just the pre-sale preview.
+      invField.dataset.walletCreditApplied = portalOrder.walletCreditApplied || 0;
     }
 
     // ── Lock crates from order ──
@@ -12488,17 +12495,78 @@ function handleSave() {
   // History shows what was actually decided even if the customer's tier
   // or limit changes later. Uses the real per-crate cost + real
   // delivery total for THIS sale, not an order-time estimate.
-  sale.creditSplit = computeCreditSplit(customer, crates, gross, delivTotal, sale.batchCost);
+  // computeCreditSplit() stays deliberately unaware of wallet credit —
+  // trust tier math should never be touched by how much of a customer's
+  // own money happens to be sitting in their wallet. Wallet credit is
+  // applied as a straight deduction AFTER the split, below.
+  const fullSplit = computeCreditSplit(customer, crates, gross, delivTotal, sale.batchCost);
 
-  // ── Wiring fix (Aug 22) — previously the full sale.gross sat as
-  // outstanding debt regardless of any upfront collected, because
-  // nothing ever told the settlement ledger the upfront portion had
-  // already been paid. For any credit-extending payment method, post
-  // the computed upfront amount as an immediate Day-0 settlement, so
-  // getRemainingBalance() correctly reflects only the financed
-  // (margin) balance from the moment the sale is recorded. ──
+  // Wallet-credit waterfall (Aug 23 fix) — previously the Orders Inbox
+  // preview subtracted wallet credit from egg revenue BEFORE computing
+  // the split, which meant it came out of the MARGIN pool first — for
+  // an 80%-tier customer, 80% of their own wallet money was silently
+  // cannibalizing the free deferral they'd earned, instead of reducing
+  // what they owed today. Worse: none of that preview math ever reached
+  // the actual recorded sale at all — confirmed live (Fluffy-Diva,
+  // BEL-ORD-260823-100800): a real ₦100,000 wallet debit happened, but
+  // the invoice generated for that exact order showed figures computed
+  // as if no wallet credit had ever been applied — a genuine double-
+  // charge risk. Correct order: split first on the FULL, untouched
+  // figures, then apply wallet credit to UPFRONT first (it's today's
+  // cash obligation), and only spill into financed if wallet credit is
+  // large enough to cover upfront entirely and still have money left —
+  // at that point it legitimately is more of the customer's own real
+  // money covering the whole thing, not the system trading away credit.
+  const walletCreditApplied = Math.min(
+    parseFloat(document.getElementById('s-inv')?.dataset.walletCreditApplied) || 0,
+    gross // never let wallet credit reduce more than this sale's own egg-revenue-tracked total — delivery is separate and always due regardless
+  );
+  const walletToUpfront  = Math.min(walletCreditApplied, fullSplit.upfront);
+  const walletToFinanced = walletCreditApplied - walletToUpfront;
+
+  sale.creditSplit = {
+    ...fullSplit,
+    upfront:  fullSplit.upfront  - walletToUpfront,   // net cash still needed today, after wallet
+    financed: fullSplit.financed - walletToFinanced,  // net still owed later, after wallet
+    walletCreditApplied,
+  };
+
+  // ── Wiring fix (Aug 22, extended Aug 23 for wallet credit) —
+  // previously the full sale.gross sat as outstanding debt regardless
+  // of any upfront collected, because nothing ever told the settlement
+  // ledger the upfront portion had already been paid. Two separate
+  // postings now: the wallet-credit portion (if any — real money
+  // already moved via a wallet_transactions debit) and, for any
+  // credit-extending payment method, the remaining CASH upfront on top
+  // of that. Together these mean getRemainingBalance() reflects the
+  // true remaining balance from the moment the sale is recorded,
+  // whether that money came from wallet, cash, or both. ──
+  if(!STATE.settlementLog) STATE.settlementLog = [];
+
+  if(walletCreditApplied > 0) {
+    const walletEntry = {
+      entryId: genSettlementEntryId(),
+      saleId: sale.id,
+      saleRef: sale.inv || sale.id,
+      customer: sale.customer,
+      action: 'partial',
+      amount: walletCreditApplied,
+      grossDue: sale.gross,
+      balanceBefore: sale.gross,
+      balanceAfter: sale.gross - walletCreditApplied,
+      method: 'wallet_credit', by: rep,
+      at: new Date().toISOString(),
+      note: `Wallet credit applied at point of sale — ₦${walletCreditApplied.toLocaleString()}`
+        + (walletToFinanced > 0 ? ` (₦${walletToUpfront.toLocaleString()} against today's upfront, ₦${walletToFinanced.toLocaleString()} spilling into the financed balance since it covered upfront in full)` : ' against today\'s upfront'),
+      previousPayment: null,
+      reversible: true,
+      reversedAt: null,
+    };
+    STATE.settlementLog.unshift(walletEntry);
+    postSettlementToBackend(walletEntry);
+  }
+
   if((payment === 'part' || payment === 'credit7' || payment === 'credit30') && sale.creditSplit.upfront > 0) {
-    if(!STATE.settlementLog) STATE.settlementLog = [];
     const upfrontEntry = {
       entryId: genSettlementEntryId(),
       saleId: sale.id,
@@ -12507,11 +12575,11 @@ function handleSave() {
       action: 'upfront',
       amount: sale.creditSplit.upfront,
       grossDue: sale.gross,
-      balanceBefore: sale.gross,
-      balanceAfter: sale.gross - sale.creditSplit.upfront,
+      balanceBefore: sale.gross - walletCreditApplied,
+      balanceAfter: sale.gross - walletCreditApplied - sale.creditSplit.upfront,
       method: 'day0', by: rep,
       at: new Date().toISOString(),
-      note: `Upfront payment collected at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()} of ₦${sale.gross.toLocaleString()}, leaving the ₦${sale.creditSplit.financed.toLocaleString()} financed margin as the real outstanding balance.`,
+      note: `Upfront payment collected at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()}, leaving the ₦${sale.creditSplit.financed.toLocaleString()} financed margin as the real outstanding balance.`,
       previousPayment: null,
       reversible: true,
       reversedAt: null,
@@ -13234,7 +13302,7 @@ function generateInvoice(saleId) {
   </tbody>
   <tfoot>
     ${!isSettled ? `
-    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
+    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}${s.creditSplit?.walletCreditApplied > 0 ? ` <span style="font-weight:400;color:var(--mist)">— of which ₦${s.creditSplit.walletCreditApplied.toLocaleString()} via wallet credit</span>` : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
     <tr><td colspan="3">Financed Balance${dueDate !== '—' ? ' — due ' + dueDate : ''}</td><td style="color:#856404">₦${remaining.toLocaleString()}</td></tr>` : ''}
     <tr class="total">
       <td colspan="3">${isSettled ? 'TOTAL RECEIVED' : 'TOTAL PAYABLE'}</td>
@@ -20864,15 +20932,28 @@ function buildOrderCard(o, queueNum) {
     ${(() => {
       const custObj = STATE.customers.find(c => c.name === o.customerName);
       if(!custObj || custObj.creditLimit === 0) return '';
-      // Wallet credit is the customer's own money already collected —
-      // it reduces what egg revenue is actually still owed, same as
-      // before, just applied to the egg-revenue figure now rather than
-      // the old combined total (see computeCreditSplit's Aug 22 rescope).
-      const eggRevenueForSplit = Math.max(0, (o.eggSubtotal||val) - (o.walletCreditApplied||0));
+      // Aug 23 fix — previously wallet credit was subtracted from egg
+      // revenue BEFORE computing the split, which meant it came out of
+      // the MARGIN pool first: for an 80%-tier customer, 80% of their
+      // own wallet money was silently eating into the free deferral
+      // they'd earned, instead of reducing what's due today. Split now
+      // computed on the FULL, untouched egg revenue — wallet credit is
+      // applied afterward, straight against upfront first, only
+      // spilling into financed if it's large enough to cover upfront
+      // entirely (see handleSave() for the matching real-sale version
+      // of this same waterfall).
       // batchCost isn't known yet at order stage (no batch has been
       // drawn from) — getLastCostPrice() is the same current-cost
       // estimate the rest of the app already uses for pre-sale previews.
-      const split = computeCreditSplit(o.customerName, o.crates, eggRevenueForSplit, o.deliveryTotal||0, getLastCostPrice());
+      const fullSplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||val, o.deliveryTotal||0, getLastCostPrice());
+      const walletCreditApplied = Math.min(o.walletCreditApplied || 0, o.eggSubtotal||val);
+      const walletToUpfront  = Math.min(walletCreditApplied, fullSplit.upfront);
+      const walletToFinanced = walletCreditApplied - walletToUpfront;
+      const split = {
+        ...fullSplit,
+        upfront:  fullSplit.upfront  - walletToUpfront,
+        financed: fullSplit.financed - walletToFinanced,
+      };
       return `
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
         <div style="background:var(--card);border-radius:6px;padding:7px 10px">
