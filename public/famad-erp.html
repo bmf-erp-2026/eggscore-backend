@@ -1847,12 +1847,30 @@ input[type=number]{-moz-appearance:textfield;}
     saveState();
 
     // Self-healing retry — same reasoning as Sales: a local customer
-    // whose cid the backend has never seen means an earlier POST
-    // silently failed and needs to go out again.
-    const backendCids = new Set(backendCustomers.map(r => r.cid).filter(Boolean));
+    // whose cid the backend has never seen usually means an earlier
+    // POST silently failed and needs to go out again. BUT (Aug 22 fix)
+    // that's not the only way this can happen — a local record can
+    // also be carrying a genuinely stale/mismatched cid from a much
+    // older bug, sitting untouched until this device happens to sync.
+    // Blindly re-posting in that case doesn't heal anything — it mints
+    // a real duplicate (confirmed live: Helen Alabompa + Ese YB Shop,
+    // both got a second cid + referral code this way). Checking for a
+    // NAME match first catches that case — and same caution as the
+    // Aug 12 returning-customer fix: a name match alone isn't proof
+    // it's the same person, so this only ever flags for manual review,
+    // never silently merges.
+    const backendCids  = new Set(backendCustomers.map(r => r.cid).filter(Boolean));
+    const backendNames = new Set(backendCustomers.map(r => (r.name||'').trim().toLowerCase()));
     STATE.customers
       .filter(c => c.cid && !backendCids.has(c.cid))
-      .forEach(c => postCustomerToBackend(c));
+      .forEach(c => {
+        if(backendNames.has((c.name||'').trim().toLowerCase())) {
+          logWarn('customers', `Possible duplicate customer skipped — ${c.name}`,
+            `Local record has cid ${c.cid}, which the backend doesn't recognise, but a customer named "${c.name}" already exists there under a different cid. Not auto-created — could be a stale local record OR a genuinely different person sharing this name. Needs manual review.`);
+          return;
+        }
+        postCustomerToBackend(c);
+      });
   }
   // Records a wallet transaction to the backend. Needs the customer's
   // backendId (not name) since the schema's customer_id is a real FK —
