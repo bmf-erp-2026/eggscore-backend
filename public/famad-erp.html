@@ -12745,7 +12745,25 @@ function handleSave() {
     // now driven by the Customer Scorecard (on-time payment, frequency,
     // glut-buying, tenure, relationship history) and only changes once
     // an upgrade is cleared by the owner. See refreshTierClearanceQueue().
+    //
+    // Aug 24 fix — that function (and the customer's referral code)
+    // previously only ever ran when someone happened to open the
+    // Customer Scores screen — meaning a customer could cross the
+    // eligibility threshold and just sit there showing "New" and no
+    // referral code indefinitely, not because anything was wrong, but
+    // because nothing had ever triggered the calculation. Confirmed
+    // live (IB — 4 real orders, 465 crates, still showing "○ New" with
+    // no referral code) and Bob flagged several more customers in the
+    // same state. The moment a sale is recorded is exactly when a
+    // customer's eligibility can change, so it's the natural trigger —
+    // no more waiting on an unrelated screen to be opened. Downgrades
+    // still apply automatically inside refreshTierClearanceQueue();
+    // upgrades still queue for manual clearance exactly as before —
+    // this only ensures the calculation actually RUNS promptly, it
+    // doesn't change what happens once it does.
+    getOrCreateReferralCode(customer);
   }
+  refreshTierClearanceQueue();
 
   // ── Capture the linked order ref BEFORE clearSaleForm() wipes the field ──
   const linkedOrderRef  = document.getElementById('s-inv')?.dataset.linkedOrderRef;
