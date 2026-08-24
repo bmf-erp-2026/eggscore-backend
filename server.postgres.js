@@ -31,6 +31,7 @@ app.use('/sales', require('./routes-postgres/sales'));
 app.use('/inventory', require('./routes-postgres/inventory'));
 app.use('/customers', require('./routes-postgres/customers'));
 app.use('/settlements', require('./routes-postgres/settlements'));
+app.use('/reps', require('./routes-postgres/reps'));
 app.use('/suppliers', require('./routes-postgres/suppliers'));
 app.use('/promotions', require('./routes-postgres/promotions'));
 app.use('/vehicles', require('./routes-postgres/vehicles'));
