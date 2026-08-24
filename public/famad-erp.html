@@ -1109,6 +1109,102 @@ input[type=number]{-moz-appearance:textfield;}
   // again after a reversal mutates that same entry in place — entryId
   // never changes, so the backend's ON CONFLICT...DO UPDATE naturally
   // treats the second call as an update, not a duplicate posting.
+  // Reps sync (Aug 24 fix) — reps previously had no backend table at
+  // all, confirmed live via Incognito: Kingsley Joe, Justina Manilla,
+  // and Emeka Olembe existed only on the device that created them,
+  // with real consequences for Rep Performance MTD and the
+  // Commission/Payout Register on any other device.
+  async function postRepToBackend(rep) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/reps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          repId: rep.id, name: rep.name, zone: rep.zone, phone: rep.phone,
+          target: rep.target, status: rep.status,
+        }),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — self-healing retry in syncRepsFromBackend() covers this.
+    }
+  }
+
+  async function patchRepToBackend(repId, fields) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/reps/${encodeURIComponent(repId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(fields),
+      });
+    } catch(networkErr) {}
+  }
+
+  async function syncRepsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendRows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/reps`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      backendRows = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.reps) STATE.reps = [];
+    const localById = new Map(STATE.reps.map(r => [r.id, r]));
+
+    backendRows.forEach(row => {
+      const existing = localById.get(row.rep_id);
+      if(existing) {
+        existing.zone   = row.zone;
+        existing.phone  = row.phone;
+        existing.target = row.target;
+        existing.status = row.status;
+        existing.deboardedAt      = row.deboarded_at;
+        existing.deboardReason    = row.deboard_reason;
+        existing.finalCommBalance = row.final_comm_balance;
+        existing.deboardNotes     = row.deboard_notes;
+        existing.settlementAcknowledged = row.settlement_acknowledged;
+        existing.settlementOutstandingAtDeboard = row.settlement_outstanding_at_deboard;
+      } else {
+        STATE.reps.push({
+          id: row.rep_id, name: row.name, zone: row.zone, phone: row.phone,
+          target: row.target, status: row.status,
+          deboardedAt: row.deboarded_at, deboardReason: row.deboard_reason,
+          finalCommBalance: row.final_comm_balance, deboardNotes: row.deboard_notes,
+          settlementAcknowledged: row.settlement_acknowledged,
+          settlementOutstandingAtDeboard: row.settlement_outstanding_at_deboard,
+        });
+      }
+    });
+
+    saveState();
+
+    // Self-healing retry, same name-match guard as the customers fix
+    // (Aug 22) — a local rep whose id the backend has never seen
+    // usually means an earlier POST failed and needs retrying, but a
+    // name match against a DIFFERENT rep_id means this is likely a
+    // stale/duplicate local id, not a genuine new rep — flag instead
+    // of silently creating a duplicate.
+    const backendRepIds = new Set(backendRows.map(r => r.rep_id).filter(Boolean));
+    const backendNames  = new Set(backendRows.map(r => (r.name||'').trim().toLowerCase()));
+    STATE.reps
+      .filter(r => r.id && !backendRepIds.has(r.id))
+      .forEach(r => {
+        if(backendNames.has((r.name||'').trim().toLowerCase())) {
+          logWarn('reps', `Possible duplicate rep skipped — ${r.name}`,
+            `Local record has id ${r.id}, which the backend doesn't recognise, but a rep named "${r.name}" already exists there under a different id. Not auto-created — needs manual review.`);
+          return;
+        }
+        postRepToBackend(r);
+      });
+  }
+
   async function postSettlementToBackend(entry) {
     const token = await erpGetAuthToken();
     if(!token) return;
@@ -2167,7 +2263,7 @@ input[type=number]{-moz-appearance:textfield;}
     saveFeedbackSubmissions(mapped);
     if(document.getElementById('feedback-review-panel')) renderFeedbackReview();
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); });
+  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
@@ -13744,8 +13840,10 @@ function saveRep() {
   const phone  = document.getElementById('nr-phone')?.value.trim() || '—';
   const target = parseInt(document.getElementById('nr-target')?.value) || 0;
   if(!name||!zone) { showToast('⚠ Name and zone required.'); return; }
-  STATE.reps.push({ id:'r'+Date.now(), name, zone, phone, target, status:'active' });
+  const newRep = { id:'r'+Date.now(), name, zone, phone, target, status:'active' };
+  STATE.reps.push(newRep);
   saveState();
+  postRepToBackend(newRep);
   populateSelects();
   closeModal('modal-add-rep');
   showToast('✓ Rep added: ' + name);
@@ -19012,6 +19110,12 @@ function confirmDeboard() {
   rep.deboardNotes    = notes;
   rep.settlementAcknowledged = ackChecked;
   rep.settlementOutstandingAtDeboard = outstanding;
+
+  patchRepToBackend(rep.id, {
+    status: 'inactive', deboardedAt: rep.deboardedAt, deboardReason: reason,
+    finalCommBalance: comm, deboardNotes: notes,
+    settlementAcknowledged: ackChecked, settlementOutstandingAtDeboard: outstanding,
+  });
 
   // If commission was outstanding and acknowledged, create a pending settlement record
   if(outstanding > 0 && ackChecked) {
