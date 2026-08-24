@@ -12608,7 +12608,20 @@ function handleSave() {
   // trust tier math should never be touched by how much of a customer's
   // own money happens to be sitting in their wallet. Wallet credit is
   // applied as a straight deduction AFTER the split, below.
-  const fullSplit = computeCreditSplit(customer, crates, gross, delivTotal, sale.batchCost);
+  const rawSplit = computeCreditSplit(customer, crates, gross, delivTotal, sale.batchCost);
+  // Aug 24 fix — computeCreditSplit() is payment-method-agnostic by
+  // design (it only knows trust tier), but a tier-driven financed
+  // amount is only ever meaningful when the rep actually selected a
+  // credit-extending payment method. A Proven-tier customer choosing
+  // to pay via straight transfer instead of using their credit line
+  // should owe nothing later — full stop — not have a "financed"
+  // balance the ledger never asked them to defer. Zeroing it out here
+  // (keeping the audit fields — trustTier, deferPct, marginCeiling —
+  // for reference) means nothing downstream can mistake "the tier
+  // theoretically allows deferral" for "this specific sale deferred
+  // anything."
+  const isCreditTerm = (payment === 'part' || payment === 'credit7' || payment === 'credit30');
+  const fullSplit = isCreditTerm ? rawSplit : { ...rawSplit, upfront: gross, financed: 0 };
 
   // Wallet-credit waterfall (Aug 23 fix) — previously the Orders Inbox
   // preview subtracted wallet credit from egg revenue BEFORE computing
@@ -12675,20 +12688,37 @@ function handleSave() {
     postSettlementToBackend(walletEntry);
   }
 
-  if((payment === 'part' || payment === 'credit7' || payment === 'credit30') && sale.creditSplit.upfront > 0) {
+  // Aug 24 fix — previously this only fired for credit-extending
+  // payment methods, on the assumption that a cash/transfer sale is
+  // always paid in full at the point of sale with nothing left to
+  // record. That assumption broke the moment wallet credit could be
+  // applied to a NON-credit sale too: confirmed live (customer IB,
+  // cash-only/trustTier 'new', paid via transfer, ₦100,000 wallet
+  // credit applied) — the ₦478,000 balance that transfer was meant to
+  // cover never got recorded as collected, so getRemainingBalance()
+  // still saw it as owed, and the invoice displayed it as a
+  // "Financed Balance" even though nothing was ever actually financed
+  // — it was real money collected via transfer that just never made it
+  // into the ledger. Now fires for ANY payment method whenever
+  // wallet credit didn't cover the full amount — the remainder is
+  // recorded as collected via whatever method the rep actually
+  // selected, not lumped into an implied credit arrangement.
+  if(sale.creditSplit.upfront > 0) {
     const upfrontEntry = {
       entryId: genSettlementEntryId(),
       saleId: sale.id,
       saleRef: sale.inv || sale.id,
       customer: sale.customer,
-      action: 'upfront',
+      action: isCreditTerm ? 'upfront' : 'settled',
       amount: sale.creditSplit.upfront,
       grossDue: sale.gross,
       balanceBefore: sale.gross - walletCreditApplied,
       balanceAfter: sale.gross - walletCreditApplied - sale.creditSplit.upfront,
-      method: 'day0', by: rep,
+      method: isCreditTerm ? 'day0' : payment, by: rep,
       at: new Date().toISOString(),
-      note: `Upfront payment collected at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()}, leaving the ₦${sale.creditSplit.financed.toLocaleString()} financed margin as the real outstanding balance.`,
+      note: isCreditTerm
+        ? `Upfront payment collected at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()}, leaving the ₦${sale.creditSplit.financed.toLocaleString()} financed margin as the real outstanding balance.`
+        : `Balance collected via ${payment} at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()}${walletCreditApplied > 0 ? ` (on top of ₦${walletCreditApplied.toLocaleString()} already applied from wallet credit)` : ''}. Not a credit sale — nothing left outstanding.`,
       previousPayment: null,
       reversible: true,
       reversedAt: null,
