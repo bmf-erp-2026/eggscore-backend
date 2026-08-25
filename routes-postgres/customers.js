@@ -44,7 +44,7 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
 // actually reached the backend, on top of the Type/Contact fields not
 // being editable there at all until now.
 router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
-  const { phone, location, contact, type, creditLimit, trustTier, loyaltyTier } = req.body;
+  const { phone, location, contact, type, creditLimit, trustTier, loyaltyTier, referralCode } = req.body;
   const existing = await db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if(!existing) return res.status(404).json({ error: 'Customer not found.' });
 
@@ -65,6 +65,12 @@ router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
   // via the ERP's local tier-clearance workflow (auto-downgrade or a
   // manually-cleared upgrade), same permissiveness as trust_tier above.
   if(loyaltyTier !== undefined){ fields.push('loyalty_tier = ?'); values.push(loyaltyTier); }
+  // referral_code (Aug 25 fix) — same disease as trust_tier and
+  // loyalty_tier before it: a real column that nothing ever wrote
+  // back to from a client-generated value. Only ever set here when
+  // getOrCreateReferralCode() genuinely has to mint a brand-new code
+  // (nothing existed yet, anywhere) — never overwrites an existing one.
+  if(referralCode !== undefined) { fields.push('referral_code = ?'); values.push(referralCode); }
 
   if(fields.length === 0) return res.status(400).json({ error: 'No updatable fields provided.' });
   values.push(req.params.id);
