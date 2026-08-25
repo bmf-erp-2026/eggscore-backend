@@ -3255,6 +3255,9 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <input type="hidden" id="pv-order-ref"/>
     <div id="pv-order-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.9"></div>
+    <div id="pv-wallet-covered-banner" style="display:none;background:rgba(52,211,153,0.1);border:1px solid var(--lime);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--lime)"></div>
+    <div id="pv-wallet-partial-note" style="display:none;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px"></div>
+    <div id="pv-fields-wrap">
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Payment Method</label>
       <select class="form-select" id="pv-method">
@@ -3265,9 +3268,10 @@ input[type=number]{-moz-appearance:textfield;}
       </select>
     </div>
     <div class="form-group" style="margin-bottom:12px">
-      <label class="form-label">Amount Received (₦) <span class="req">*</span></label>
+      <label class="form-label" id="pv-amount-label">Amount Received (₦) <span class="req">*</span></label>
       <input class="form-input" type="number" id="pv-amount" oninput="updatePVStatus()"/>
       <div id="pv-amount-note" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px"></div>
+    </div>
     </div>
     <div class="form-group" style="margin-bottom:14px">
       <label class="form-label">Notes <span style="color:var(--mist)">(optional)</span></label>
@@ -3275,7 +3279,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="closeModal('modal-payment-verify')">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmPaymentVerified()">✓ Confirm Payment Received</button>
+      <button class="btn btn-primary" id="pv-confirm-btn" onclick="confirmPaymentVerified()">✓ Confirm Payment Received</button>
     </div>
   </div>
 </div>
@@ -26677,9 +26681,48 @@ function openPaymentVerifyModal(orderRef) {
   const o = orders.find(x => x.ref === orderRef);
   if(!o) { showToast('⚠ Order not found.'); return; }
   document.getElementById('pv-order-ref').value = orderRef;
-  document.getElementById('pv-amount').value    = o.grandTotal || '';
   document.getElementById('pv-notes').value     = '';
   document.getElementById('pv-amount-note').textContent = '';
+
+  const inv = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
+  // Aug 25 fix — this used to always demand a "new" payment amount
+  // even when wallet credit (already verified once, when it was
+  // originally credited) covers some or all of the order. Confirmed
+  // live (Dora's Golden Yolk): forced typing "Bank Transfer: ₦184,290
+  // received" into the permanent audit trail when no such transfer
+  // ever happened — the ledger itself stayed correct regardless (this
+  // modal never touches settlementLog), but the record of WHY the
+  // goods were released was fabricated. Now: fully wallet-covered
+  // skips the amount entry entirely with an honest reason instead;
+  // partially covered pre-fills only the genuinely-new remaining gap.
+  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, inv);
+  const remainingAfterWallet = Math.max(0, inv - walletCreditApplied);
+
+  const banner = document.getElementById('pv-wallet-covered-banner');
+  const partialNote = document.getElementById('pv-wallet-partial-note');
+  const fieldsWrap = document.getElementById('pv-fields-wrap');
+  const confirmBtn = document.getElementById('pv-confirm-btn');
+
+  if(walletCreditApplied > 0 && remainingAfterWallet <= 0) {
+    // Fully covered — nothing new to verify against a bank account.
+    banner.style.display = 'block';
+    banner.textContent = `✓ Fully covered by ₦${walletCreditApplied.toLocaleString()} already-verified wallet credit — no new transfer needed to release this order.`;
+    partialNote.style.display = 'none';
+    fieldsWrap.style.display = 'none';
+    document.getElementById('pv-amount').value = '';
+    confirmBtn.textContent = '✓ Confirm — Fully Covered by Wallet Credit';
+  } else {
+    banner.style.display = 'none';
+    fieldsWrap.style.display = '';
+    confirmBtn.textContent = '✓ Confirm Payment Received';
+    document.getElementById('pv-amount').value = remainingAfterWallet || inv || '';
+    if(walletCreditApplied > 0) {
+      partialNote.style.display = 'block';
+      partialNote.textContent = `₦${walletCreditApplied.toLocaleString()} of this order is already covered by wallet credit — the amount below is only the remaining ₦${remainingAfterWallet.toLocaleString()} that needs a genuine new payment.`;
+    } else {
+      partialNote.style.display = 'none';
+    }
+  }
 
   // Pre-select the method matching how the order was originally placed
   const methodSel = document.getElementById('pv-method');
@@ -26688,7 +26731,6 @@ function openPaymentVerifyModal(orderRef) {
     const matchingOpt = Array.from(methodSel.options).find(opt => opt.value === orderMethod);
     methodSel.value = matchingOpt ? orderMethod : 'transfer';
   }
-  const inv = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
   document.getElementById('pv-order-summary').innerHTML =
     `Order: <strong style="color:var(--cream)">${o.ref}</strong> · ${o.customerName}<br>
      Crates: ${o.crates} · Invoice: <strong>₦${inv.toLocaleString()}</strong>`;
@@ -26701,35 +26743,54 @@ function updatePVStatus() {
   const o = orders.find(x => x.ref === ref);
   if(!o) return;
   const inv      = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
+  // Aug 25 fix — compares against the remaining gap after wallet
+  // credit, not the full invoice, matching confirmPaymentVerified()'s
+  // own check. Without this, a correctly pre-filled partial amount
+  // (wallet already covering the rest) showed a false "short of
+  // invoice" warning.
+  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, inv);
+  const remainingAfterWallet = Math.max(0, inv - walletCreditApplied);
   const received = parseFloat(document.getElementById('pv-amount')?.value) || 0;
   const noteEl   = document.getElementById('pv-amount-note');
   if(!noteEl) return;
-  const diff = received - inv;
-  if(diff > 0)      noteEl.textContent = `⚠ ₦${diff.toLocaleString()} over invoice — use "Record Overpayment" after verifying to credit excess to customer wallet.`;
-  else if(diff < 0) noteEl.textContent = `⚠ ₦${Math.abs(diff).toLocaleString()} short of invoice.`;
+  const diff = received - remainingAfterWallet;
+  if(diff > 0)      noteEl.textContent = `⚠ ₦${diff.toLocaleString()} over the remaining balance — use "Record Overpayment" after verifying to credit excess to customer wallet.`;
+  else if(diff < 0) noteEl.textContent = `⚠ ₦${Math.abs(diff).toLocaleString()} short of the ₦${remainingAfterWallet.toLocaleString()} remaining balance.`;
   else              noteEl.textContent = '✓ Exact match.';
 }
 
 function confirmPaymentVerified() {
   const ref    = document.getElementById('pv-order-ref')?.value;
-  const amount = parseFloat(document.getElementById('pv-amount')?.value) || 0;
   const notes  = document.getElementById('pv-notes')?.value.trim() || '';
-  if(!amount || amount <= 0) { showToast('⚠ Enter the amount received.'); return; }
   const orders = loadOrders();
   const o = orders.find(x => x.ref === ref);
   if(!o) { showToast('⚠ Order not found.'); return; }
 
-  // ── Underpayment hard block ──────────────────────────────────
-  // This used to just set paymentVerified = true unconditionally —
-  // nothing compared the amount received against what the order
-  // actually costs, so a short payment could be confirmed the same
-  // as a full one. A shortfall now needs the owner PIN before it can
-  // go through, the same PIN system already gating credit overrides.
-  // Overpayment isn't blocked — that already flows into the
-  // Overpayment Recorder below, same as before.
   const inv = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
-  if(amount < inv) {
-    const pin = prompt(`⚠ ₦${(inv - amount).toLocaleString()} short of the ₦${inv.toLocaleString()} invoice.\n\nEnter owner PIN to confirm anyway:`);
+  // Aug 25 fix — wallet credit already verified once, at the moment it
+  // was credited, so it's excluded from what this step needs to
+  // re-check. remainingAfterWallet (not the full invoice) is the real
+  // amount that genuinely needs a fresh bank/cash/POS confirmation.
+  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, inv);
+  const remainingAfterWallet = Math.max(0, inv - walletCreditApplied);
+
+  if(remainingAfterWallet <= 0) {
+    finalizePaymentVerification(o, orders, inv, notes ||
+      `Fully covered by ₦${walletCreditApplied.toLocaleString()} wallet credit — no new transfer required.`,
+      inv, 'wallet_credit');
+    return;
+  }
+
+  const amount = parseFloat(document.getElementById('pv-amount')?.value) || 0;
+  if(!amount || amount <= 0) { showToast('⚠ Enter the amount received.'); return; }
+
+  // ── Underpayment hard block ──────────────────────────────────
+  // Compares against remainingAfterWallet, not the full invoice — a
+  // wallet-covered portion isn't a shortfall, it's already accounted
+  // for. A shortfall on the genuinely-new remaining amount still needs
+  // the owner PIN before it can go through, same as before.
+  if(amount < remainingAfterWallet) {
+    const pin = prompt(`⚠ ₦${(remainingAfterWallet - amount).toLocaleString()} short of the ₦${remainingAfterWallet.toLocaleString()} remaining balance${walletCreditApplied > 0 ? ` (after ₦${walletCreditApplied.toLocaleString()} wallet credit)` : ''}.\n\nEnter owner PIN to confirm anyway:`);
     if(pin === null) return; // cancelled — payment stays unverified
     verifyPin(pin).then(result => {
       if(!result.ok) {
@@ -26737,22 +26798,27 @@ function confirmPaymentVerified() {
         else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
         return;
       }
-      finalizePaymentVerification(o, orders, amount, notes, inv);
+      finalizePaymentVerification(o, orders, amount, notes, remainingAfterWallet);
     });
     return;
   }
 
-  finalizePaymentVerification(o, orders, amount, notes, inv);
+  finalizePaymentVerification(o, orders, amount, notes, remainingAfterWallet);
 }
 
 // The actual write, shared by the normal path and the post-PIN-override
 // path above — kept in one place so both routes stay in sync.
-function finalizePaymentVerification(o, orders, amount, notes, inv) {
+// methodOverride (Aug 25) — when the order was fully wallet-covered,
+// records the honest reason instead of whatever "Bank Transfer" etc.
+// happened to be pre-selected in the dropdown (which was never touched
+// for this path, since the fields are hidden).
+function finalizePaymentVerification(o, orders, amount, notes, invForCheck, methodOverride) {
   const ref = o.ref;
   o.paymentVerified   = true;
   o.paymentVerifiedAt = new Date().toISOString();
   o.amountReceived    = amount;
   o.paymentNotes      = notes;
+  o.paymentVerifiedMethod = methodOverride || document.getElementById('pv-method')?.value || o.paymentMethod || 'transfer';
   if(STATE.paymentHolds) {
     const hold = STATE.paymentHolds.find(h => h.orderRef === ref && h.status !== 'released');
     if(hold) { hold.status = 'verified'; hold.verifiedAt = new Date().toISOString(); }
@@ -26761,7 +26827,7 @@ function finalizePaymentVerification(o, orders, amount, notes, inv) {
   closeModal('modal-payment-verify');
   logOk('credit', `Payment verified — ${o.customerName} · ₦${amount.toLocaleString()} · ${ref}`, notes || 'Confirmed in bank account');
   showToast(`✓ Payment verified for ${ref}.`);
-  const excess = amount - inv;
+  const excess = amount - invForCheck;
   if(excess > 0) {
     // Auto-open the Overpayment Recorder — no confirm() dialog which is
     // blocked in some environments. The modal itself has a Cancel button
