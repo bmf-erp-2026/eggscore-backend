@@ -13461,6 +13461,9 @@ function generateInvoice(saleId) {
     ${!isSettled ? `
     <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}${s.creditSplit?.walletCreditApplied > 0 ? ` <span style="font-weight:400;color:var(--mist)">— of which ₦${s.creditSplit.walletCreditApplied.toLocaleString()} via wallet credit</span>` : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
     <tr><td colspan="3">Financed Balance${dueDate !== '—' ? ' — due ' + dueDate : ''}</td><td style="color:#856404">₦${remaining.toLocaleString()}</td></tr>` : ''}
+    ${isSettled && s.creditSplit?.walletCreditApplied > 0 ? `
+    <tr><td colspan="3">Wallet Credit Applied</td><td style="color:var(--lime)">₦${s.creditSplit.walletCreditApplied.toLocaleString()}</td></tr>
+    <tr><td colspan="3">Collected via ${s.payment || 'other'}</td><td>₦${Math.max(0, (s.gross + (s.deliveryTotal||0)) - s.creditSplit.walletCreditApplied).toLocaleString()}</td></tr>` : ''}
     <tr class="total">
       <td colspan="3">${isSettled ? 'TOTAL RECEIVED' : 'TOTAL PAYABLE'}</td>
       <td>₦${(s.gross + (s.deliveryTotal||0)).toLocaleString()}</td>
