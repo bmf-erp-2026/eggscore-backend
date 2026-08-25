@@ -13336,6 +13336,19 @@ function generateInvoice(saleId) {
   const remaining   = getRemainingBalance(s);
   const alreadyPaid = s.gross - remaining;
   const isSettled   = remaining <= 0;
+  // Aug 25 fix — s.creditSplit.walletCreditApplied is a local-only
+  // field (never synced to the backend, on the wrong assumption it was
+  // always re-derivable from other synced fields — it isn't, it's a
+  // one-time decision made at sale time). Confirmed live: opening this
+  // exact receipt on a different device than the one that created the
+  // sale silently dropped the wallet-credit breakdown entirely, since
+  // s.creditSplit was simply undefined there. The settlementLog entries
+  // DO sync correctly (fixed Aug 22-23), so deriving the wallet figure
+  // from there instead means this works identically on every device,
+  // not just the one the sale happened to be recorded on.
+  const walletCreditApplied = (STATE.settlementLog || [])
+    .filter(l => settlementMatchesSale(l, s) && l.method === 'wallet_credit' && !l.reversedAt && l.action !== 'reversed')
+    .reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
   const payTerms    = s.payment === 'credit7'  ? '7-Day Credit'
                     : s.payment === 'credit30' ? '30-Day Credit'
                     : s.payment === 'part'     ? 'Part Payment'
@@ -13459,11 +13472,11 @@ function generateInvoice(saleId) {
   </tbody>
   <tfoot>
     ${!isSettled ? `
-    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}${s.creditSplit?.walletCreditApplied > 0 ? ` <span style="font-weight:400;color:var(--mist)">— of which ₦${s.creditSplit.walletCreditApplied.toLocaleString()} via wallet credit</span>` : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
+    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}${walletCreditApplied > 0 ? ` <span style="font-weight:400;color:var(--mist)">— of which ₦${walletCreditApplied.toLocaleString()} via wallet credit</span>` : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
     <tr><td colspan="3">Financed Balance${dueDate !== '—' ? ' — due ' + dueDate : ''}</td><td style="color:#856404">₦${remaining.toLocaleString()}</td></tr>` : ''}
-    ${isSettled && s.creditSplit?.walletCreditApplied > 0 ? `
-    <tr><td colspan="3">Wallet Credit Applied</td><td style="color:var(--lime)">₦${s.creditSplit.walletCreditApplied.toLocaleString()}</td></tr>
-    <tr><td colspan="3">Collected via ${s.payment || 'other'}</td><td>₦${Math.max(0, (s.gross + (s.deliveryTotal||0)) - s.creditSplit.walletCreditApplied).toLocaleString()}</td></tr>` : ''}
+    ${isSettled && walletCreditApplied > 0 ? `
+    <tr><td colspan="3">Wallet Credit Applied</td><td style="color:var(--lime)">₦${walletCreditApplied.toLocaleString()}</td></tr>
+    <tr><td colspan="3">Collected via ${s.payment || 'other'}</td><td>₦${Math.max(0, (s.gross + (s.deliveryTotal||0)) - walletCreditApplied).toLocaleString()}</td></tr>` : ''}
     <tr class="total">
       <td colspan="3">${isSettled ? 'TOTAL RECEIVED' : 'TOTAL PAYABLE'}</td>
       <td>₦${(s.gross + (s.deliveryTotal||0)).toLocaleString()}</td>
