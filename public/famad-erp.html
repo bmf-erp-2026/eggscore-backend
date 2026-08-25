@@ -1936,6 +1936,13 @@ input[type=number]{-moz-appearance:textfield;}
         // it, so every device without local history saw the same
         // meaningless default).
         existing.loyalty     = existing.loyalty || row.loyalty_tier || 'New';
+        // referral_code (Aug 25 fix) — unlike loyalty, the backend
+        // value here is genuinely authoritative (assigned once, at
+        // creation) — so this prefers the backend over whatever's
+        // local, correcting any already-wrong local guess instead of
+        // just filling a gap. Falls back to the local value only if
+        // the backend genuinely has nothing yet.
+        existing.referralCode = row.referral_code || existing.referralCode;
         existing.backendId   = row.id; // explicit, reliable — regardless of what existing.id happens to look like
       } else {
         byCid.set(row.cid, {
@@ -1944,6 +1951,7 @@ input[type=number]{-moz-appearance:textfield;}
           creditLimit: row.credit_limit || 0, referral: row.referral || '',
           trustTier: row.trust_tier || 'new',
           loyalty: row.loyalty_tier || 'New', lastPurchase: null, totalCrates: 0, notes: row.notes || '',
+          referralCode: row.referral_code || undefined,
           backendId: row.id,
         });
       }
@@ -19651,6 +19659,18 @@ function getOrCreateReferralCode(customerName) {
   } while(STATE.customers.some(c => c.referralCode === code) && tries < 20);
   cust.referralCode = code;
   saveState();
+  // Aug 25 fix — this used to be purely local, so every device that
+  // reached this point before syncing a backend-known code generated
+  // its OWN divergent guess, with nothing ever reconciling them.
+  // Confirmed live: Immaculate showed BEL-IMMA182 in the ERP but
+  // BEL-IMMA632 in Supabase — two different devices, two different
+  // untracked guesses. Posting the newly-minted code back means this
+  // only ever happens once, for a customer no device has ever assigned
+  // one for yet — everyone after that pulls the same real value via
+  // the sync fix above instead of generating their own.
+  if(cust.backendId && typeof patchCustomerToBackend === 'function') {
+    patchCustomerToBackend(cust.backendId, { referralCode: code });
+  }
   return code;
 }
 
