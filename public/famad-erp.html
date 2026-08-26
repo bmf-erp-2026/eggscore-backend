@@ -12635,34 +12635,46 @@ function handleSave() {
   const isCreditTerm = (payment === 'part' || payment === 'credit7' || payment === 'credit30');
   const fullSplit = isCreditTerm ? rawSplit : { ...rawSplit, upfront: gross, financed: 0 };
 
-  // Wallet-credit waterfall (Aug 23 fix) — previously the Orders Inbox
-  // preview subtracted wallet credit from egg revenue BEFORE computing
-  // the split, which meant it came out of the MARGIN pool first — for
-  // an 80%-tier customer, 80% of their own wallet money was silently
-  // cannibalizing the free deferral they'd earned, instead of reducing
-  // what they owed today. Worse: none of that preview math ever reached
-  // the actual recorded sale at all — confirmed live (Fluffy-Diva,
-  // BEL-ORD-260823-100800): a real ₦100,000 wallet debit happened, but
-  // the invoice generated for that exact order showed figures computed
-  // as if no wallet credit had ever been applied — a genuine double-
-  // charge risk. Correct order: split first on the FULL, untouched
-  // figures, then apply wallet credit to UPFRONT first (it's today's
-  // cash obligation), and only spill into financed if wallet credit is
-  // large enough to cover upfront entirely and still have money left —
-  // at that point it legitimately is more of the customer's own real
-  // money covering the whole thing, not the system trading away credit.
+  // Wallet-credit waterfall (Aug 26 fix, supersedes the Aug 23 version).
+  // Two anomalies found live on Datekena BOB-MANUEL's order
+  // (BEL-ORD-260825-220538, ₦995,445 fully wallet-covered):
+  // (1) the old cap here was `gross` (egg revenue only) — delivery was
+  // treated as never wallet-payable, by design. But the order-level
+  // "Apply Wallet" button (applyWalletToOrder()) applies wallet against
+  // the FULL order total, delivery included. So a fully-wallet-paid
+  // order left a ₦33,000 delivery-sized gap that this waterfall refused
+  // to acknowledge as wallet money — the receipt then filled that gap
+  // in by fabricating "Collected via transfer: ₦33,000", even though no
+  // transfer ever happened.
+  // (2) the old code let wallet credit "spill into financed" once it
+  // covered upfront in full — reasoning at the time was "it's her own
+  // real money, no harm covering everything." Confirmed live this is
+  // wrong: it force-closed her ₦31,598 Established-tier financed
+  // margin the instant wallet covered the order, something a CASH
+  // payment of the same size would never do. Paying with wallet credit
+  // should never cost more than paying cash would have.
+  // Fix: cap wallet at what's genuinely due TODAY — upfront (post-tier)
+  // plus delivery — never the financed portion, and never the raw
+  // order total. Anything beyond that stays banked in the wallet for
+  // next time rather than being force-applied. Financed is copied
+  // through completely untouched, exactly as fullSplit computed it.
+  const dueTodayBeforeWallet = fullSplit.upfront + delivTotal;
   const walletCreditApplied = Math.min(
     parseFloat(document.getElementById('s-inv')?.dataset.walletCreditApplied) || 0,
-    gross // never let wallet credit reduce more than this sale's own egg-revenue-tracked total — delivery is separate and always due regardless
+    dueTodayBeforeWallet
   );
   const walletToUpfront  = Math.min(walletCreditApplied, fullSplit.upfront);
-  const walletToFinanced = walletCreditApplied - walletToUpfront;
+  // Whatever's left of walletCreditApplied after upfront is covered can
+  // only be delivery money — the Math.min above guarantees it can never
+  // exceed delivTotal, and it can never reach financed at all.
+  const walletToDelivery = walletCreditApplied - walletToUpfront;
 
   sale.creditSplit = {
     ...fullSplit,
-    upfront:  fullSplit.upfront  - walletToUpfront,   // net cash still needed today, after wallet
-    financed: fullSplit.financed - walletToFinanced,  // net still owed later, after wallet
-    walletCreditApplied,
+    upfront:  fullSplit.upfront - walletToUpfront,  // net egg-revenue cash still needed today
+    financed: fullSplit.financed,                    // untouched by wallet credit, same as it would be by cash
+    walletCreditApplied: walletToUpfront,            // only the gross-tracked portion — this is what getRemainingBalance()/the ledger should ever see
+    walletToDelivery,                                // audit/receipt-only — never enters the gross/remaining-balance system, delivery isn't part of it
   };
 
   // ── Wiring fix (Aug 22, extended Aug 23 for wallet credit) —
@@ -12690,14 +12702,43 @@ function handleSave() {
       balanceAfter: sale.gross - walletCreditApplied,
       method: 'wallet_credit', by: rep,
       at: new Date().toISOString(),
-      note: `Wallet credit applied at point of sale — ₦${walletCreditApplied.toLocaleString()}`
-        + (walletToFinanced > 0 ? ` (₦${walletToUpfront.toLocaleString()} against today's upfront, ₦${walletToFinanced.toLocaleString()} spilling into the financed balance since it covered upfront in full)` : ' against today\'s upfront'),
+      note: `Wallet credit applied at point of sale — ₦${walletCreditApplied.toLocaleString()} against today's upfront.`,
       previousPayment: null,
       reversible: true,
       reversedAt: null,
     };
     STATE.settlementLog.unshift(walletEntry);
     postSettlementToBackend(walletEntry);
+  }
+
+  // Aug 26 fix — the delivery-covering slice of the same wallet debit
+  // gets its own settlementLog entry, deliberately a DIFFERENT method
+  // ('wallet_credit_delivery') so getRemainingBalance() can exclude it
+  // from the gross/financed balance (delivery was never part of that
+  // math) while still recording it durably — synced via the same
+  // postSettlementToBackend() path as everything else here, so the
+  // receipt shows the real wallet-covered delivery amount on every
+  // device, not just the one that recorded the sale.
+  if(walletToDelivery > 0) {
+    const walletDeliveryEntry = {
+      entryId: genSettlementEntryId(),
+      saleId: sale.id,
+      saleRef: sale.inv || sale.id,
+      customer: sale.customer,
+      action: 'partial',
+      amount: walletToDelivery,
+      grossDue: sale.gross,
+      balanceBefore: sale.gross - walletToUpfront,
+      balanceAfter: sale.gross - walletToUpfront,
+      method: 'wallet_credit_delivery', by: rep,
+      at: new Date().toISOString(),
+      note: `Wallet credit applied at point of sale — ₦${walletToDelivery.toLocaleString()} against today's delivery fee (does not count against egg-revenue balance).`,
+      previousPayment: null,
+      reversible: true,
+      reversedAt: null,
+    };
+    STATE.settlementLog.unshift(walletDeliveryEntry);
+    postSettlementToBackend(walletDeliveryEntry);
   }
 
   // Aug 24 fix — previously this only fired for credit-extending
@@ -13361,6 +13402,20 @@ function generateInvoice(saleId) {
   const walletCreditApplied = (STATE.settlementLog || [])
     .filter(l => settlementMatchesSale(l, s) && l.method === 'wallet_credit' && !l.reversedAt && l.action !== 'reversed')
     .reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+  // Aug 26 fix — the egg-revenue portion (walletCreditApplied, above)
+  // and the delivery portion of the same wallet debit are now logged
+  // under different settlementLog methods on purpose (see handleSave()),
+  // so getRemainingBalance() can protect the financed balance from the
+  // delivery slice. The receipt needs the COMBINED figure — this is
+  // the real total pulled from wallet at point of sale, and using only
+  // the egg-revenue portion here is exactly what produced the
+  // fabricated "Collected via transfer: ₦33,000" line on Datekena
+  // BOB-MANUEL's receipt (the ₦33,000 delivery fee, genuinely paid via
+  // wallet, was invisible to this calculation before).
+  const walletToDeliveryApplied = (STATE.settlementLog || [])
+    .filter(l => settlementMatchesSale(l, s) && l.method === 'wallet_credit_delivery' && !l.reversedAt && l.action !== 'reversed')
+    .reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+  const totalWalletApplied = walletCreditApplied + walletToDeliveryApplied;
   const payTerms    = s.payment === 'credit7'  ? '7-Day Credit'
                     : s.payment === 'credit30' ? '30-Day Credit'
                     : s.payment === 'part'     ? 'Part Payment'
@@ -13484,11 +13539,11 @@ function generateInvoice(saleId) {
   </tbody>
   <tfoot>
     ${!isSettled ? `
-    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}${walletCreditApplied > 0 ? ` <span style="font-weight:400;color:var(--mist)">— of which ₦${walletCreditApplied.toLocaleString()} via wallet credit</span>` : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
+    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}${totalWalletApplied > 0 ? ` <span style="font-weight:400;color:var(--mist)">— of which ₦${totalWalletApplied.toLocaleString()} via wallet credit</span>` : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
     <tr><td colspan="3">Financed Balance${dueDate !== '—' ? ' — due ' + dueDate : ''}</td><td style="color:#856404">₦${remaining.toLocaleString()}</td></tr>` : ''}
-    ${isSettled && walletCreditApplied > 0 ? `
-    <tr><td colspan="3">Wallet Credit Applied</td><td style="color:var(--lime)">₦${walletCreditApplied.toLocaleString()}</td></tr>
-    <tr><td colspan="3">Collected via ${s.payment || 'other'}</td><td>₦${Math.max(0, (s.gross + (s.deliveryTotal||0)) - walletCreditApplied).toLocaleString()}</td></tr>` : ''}
+    ${isSettled && totalWalletApplied > 0 ? `
+    <tr><td colspan="3">Wallet Credit Applied</td><td style="color:var(--lime)">₦${totalWalletApplied.toLocaleString()}</td></tr>
+    <tr><td colspan="3">Collected via ${s.payment || 'other'}</td><td>₦${Math.max(0, (s.gross + (s.deliveryTotal||0)) - totalWalletApplied).toLocaleString()}</td></tr>` : ''}
     <tr class="total">
       <td colspan="3">${isSettled ? 'TOTAL RECEIVED' : 'TOTAL PAYABLE'}</td>
       <td>₦${(s.gross + (s.deliveryTotal||0)).toLocaleString()}</td>
@@ -19273,8 +19328,15 @@ function getRemainingBalance(s) {
   // coercing at the sync boundary (syncSettlementsFromBackend()), but
   // this ensures a stray string value can never silently break every
   // credit balance in the app the way it did on Aug 23.
+  // Aug 26 fix — 'wallet_credit_delivery' entries record wallet money
+  // that paid down DELIVERY, not egg revenue. s.gross is egg-revenue
+  // only (delivery never enters this balance, by design — see
+  // computeCreditSplit()'s header comment), so counting a delivery
+  // payment here would wrongly shrink — or wipe out — the customer's
+  // financed balance just because delivery happened to be paid from
+  // wallet instead of cash. Excluded from this sum on purpose.
   const paid = (STATE.settlementLog || [])
-    .filter(l => settlementMatchesSale(l, s) && !l.reversedAt && l.action !== 'reversed')
+    .filter(l => settlementMatchesSale(l, s) && !l.reversedAt && l.action !== 'reversed' && l.method !== 'wallet_credit_delivery')
     .reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
   return Math.max(0, s.gross - paid);
 }
@@ -21141,27 +21203,28 @@ function buildOrderCard(o, queueNum) {
     ${(() => {
       const custObj = STATE.customers.find(c => c.name === o.customerName);
       if(!custObj || custObj.creditLimit === 0) return '';
-      // Aug 23 fix — previously wallet credit was subtracted from egg
-      // revenue BEFORE computing the split, which meant it came out of
-      // the MARGIN pool first: for an 80%-tier customer, 80% of their
-      // own wallet money was silently eating into the free deferral
-      // they'd earned, instead of reducing what's due today. Split now
-      // computed on the FULL, untouched egg revenue — wallet credit is
-      // applied afterward, straight against upfront first, only
-      // spilling into financed if it's large enough to cover upfront
-      // entirely (see handleSave() for the matching real-sale version
-      // of this same waterfall).
-      // batchCost isn't known yet at order stage (no batch has been
-      // drawn from) — getLastCostPrice() is the same current-cost
-      // estimate the rest of the app already uses for pre-sale previews.
+      // Aug 23 fix, superseded Aug 26 — previously wallet credit was
+      // subtracted from egg revenue BEFORE computing the split (came
+      // out of the MARGIN pool first). Split is computed on the FULL,
+      // untouched egg revenue, wallet credit applied afterward against
+      // upfront only. Aug 26: removed the old "spill into financed once
+      // upfront's covered" step — confirmed live (Datekena BOB-MANUEL)
+      // that this force-closed an earned trust-tier financed balance
+      // the moment wallet happened to cover the order, something a cash
+      // payment of the same size never does. Financed is never touched
+      // by wallet credit here, matching the real-sale waterfront in
+      // handleSave(). batchCost isn't known yet at order stage (no
+      // batch has been drawn from) — getLastCostPrice() is the same
+      // current-cost estimate the rest of the app already uses for
+      // pre-sale previews.
       const fullSplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||val, o.deliveryTotal||0, getLastCostPrice());
-      const walletCreditApplied = Math.min(o.walletCreditApplied || 0, o.eggSubtotal||val);
+      const dueTodayBeforeWallet = fullSplit.upfront + (o.deliveryTotal||0);
+      const walletCreditApplied = Math.min(o.walletCreditApplied || 0, dueTodayBeforeWallet);
       const walletToUpfront  = Math.min(walletCreditApplied, fullSplit.upfront);
-      const walletToFinanced = walletCreditApplied - walletToUpfront;
       const split = {
         ...fullSplit,
-        upfront:  fullSplit.upfront  - walletToUpfront,
-        financed: fullSplit.financed - walletToFinanced,
+        upfront:  fullSplit.upfront - walletToUpfront,
+        financed: fullSplit.financed, // untouched — same protection a cash payment would get
       };
       return `
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
@@ -21203,10 +21266,22 @@ function buildOrderCard(o, queueNum) {
 
     ${(()=>{
       // ── Wallet balance strip — shown if customer has credit on account ──
+      // Aug 26 fix — "owed" here used to be the FULL order total minus
+      // whatever wallet was already applied, which is exactly what let
+      // the Apply Wallet button below offer the customer's entire
+      // financed balance as if it were due today (confirmed live,
+      // Datekena BOB-MANUEL: button offered ₦995,445 — the whole order
+      // — instead of the ₦963,847 actually due today). "owed" is now
+      // capped at what's genuinely due today: upfront (post-tier) plus
+      // delivery, computed the same way as the split preview above.
+      // Financed is never something the Apply Wallet button should be
+      // able to touch — same reasoning as the split-preview fix.
       const cust = STATE.customers.find(c => c.name === o.customerName);
       const bal  = getWalletBalance(o.customerName);
       const total = o.grandTotal || (o.crates * (o.pricePerCrate || 5700));
-      const owed  = Math.max(0, total - (o.walletCreditApplied || 0));
+      const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||total, o.deliveryTotal||0, getLastCostPrice());
+      const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
+      const owed  = Math.max(0, dueToday - (o.walletCreditApplied || 0));
       if(!cust || (bal <= 0 && !(o.walletCreditApplied > 0))) return '';
       const locked = isOrderClosed(o);
       const appliedNote = o.walletCreditApplied > 0
@@ -26664,8 +26739,18 @@ function applyWalletToOrder(orderRef) {
   const o = orders.find(x => x.ref === orderRef);
   if(!o) { showToast('⚠ Order not found.'); return; }
   const total   = o.grandTotal || (o.crates * (o.pricePerCrate || 5700));
-  const owed    = Math.max(0, total - (o.walletCreditApplied || 0));
-  if(owed <= 0) { showToast('⚠ This order is already fully covered.'); return; }
+  // Aug 26 fix — this used to cap at the FULL order total, which is
+  // exactly what let a single click force-apply wallet credit against
+  // the customer's own earned financed balance (confirmed live,
+  // Datekena BOB-MANUEL — button applied ₦995,445, wiping her
+  // ₦31,598 Established-tier deferral). Capped now at what's actually
+  // due today — upfront (post-tier) plus delivery. Any wallet balance
+  // beyond that is deliberately left untouched in her wallet rather
+  // than force-applied, same as a cash payment would leave it.
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||total, o.deliveryTotal||0, getLastCostPrice());
+  const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
+  const owed    = Math.max(0, dueToday - (o.walletCreditApplied || 0));
+  if(owed <= 0) { showToast('⚠ This order is already fully covered for what\'s due today — any remaining wallet credit stays banked for next time.'); return; }
   const applied = applyWalletCredit(o.customerName, o.ref, owed);
   if(applied <= 0) { showToast('⚠ No wallet balance available for this customer.'); return; }
   o.walletCreditApplied = (o.walletCreditApplied || 0) + applied;
