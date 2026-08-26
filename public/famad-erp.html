@@ -12689,20 +12689,31 @@ function handleSave() {
   // whether that money came from wallet, cash, or both. ──
   if(!STATE.settlementLog) STATE.settlementLog = [];
 
-  if(walletCreditApplied > 0) {
+  if(walletToUpfront > 0) {
+    // Aug 26 bugfix — this used to log `walletCreditApplied` (the
+    // COMBINED upfront+delivery wallet amount, e.g. ₦95,320) here, not
+    // `walletToUpfront` (the upfront-only slice, e.g. ₦92,120). Since
+    // getRemainingBalance() sums every 'wallet_credit' entry against
+    // s.gross (egg revenue only), that ₦3,200 delivery slice was being
+    // deducted from the financed balance a SECOND time — once correctly
+    // as its own 'wallet_credit_delivery' entry (excluded from the sum
+    // by design), and once here by mistake (included). Confirmed live,
+    // Helen Alabompa: financed showed ₦120 on the invoice instead of
+    // the correct ₦3,320 — exactly a ₦3,200 shortfall, matching her
+    // wallet-covered delivery fee to the naira.
     const walletEntry = {
       entryId: genSettlementEntryId(),
       saleId: sale.id,
       saleRef: sale.inv || sale.id,
       customer: sale.customer,
       action: 'partial',
-      amount: walletCreditApplied,
+      amount: walletToUpfront,
       grossDue: sale.gross,
       balanceBefore: sale.gross,
-      balanceAfter: sale.gross - walletCreditApplied,
+      balanceAfter: sale.gross - walletToUpfront,
       method: 'wallet_credit', by: rep,
       at: new Date().toISOString(),
-      note: `Wallet credit applied at point of sale — ₦${walletCreditApplied.toLocaleString()} against today's upfront.`,
+      note: `Wallet credit applied at point of sale — ₦${walletToUpfront.toLocaleString()} against today's upfront.`,
       previousPayment: null,
       reversible: true,
       reversedAt: null,
@@ -26770,6 +26781,17 @@ function openPaymentVerifyModal(orderRef) {
   document.getElementById('pv-amount-note').textContent = '';
 
   const inv = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
+  // Aug 26 fix — "inv" here is the FULL order total, financed portion
+  // included. Using it as the baseline for "what still needs a genuine
+  // new payment" is exactly the same mistake fixed elsewhere for wallet
+  // application — confirmed live (Helen Alabompa, BEL-ORD-260826-092830,
+  // Building tier): this modal demanded a "genuine new payment" of
+  // ₦3,320, which was entirely her legitimately-deferred financed
+  // balance (due 2026-09-02), not anything owed today. dueToday below
+  // is the real ceiling — upfront (post-tier) plus delivery — the same
+  // figure the Apply Wallet button is now capped at.
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
   // Aug 25 fix — this used to always demand a "new" payment amount
   // even when wallet credit (already verified once, when it was
   // originally credited) covers some or all of the order. Confirmed
@@ -26780,8 +26802,8 @@ function openPaymentVerifyModal(orderRef) {
   // goods were released was fabricated. Now: fully wallet-covered
   // skips the amount entry entirely with an honest reason instead;
   // partially covered pre-fills only the genuinely-new remaining gap.
-  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, inv);
-  const remainingAfterWallet = Math.max(0, inv - walletCreditApplied);
+  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, dueToday);
+  const remainingAfterWallet = Math.max(0, dueToday - walletCreditApplied);
 
   const banner = document.getElementById('pv-wallet-covered-banner');
   const partialNote = document.getElementById('pv-wallet-partial-note');
@@ -26800,10 +26822,10 @@ function openPaymentVerifyModal(orderRef) {
     banner.style.display = 'none';
     fieldsWrap.style.display = '';
     confirmBtn.textContent = '✓ Confirm Payment Received';
-    document.getElementById('pv-amount').value = remainingAfterWallet || inv || '';
+    document.getElementById('pv-amount').value = remainingAfterWallet || dueToday || '';
     if(walletCreditApplied > 0) {
       partialNote.style.display = 'block';
-      partialNote.textContent = `₦${walletCreditApplied.toLocaleString()} of this order is already covered by wallet credit — the amount below is only the remaining ₦${remainingAfterWallet.toLocaleString()} that needs a genuine new payment.`;
+      partialNote.textContent = `₦${walletCreditApplied.toLocaleString()} of this order is already covered by wallet credit — the amount below is only the remaining ₦${remainingAfterWallet.toLocaleString()} that needs a genuine new payment${dueTodaySplit.financed > 0 ? ` (₦${dueTodaySplit.financed.toLocaleString()} financed balance is due ${'separately, later'} — not part of this)` : ''}.`;
     } else {
       partialNote.style.display = 'none';
     }
@@ -26818,7 +26840,7 @@ function openPaymentVerifyModal(orderRef) {
   }
   document.getElementById('pv-order-summary').innerHTML =
     `Order: <strong style="color:var(--cream)">${o.ref}</strong> · ${o.customerName}<br>
-     Crates: ${o.crates} · Invoice: <strong>₦${inv.toLocaleString()}</strong>`;
+     Crates: ${o.crates} · Invoice: <strong>₦${inv.toLocaleString()}</strong>${dueTodaySplit.financed > 0 ? ` <span style="color:var(--mist);font-weight:400">(₦${dueToday.toLocaleString()} due today, ₦${dueTodaySplit.financed.toLocaleString()} financed)</span>` : ''}`;
   openModal('modal-payment-verify');
 }
 
@@ -26828,13 +26850,16 @@ function updatePVStatus() {
   const o = orders.find(x => x.ref === ref);
   if(!o) return;
   const inv      = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
-  // Aug 25 fix — compares against the remaining gap after wallet
-  // credit, not the full invoice, matching confirmPaymentVerified()'s
-  // own check. Without this, a correctly pre-filled partial amount
-  // (wallet already covering the rest) showed a false "short of
-  // invoice" warning.
-  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, inv);
-  const remainingAfterWallet = Math.max(0, inv - walletCreditApplied);
+  // Aug 26 fix — matches openPaymentVerifyModal()'s dueToday cap (see
+  // that function's comment). Comparing against the FULL invoice here
+  // treated the financed balance as something this step could flag as
+  // "short" — confirmed live, Helen Alabompa: this would have shown a
+  // false shortfall warning if she'd typed anything less than the full
+  // ₦98,640, when in fact only ₦3,320 of that was ever due today.
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
+  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, dueToday);
+  const remainingAfterWallet = Math.max(0, dueToday - walletCreditApplied);
   const received = parseFloat(document.getElementById('pv-amount')?.value) || 0;
   const noteEl   = document.getElementById('pv-amount-note');
   if(!noteEl) return;
@@ -26852,17 +26877,25 @@ function confirmPaymentVerified() {
   if(!o) { showToast('⚠ Order not found.'); return; }
 
   const inv = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
+  // Aug 26 fix — same dueToday cap as openPaymentVerifyModal()/
+  // updatePVStatus(). Confirmed live, Helen Alabompa
+  // (BEL-ORD-260826-092830): with the old `inv`-based check, this step
+  // demanded a genuine ₦3,320 payment for what was actually her
+  // financed balance, due 2026-09-02, not today. dueToday is the real
+  // ceiling this step should ever ask a rep to verify against.
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
   // Aug 25 fix — wallet credit already verified once, at the moment it
   // was credited, so it's excluded from what this step needs to
   // re-check. remainingAfterWallet (not the full invoice) is the real
   // amount that genuinely needs a fresh bank/cash/POS confirmation.
-  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, inv);
-  const remainingAfterWallet = Math.max(0, inv - walletCreditApplied);
+  const walletCreditApplied = Math.min(o.walletCreditApplied || 0, dueToday);
+  const remainingAfterWallet = Math.max(0, dueToday - walletCreditApplied);
 
   if(remainingAfterWallet <= 0) {
-    finalizePaymentVerification(o, orders, inv, notes ||
+    finalizePaymentVerification(o, orders, dueToday, notes ||
       `Fully covered by ₦${walletCreditApplied.toLocaleString()} wallet credit — no new transfer required.`,
-      inv, 'wallet_credit');
+      dueToday, 'wallet_credit');
     return;
   }
 
