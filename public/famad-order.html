@@ -2312,8 +2312,14 @@ function renderWalletNotice(customerName) {
   const erp = loadERPData();
   const balance = getPortalWalletBalance(erp, customerName);
   if(balance <= 0) { notice.style.display = 'none'; return; }
-  const price = portalState.basePrice;
   const hasDelivery = getCurrentDeliveryLevyPerCrate() > 0;
+  // Aug 26 fix — this used to show portalState.basePrice (egg-only)
+  // even when the message text claimed "delivery included", so the
+  // Stock Available panel (which correctly adds getFlatDeliveryRate())
+  // and this welcome message disagreed by exactly the delivery levy —
+  // confirmed live, ₦6,019 here vs ₦6,219 on the stock panel, a
+  // ₦200/crate gap. price now matches what the customer actually pays.
+  const price = portalState.basePrice + (hasDelivery ? getCurrentDeliveryLevyPerCrate() : 0);
   const crates = getCratesForBudgetTotal(erp, balance); // progressive AND delivery-aware once a zone is picked
   notice.style.display = 'block';
   notice.innerHTML = `💰 <strong>${escapeHtmlPortal(customerName)}</strong> — you have a wallet balance of <strong>₦${balance.toLocaleString()}</strong> with us —
