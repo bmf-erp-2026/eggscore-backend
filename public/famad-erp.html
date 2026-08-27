@@ -20961,8 +20961,16 @@ function renderVolIntelPanel() {
   }
 
   // Near-miss customer table
+  // Aug 27 fix — this used to be `s.requests.length > 0`, which lists
+  // EVERY customer who's ever filed a volume request, converted or
+  // not — directly contradicting this section's own header ("asked for
+  // more, didn't convert"). Confirmed live: Fluffy-Diva Confectionary
+  // and Harrison Superstores both appeared here with a 100% conversion
+  // rate. A customer only belongs in a "didn't convert" list if at
+  // least one of their requests never became a sale — i.e. their
+  // resolved count falls short of their total request count.
   const summaries = getCustomerVolReqSummary();
-  const nearMiss  = summaries.filter(s => s.requests.length > 0);
+  const nearMiss  = summaries.filter(s => s.requests.length > 0 && (s.resolved||0) < s.requests.length);
   const nmEl = document.getElementById('vol-near-miss-list');
   if(nmEl) {
     if(!nearMiss.length) {
