@@ -2043,7 +2043,8 @@ input[type=number]{-moz-appearance:textfield;}
 
     backendTx.forEach(row => {
       if(!row.client_id) return; // can't merge a row with no client_id to key on
-      if(!byClientId.has(row.client_id)) {
+      const existing = byClientId.get(row.client_id);
+      if(!existing) {
         const customer = STATE.customers.find(c => c.backendId === row.customer_id);
         byClientId.set(row.client_id, {
           id: row.client_id,
@@ -2051,6 +2052,21 @@ input[type=number]{-moz-appearance:textfield;}
           type: row.type, amount: Number(row.amount), ref: row.order_ref,
           date: row.created_at?.split('T')[0], notes: '',
         });
+      } else if(existing.customerName === '(unknown customer)') {
+        // Aug 27 fix — a transaction can get mislabeled '(unknown
+        // customer)' if this sync ever ran a beat before
+        // STATE.customers finished loading (a load-order race between
+        // two independent, uncoordinated sync calls). The old code
+        // only ever resolved a name for a client_id it hadn't seen
+        // before, so one unlucky race made the mislabel permanent —
+        // confirmed live, an Incognito tab's entire Time-Value
+        // Differential dumped almost its whole wallet total into one
+        // unresolved row. This retries the same lookup on every sync
+        // for anything still stuck unresolved, so it self-heals as
+        // soon as the real customer data is available — never touches
+        // an entry that's already correctly named.
+        const customer = STATE.customers.find(c => c.backendId === row.customer_id);
+        if(customer?.name) existing.customerName = customer.name;
       }
     });
 
