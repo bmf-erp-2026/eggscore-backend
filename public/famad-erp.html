@@ -26970,12 +26970,22 @@ function openPendingTransferModal(orderRef) {
   document.getElementById('pt-order-ref').value = orderRef;
   document.getElementById('pt-bank').value      = '';
   document.getElementById('pt-txref').value     = '';
-  document.getElementById('pt-amount').value    = o.grandTotal || '';
-  document.getElementById('pt-notes').value     = '';
   const inv = o.grandTotal || o.crates * (o.pricePerCrate || 5700);
+  // Aug 27 fix — this used to default-fill with the FULL order total
+  // (`o.grandTotal`), the same class of mistake already fixed in the
+  // Apply Wallet button and Verify Payment modal: financed is never
+  // something a rep should be claiming a bank transfer for. Now
+  // defaults to what's genuinely due today (upfront + delivery) minus
+  // any wallet already applied — the rep can still type over it if the
+  // real claimed transfer amount differs, this only fixes the starting
+  // suggestion.
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueToday = Math.max(0, (dueTodaySplit.upfront + (o.deliveryTotal||0)) - (o.walletCreditApplied||0));
+  document.getElementById('pt-amount').value    = dueToday || '';
+  document.getElementById('pt-notes').value     = '';
   document.getElementById('pt-order-summary').innerHTML =
     `Order: <strong style="color:var(--cream)">${o.ref}</strong> · ${o.customerName}<br>
-     Crates: ${o.crates} · Invoice: <strong>₦${inv.toLocaleString()}</strong>`;
+     Crates: ${o.crates} · Invoice: <strong>₦${inv.toLocaleString()}</strong>${dueTodaySplit.financed > 0 ? ` <span style="color:var(--mist);font-weight:400">(₦${dueToday.toLocaleString()} due today, ₦${dueTodaySplit.financed.toLocaleString()} financed)</span>` : ''}`;
   openModal('modal-pending-transfer');
 }
 
