@@ -12812,7 +12812,7 @@ function handleSave() {
       method: isCreditTerm ? 'day0' : payment, by: rep,
       at: new Date().toISOString(),
       note: isCreditTerm
-        ? `Upfront payment collected at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()}, leaving the ₦${sale.creditSplit.financed.toLocaleString()} financed margin as the real outstanding balance.`
+        ? `Upfront payment collected at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()}${(delivTotal - walletToDelivery) > 0 ? ` + ₦${(delivTotal - walletToDelivery).toLocaleString()} delivery (see linked delivery_collected entry)` : ''}, leaving the ₦${sale.creditSplit.financed.toLocaleString()} financed margin as the real outstanding balance.`
         : `Balance collected via ${payment} at point of sale — ₦${sale.creditSplit.upfront.toLocaleString()}${walletCreditApplied > 0 ? ` (on top of ₦${walletCreditApplied.toLocaleString()} already applied from wallet credit)` : ''}. Not a credit sale — nothing left outstanding.`,
       previousPayment: null,
       reversible: true,
@@ -12820,6 +12820,42 @@ function handleSave() {
     };
     STATE.settlementLog.unshift(upfrontEntry);
     postSettlementToBackend(upfrontEntry);
+  }
+
+  // Aug 28 fix — Bob's own audit-trail check on JerryB's sale found
+  // this gap: the upfront entry above only ever logged the egg-revenue
+  // portion collected via cash/transfer, deliberately excluding
+  // delivery (delivery was never part of the gross/remaining-balance
+  // system — see computeCreditSplit()'s header comment). But nothing
+  // ELSE ever logged the delivery money either, so the settlementLog's
+  // total (₦206,573 for JerryB) fell ₦7,000 short of what the invoice
+  // correctly showed as collected (₦213,573) — a real gap for anyone
+  // auditing the ledger without cross-referencing the invoice by hand.
+  // This mirrors the existing wallet_credit_delivery entry exactly,
+  // just for the genuinely-paid (non-wallet) slice of delivery, so the
+  // settlementLog alone now reconciles to the same total the invoice
+  // shows, with no cross-referencing needed.
+  const deliveryCollectedViaPayment = Math.max(0, delivTotal - walletToDelivery);
+  if(deliveryCollectedViaPayment > 0) {
+    const deliveryEntry = {
+      entryId: genSettlementEntryId(),
+      saleId: sale.id,
+      saleRef: sale.inv || sale.id,
+      customer: sale.customer,
+      action: 'partial',
+      amount: deliveryCollectedViaPayment,
+      grossDue: sale.gross,
+      balanceBefore: sale.gross - walletCreditApplied - sale.creditSplit.upfront,
+      balanceAfter: sale.gross - walletCreditApplied - sale.creditSplit.upfront,
+      method: 'delivery_collected', by: rep,
+      at: new Date().toISOString(),
+      note: `Delivery fee collected via ${payment} at point of sale — ₦${deliveryCollectedViaPayment.toLocaleString()} (does not count against egg-revenue balance).`,
+      previousPayment: null,
+      reversible: true,
+      reversedAt: null,
+    };
+    STATE.settlementLog.unshift(deliveryEntry);
+    postSettlementToBackend(deliveryEntry);
   }
 
   STATE.sales.unshift(sale);
@@ -19378,8 +19414,12 @@ function getRemainingBalance(s) {
   // payment here would wrongly shrink — or wipe out — the customer's
   // financed balance just because delivery happened to be paid from
   // wallet instead of cash. Excluded from this sum on purpose.
+  // Aug 28 fix — 'delivery_collected' is the cash/transfer counterpart:
+  // the genuinely-paid portion of delivery, logged for audit
+  // traceability (see handleSave()) but excluded here for the exact
+  // same reason as its wallet sibling.
   const paid = (STATE.settlementLog || [])
-    .filter(l => settlementMatchesSale(l, s) && !l.reversedAt && l.action !== 'reversed' && l.method !== 'wallet_credit_delivery')
+    .filter(l => settlementMatchesSale(l, s) && !l.reversedAt && l.action !== 'reversed' && l.method !== 'wallet_credit_delivery' && l.method !== 'delivery_collected')
     .reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
   return Math.max(0, s.gross - paid);
 }
