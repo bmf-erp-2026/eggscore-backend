@@ -907,7 +907,22 @@ input[type=number]{-moz-appearance:textfield;}
     document.getElementById('erp-login-overlay').style.display = 'none';
     const label = document.getElementById('erp-logged-in-as');
     if(label) label.textContent = data?.user?.email || email;
-    syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); });
+    // Aug 27 fix — DOMContentLoaded fires immediately on page load and
+    // kicks off ~25 sync calls before this login gate is ever
+    // dismissed, so on a genuinely fresh tab every one of them finds
+    // no session yet and silently bails (each sync function's own
+    // `if(!token) return` guard). Only this ONE sync call used to get
+    // manually re-triggered after a successful login — every other
+    // sync (customers, batches, wallet transactions, settings, etc.)
+    // never got a second chance, and the app was left showing stale
+    // seed data or empty panels until the user happened to do a full
+    // page reload themselves (which is exactly why "always open a
+    // genuinely fresh tab" already worked around this in practice).
+    // A reload right after login re-runs the entire boot sequence with
+    // a session that now genuinely exists in sessionStorage from the
+    // start, so everything syncs correctly on the very next load —
+    // no more silent partial-sync state to reason about.
+    location.reload();
   }
 
   async function erpLogout() {
@@ -13566,7 +13581,8 @@ function generateInvoice(saleId) {
   </tbody>
   <tfoot>
     ${!isSettled ? `
-    <tr><td colspan="3">Amount Received Today${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}${totalWalletApplied > 0 ? ` <span style="font-weight:400;color:var(--mist)">— of which ₦${totalWalletApplied.toLocaleString()} via wallet credit</span>` : ''}</td><td>₦${(alreadyPaid + (s.deliveryTotal||0)).toLocaleString()}</td></tr>
+    ${totalWalletApplied > 0 ? `<tr><td colspan="3">Wallet Credit Applied</td><td style="color:var(--lime)">₦${totalWalletApplied.toLocaleString()}</td></tr>` : ''}
+    <tr><td colspan="3">Upfront Payment${(s.deliveryTotal||0) > 0 ? ' (incl. delivery)' : ''}</td><td>₦${Math.max(0, (alreadyPaid + (s.deliveryTotal||0)) - totalWalletApplied).toLocaleString()}</td></tr>
     <tr><td colspan="3">Financed Balance${dueDate !== '—' ? ' — due ' + dueDate : ''}</td><td style="color:#856404">₦${remaining.toLocaleString()}</td></tr>` : ''}
     ${isSettled && totalWalletApplied > 0 ? `
     <tr><td colspan="3">Wallet Credit Applied</td><td style="color:var(--lime)">₦${totalWalletApplied.toLocaleString()}</td></tr>
