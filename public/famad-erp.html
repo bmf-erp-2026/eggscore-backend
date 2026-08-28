@@ -13224,7 +13224,13 @@ function renderDashRecentSales() {
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">${s.date} · ${s.rep} · ${s.crates} crates</div>
       </div>
       <div style="text-align:right">
-        <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--lime)">${fmt(s.gross)}</div>
+        <!-- Aug 28 fix — showed s.gross alone (egg-revenue only), so a
+             sale's real total was consistently understated by its
+             delivery fee. Confirmed live: Datekena BOB-MANUEL's
+             transaction showed ₦301,221 here vs the real ₦311,221
+             total payable on her invoice — exactly the ₦10,000
+             delivery fee, missing. Now matches the invoice total. -->
+        <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--lime)">${fmt(s.gross + (s.deliveryTotal||0))}</div>
         <div>${payChip(s.payment)}</div>
       </div>
     </div>`).join('');
@@ -13240,7 +13246,7 @@ function renderRPDispatches(sales) {
       <div class="ri-left"><div class="ri-dot" style="background:${s.payment.includes('credit')?'var(--amber)':'var(--lime)'}"></div>
         <div><div class="ri-name">${s.customer}</div><div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist)">${s.rep}</div></div>
       </div>
-      <div style="text-align:right"><div class="ri-crates">${s.crates} crates</div><div class="ri-price" style="${s.payment.includes('credit')?'color:var(--amber)':''}">${s.payment.includes('credit')?s.payment:fmt(s.gross)}</div></div>
+      <div style="text-align:right"><div class="ri-crates">${s.crates} crates</div><div class="ri-price" style="${s.payment.includes('credit')?'color:var(--amber)':''}">${s.payment.includes('credit')?s.payment:fmt(s.gross + (s.deliveryTotal||0))}</div></div>
     </div>`).join('') + '</div>';
 }
 
