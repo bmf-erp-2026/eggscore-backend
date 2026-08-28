@@ -13517,7 +13517,7 @@ function generateInvoice(saleId) {
     `*EggScore Invoice — ${s.inv || s.id}*\n\n` +
     `Customer: ${s.customer}\n` +
     `Date: ${s.date}\n` +
-    `Crates: ${s.crates} @ ₦${(s.effPrice || s.price).toLocaleString()}/crate\n` +
+    `Crates: ${s.crates} @ ₦${((s.gross + (s.deliveryTotal||0)) / (s.crates||1)).toLocaleString()}/crate\n` +
     `Subtotal: ₦${((s.gross)+(s.deliveryTotal||0)).toLocaleString()}\n` +
     `Total Payable: ₦${((s.gross)+(s.deliveryTotal||0)).toLocaleString()}\n` +
     `Payment: ${payTerms}\n` +
@@ -13610,7 +13610,16 @@ function generateInvoice(saleId) {
     <tr>
       <td>Eggs — wholesale (${s.batchId || 'stock'})</td>
       <td>${s.crates} crates</td>
-      <td>₦${(s.effPrice || s.price).toLocaleString()}/crate</td>
+      <!-- Aug 28 fix — s.effPrice || s.price fell back to the
+           egg-only LOCKED price whenever effPrice was falsy, including
+           a legitimate 0 ('||' treats 0 the same as missing). Confirmed
+           live: Dora's Golden Yolk showed ₦5,847/crate here (egg-only)
+           while every other invoice showed the combined incl.-delivery
+           rate, breaking the usual Unit Price × Qty = Amount check.
+           Computing it directly from gross+delivery/crates instead —
+           numbers already known correct — guarantees this always
+           reconciles, regardless of how effPrice got set at save time. -->
+      <td>₦${((s.gross + (s.deliveryTotal||0)) / (s.crates||1)).toLocaleString()}/crate</td>
       <td>₦${((s.gross)+(s.deliveryTotal||0)).toLocaleString()}</td>
     </tr>
     ${s.promoDiscount > 0 ? `
@@ -23884,7 +23893,9 @@ function generateSalesInvoicePDF() {
   ], 42);
   y += 6;
 
-  const rows = [['Eggs — wholesale, delivered', String(s.crates)+' crates', '₦'+(s.effPrice||s.price).toLocaleString(), '₦'+(s.gross+(s.deliveryTotal||0)).toLocaleString()]];
+  // Aug 28 fix — same effPrice-falls-back-to-egg-only-price bug fixed
+  // in the HTML invoice above, applied here too for consistency.
+  const rows = [['Eggs — wholesale, delivered', String(s.crates)+' crates', '₦'+((s.gross + (s.deliveryTotal||0)) / (s.crates||1)).toLocaleString(), '₦'+(s.gross+(s.deliveryTotal||0)).toLocaleString()]];
   y = pdfSimpleTable(doc, 18, y, ['Description','Qty','Unit Price','Amount'], rows, [65,30,35,42]);
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(isSettled?60:200,isSettled?170:40,isSettled?90:40);
   doc.text(isSettled ? 'PAID IN FULL' : `BALANCE DUE: ₦${Math.round(remaining).toLocaleString()}`, doc.internal.pageSize.getWidth()-18, y+4, { align:'right' });
