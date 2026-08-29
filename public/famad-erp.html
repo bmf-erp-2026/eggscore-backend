@@ -1323,6 +1323,217 @@ input[type=number]{-moz-appearance:textfield;}
       .forEach(e => postSettlementToBackend(e));
   }
 
+  // Aug 28 fix — Commission Payout persistence, first of 3 local-only
+  // logs found never syncing at all (Commission Payout, System
+  // Overrides & Security Log, System Event Log — see task queue notes).
+  // markCommPaid() used to only ever call saveState(), so a "Mark Paid"
+  // click was invisible to every OTHER device — confirmed live,
+  // Incognito showed reps as fully PENDING that Normal had already
+  // marked PAID. This mirrors the settlementLog pattern exactly: a
+  // parallel append-only log (STATE.commissionPayoutLog), each entry
+  // keyed by a client-generated id, POSTed individually and merged by
+  // that same id on every sync — the actual STATE.commPaid/commPaidMTD
+  // aggregates markCommPaid() already maintains are left untouched;
+  // this only adds the missing cross-device visibility layer on top.
+  async function postCommissionPayoutToBackend(entry) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/commission-payouts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          entryId: entry.id, repName: entry.repName, monthKey: entry.monthKey,
+          amount: entry.amount, recordedBy: entry.by, at: entry.at,
+        }),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — the local entry still holds, and the
+      // self-healing retry below will re-post it once connectivity
+      // returns.
+    }
+  }
+
+  async function syncCommissionPayoutsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendRows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/commission-payouts`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendRows = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.commissionPayoutLog) STATE.commissionPayoutLog = [];
+    const localIds = new Set(STATE.commissionPayoutLog.map(e => e.id));
+    if(!STATE.commPaid)    STATE.commPaid    = {};
+    if(!STATE.commPaidMTD) STATE.commPaidMTD = {};
+
+    backendRows.forEach(row => {
+      if(!row.entry_id || localIds.has(row.entry_id)) return; // already applied locally when created
+      const amount = Number(row.amount) || 0;
+      STATE.commissionPayoutLog.push({
+        id: row.entry_id, repName: row.rep_name, monthKey: row.month_key,
+        amount, by: row.recorded_by, at: row.client_at || row.created_at,
+      });
+      // A payout made on a DIFFERENT device — apply it to the local
+      // aggregates now, exactly as markCommPaid() would have at
+      // creation time, so the Payout Register reflects it immediately.
+      STATE.commPaid[row.rep_name] = (STATE.commPaid[row.rep_name] || 0) + amount;
+      if(!STATE.commPaidMTD[row.rep_name]) STATE.commPaidMTD[row.rep_name] = {};
+      STATE.commPaidMTD[row.rep_name][row.month_key] = (STATE.commPaidMTD[row.rep_name][row.month_key] || 0) + amount;
+    });
+
+    saveState();
+
+    const backendEntryIds = new Set(backendRows.map(r => r.entry_id).filter(Boolean));
+    STATE.commissionPayoutLog
+      .filter(e => e.id && !backendEntryIds.has(e.id))
+      .forEach(e => postCommissionPayoutToBackend(e));
+
+    if(currentModule === 'commission') renderCommission();
+  }
+
+  // Aug 28 fix — System Overrides & Security Log persistence (second
+  // of the 3 local-only logs). Every credit-terms change, enforcement
+  // override, PIN change, and time-value rate change already gets a
+  // unique client-generated `id` (see the 5 STATE.creditOverrideLog.
+  // unshift() call sites) — that id doubles as the idempotency key
+  // here, so this can stay a thin, generic pass-through rather than
+  // needing separate handling per entry type. The type-specific fields
+  // (reason, oldTerms, exposure, etc.) travel as one JSON blob since
+  // the 5 entry shapes genuinely differ from each other.
+  async function postCreditOverrideToBackend(entry) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/credit-overrides`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          entryId: entry.id, type: entry.type || null, customerName: entry.customerName || null,
+          recordedBy: entry.overriddenBy || entry.changedBy || 'owner',
+          at: entry.overriddenAt || entry.changedAt || new Date().toISOString(),
+          detail: entry,
+        }),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — self-healing retry below covers it.
+    }
+  }
+
+  async function syncCreditOverrideLogFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendRows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/credit-overrides`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendRows = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
+    const localIds = new Set(STATE.creditOverrideLog.map(e => e.id));
+    backendRows.forEach(row => {
+      if(!row.entry_id || localIds.has(row.entry_id)) return;
+      // detail already holds the full original entry shape (see the
+      // `detail: entry` line above) — just restore it as-is, with the
+      // backend's entry_id kept as the canonical id.
+      STATE.creditOverrideLog.push({ ...(row.detail || {}), id: row.entry_id });
+    });
+    saveState();
+
+    const backendEntryIds = new Set(backendRows.map(r => r.entry_id).filter(Boolean));
+    STATE.creditOverrideLog
+      .filter(e => e.id && !backendEntryIds.has(e.id))
+      .forEach(e => postCreditOverrideToBackend(e));
+
+    if(currentModule === 'credit') renderCredit();
+  }
+
+  // Aug 28 fix — System Event Log persistence (third of the 3
+  // local-only logs). logEvent() used to only ever call
+  // saveEventLog() — confirmed in code, no sync existed at all, which
+  // is why an old Incognito tab's event count (13) looked nothing like
+  // a long-used device's real history (100) even though nothing was
+  // actually "stale" — the data had simply never left that one device.
+  // Endpoint is '/system-events', NOT '/events' — server.js already
+  // mounts '/events' for a completely different thing (funnel/
+  // analytics tracking events), confirmed by reading server.js itself;
+  // reusing that path would have silently collided with it.
+  async function postEventLogToBackend(entry) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/system-events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          entryId: String(entry.id), category: entry.category, level: entry.level,
+          message: entry.message, detail: entry.detail, at: entry.ts,
+        }),
+      });
+    } catch(networkErr) {
+      // Offline or unreachable — self-healing retry below covers it.
+    }
+  }
+
+  async function syncEventLogFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendRows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/system-events`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendRows = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    const log = loadEventLog();
+    const localIds = new Set(log.map(e => String(e.id)));
+    let changed = false;
+    backendRows.forEach(row => {
+      if(!row.entry_id || localIds.has(row.entry_id)) return;
+      log.push({
+        id: row.entry_id, ts: row.at || row.created_at, category: row.category,
+        level: row.level, message: row.message, detail: row.detail || null,
+      });
+      changed = true;
+    });
+    if(changed) {
+      log.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+      if(log.length > EVLOG_MAX) log.length = EVLOG_MAX;
+      saveEventLog(log);
+    }
+
+    const backendEntryIds = new Set(backendRows.map(r => r.entry_id).filter(Boolean));
+    log
+      .filter(e => e.id && !backendEntryIds.has(String(e.id)))
+      .forEach(e => postEventLogToBackend(e));
+
+    if(currentModule === 'eventlog') renderEventLog();
+  }
+
   async function postSaleToBackend(sale) {
     const token = await erpGetAuthToken();
     if(!token) return;
@@ -11795,11 +12006,13 @@ async function confirmEditTerms() {
   c.creditLimit = newLimit;
 
   if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
-  STATE.creditOverrideLog.unshift({
+  const ptcEntry = {
     id: 'ptc' + Date.now(), type: 'terms_change',
     customerName: c.name, oldTerms, newTerms, reason,
     changedAt: new Date().toISOString(), changedBy: 'owner',
-  });
+  };
+  STATE.creditOverrideLog.unshift(ptcEntry);
+  postCreditOverrideToBackend(ptcEntry); // Aug 28 fix — was local-only before
 
   saveState(); populateSelects();
   // Push to the backend so this survives the next sync — a purely local
@@ -15722,6 +15935,18 @@ function markCommPaid(repName, amount) {
   const monthKey = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
   if(!STATE.commPaidMTD[repName]) STATE.commPaidMTD[repName] = {};
   STATE.commPaidMTD[repName][monthKey] = (STATE.commPaidMTD[repName][monthKey] || 0) + payAmount;
+
+  // Aug 28 fix — this used to be purely the two local mutations above,
+  // invisible to every other device. Logged separately (same pattern
+  // as settlementLog) so it actually syncs — see
+  // postCommissionPayoutToBackend()/syncCommissionPayoutsFromBackend().
+  if(!STATE.commissionPayoutLog) STATE.commissionPayoutLog = [];
+  const payoutEntry = {
+    id: 'cp' + Date.now() + Math.random().toString(36).slice(2, 7),
+    repName, monthKey, amount: payAmount, by: 'owner', at: new Date().toISOString(),
+  };
+  STATE.commissionPayoutLog.push(payoutEntry);
+  postCommissionPayoutToBackend(payoutEntry);
 
   saveState();
   logOk('commission',
@@ -21948,10 +22173,12 @@ async function confirmOrderAbuseOverride() {
   }
 
   if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
-  STATE.creditOverrideLog.unshift({
+  const oaEntry = {
     id: 'oa' + Date.now(), type: 'order_abuse_override', customerName: customer, reason,
     overriddenAt: new Date().toISOString(), overriddenBy: 'owner',
-  });
+  };
+  STATE.creditOverrideLog.unshift(oaEntry);
+  postCreditOverrideToBackend(oaEntry); // Aug 28 fix — was local-only before
   saveState();
 
   const overrideKey = `abuse_override_${customer}_${new Date().toISOString().split('T')[0]}`;
@@ -25209,7 +25436,11 @@ function saveEventLog(log) {
 function logEvent(category, level, message, detail) {
   const log   = loadEventLog();
   const entry = {
-    id:       Date.now(),
+    // Aug 28 fix — was a bare Date.now() (a number), fine for a purely
+    // local, single-device id, but not unique enough once this needs
+    // to double as a cross-device idempotency key for backend sync
+    // (see postEventLogToBackend()/syncEventLogFromBackend()).
+    id:       Date.now() + '-' + Math.random().toString(36).slice(2, 7),
     ts:       new Date().toISOString(),
     category: category || 'system',
     level:    level    || 'info',    // info | warn | crit | ok
@@ -25221,6 +25452,7 @@ function logEvent(category, level, message, detail) {
   log.unshift(entry);
   if(log.length > EVLOG_MAX) log.length = EVLOG_MAX;
   saveEventLog(log);
+  postEventLogToBackend(entry); // Aug 28 fix — was local-only before
 
   // Update badge if event log module is open
   if(currentModule === 'eventlog') renderEventLog();
@@ -26337,11 +26569,13 @@ function saveTimeValueRate(newRate, reason) {
   const oldRate = getTimeValueRate();
   STATE.timeValueRate = val;
   if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
-  STATE.creditOverrideLog.unshift({
+  const covEntry = {
     id: 'cov' + Date.now(), type: 'timevalue_rate_change',
     oldRate, newRate: val, reason: reason || '',
     overriddenAt: new Date().toISOString(), overriddenBy: 'owner',
-  });
+  };
+  STATE.creditOverrideLog.unshift(covEntry);
+  postCreditOverrideToBackend(covEntry); // Aug 28 fix — was local-only before
   saveState();
   postTimeValueRateToBackend(val, 'Admin');
   return { ok: true };
@@ -26564,8 +26798,8 @@ async function confirmCreditOverride() {
 
   if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
   const enforcement = getCreditEnforcementTier(customer);
-  STATE.creditOverrideLog.unshift({
-    id: 'co' + Date.now(),
+  const coEntry = {
+    id: 'co' + Date.now(), type: 'credit_limit_override',
     customerName: customer,
     reason,
     exposure: enforcement?.exposure || 0,
@@ -26573,7 +26807,9 @@ async function confirmCreditOverride() {
     exposurePct: enforcement?.exposurePct || 0,
     overriddenAt: new Date().toISOString(),
     overriddenBy: 'owner',
-  });
+  };
+  STATE.creditOverrideLog.unshift(coEntry);
+  postCreditOverrideToBackend(coEntry); // Aug 28 fix — was local-only before
   saveState();
 
   const overrideKey = `credit_override_${customer}_${new Date().toISOString().split('T')[0]}`;
@@ -27874,12 +28110,14 @@ async function submitChangePin() {
   resetPinAttempts();
 
   if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
-  STATE.creditOverrideLog.unshift({
+  const pinEntry = {
     id: 'pinchg' + Date.now(), type: 'pin_change',
     changedAt: STATE.ownerPinSetAt,
     note: 'PIN changed via Change PIN flow — previous hash archived for audit',
     previousHash: oldHash?.slice(0,8) + '…', // partial hash only — not reversible
-  });
+  };
+  STATE.creditOverrideLog.unshift(pinEntry);
+  postCreditOverrideToBackend(pinEntry); // Aug 28 fix — was local-only before
   saveState();
   postOwnerPinToBackend({ hash: newHash, recoveryHash, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin');
 
@@ -27989,6 +28227,11 @@ document.addEventListener('DOMContentLoaded', () => {
   syncVehiclesFromBackend();
   syncDriversFromBackend();
   syncDestinationsFromBackend();
+
+  // Aug 28 fix — the 3 previously local-only-forever logs now sync too.
+  syncCommissionPayoutsFromBackend();
+  syncCreditOverrideLogFromBackend();
+  syncEventLogFromBackend();
 
   populateSelects();
   renderDashboard();
