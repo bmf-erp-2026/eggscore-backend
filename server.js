@@ -22,6 +22,15 @@ app.use('/events', require('./routes/events'));
 app.use('/sales', require('./routes/sales'));
 app.use('/inventory', require('./routes/inventory'));
 
+// Aug 28 — 3 of the P1/P2 items mentioned above, migrated off
+// client-only storage: Commission Payout status, the System Overrides
+// & Security Log, and the System Event Log. Mounted at '/system-events'
+// rather than '/events' since that path is already taken by the
+// funnel/analytics events route above — a different thing entirely.
+app.use('/commission-payouts', require('./routes/commission-payouts'));
+app.use('/credit-overrides', require('./routes/credit-overrides'));
+app.use('/system-events', require('./routes/system-events'));
+
 app.get('/health', (req, res) => res.json({ ok: true, service: 'eggscore-backend', time: new Date().toISOString() }));
 
 // One-time admin route to mint a fresh API key — deliberately requires
