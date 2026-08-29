@@ -46,6 +46,16 @@ app.use('/loyalty', require('./routes-postgres/loyalty'));
 app.use('/ai', require('./routes-postgres/ai'));
 app.use('/theme-views', require('./routes-postgres/theme-views'));
 
+// Aug 29 — 3 previously local-only-forever logs migrated to real
+// backend persistence: Commission Payout status, the System Overrides
+// & Security Log, and the System Event Log. Mounted at
+// '/system-events' rather than '/events' since that path is already
+// taken above by the funnel/analytics events route — a different
+// thing entirely.
+app.use('/commission-payouts', require('./routes-postgres/commission-payouts'));
+app.use('/credit-overrides', require('./routes-postgres/credit-overrides'));
+app.use('/system-events', require('./routes-postgres/system-events'));
+
 app.get('/health', (req, res) => res.json({ ok: true, service: 'eggscore-backend', mode: 'postgres', time: new Date().toISOString() }));
 
 app.post('/admin/create-key', async (req, res) => {
