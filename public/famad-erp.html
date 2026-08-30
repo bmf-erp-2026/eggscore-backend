@@ -15712,11 +15712,18 @@ function renderCommission() {
     const openDisp = STATE.commDisputes.find(d =>
       d.repName === r.name && d.status === 'open'
     );
+    // Aug 29 fix — Bob's own observation: the PAID chip showed no
+    // timestamp, even though the underlying data already has one
+    // (commissionPayoutLog's `at` field, added alongside the Aug 28-29
+    // backend-persistence fix). No timestamp shown at all for payouts
+    // that predate that fix (an expected, permanent gap — see task
+    // queue notes — rather than fabricating a misleading date).
+    const lastPaidAt = (pending <= 0 && !openDisp) ? getLastCommPaidAt(r.name) : null;
     const statusChip = openDisp
       ? `<span class="chip chip-red">⚑ DISPUTED</span>`
       : pending > 0
       ? `<span class="chip chip-amber">${fmt(pending)} PENDING</span>`
-      : `<span class="chip chip-lime">PAID</span>`;
+      : `<span class="chip chip-lime">PAID</span>${lastPaidAt ? `<div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:2px">${new Date(lastPaidAt).toLocaleDateString()} ${new Date(lastPaidAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>` : ''}`;
     const actions = openDisp
       ? `<button class="btn btn-ghost" style="font-size:9px;padding:3px 8px"
            onclick="openResolveModal('${openDisp.id}')">⚖ Resolve</button>`
@@ -15963,6 +15970,18 @@ function getRepCommPaidMTD(repName) {
   if(!STATE.commPaidMTD) return 0;
   const monthKey = new Date().toISOString().slice(0, 7);
   return STATE.commPaidMTD[repName]?.[monthKey] || 0;
+}
+
+// Aug 29 fix — most recent Mark Paid timestamp for a rep this month,
+// used to show "paid [date]" under the PAID chip. Returns null (not a
+// fabricated date) for payouts made before the Aug 28-29 persistence
+// fix, since those genuinely have no logged timestamp to show.
+function getLastCommPaidAt(repName) {
+  if(!STATE.commissionPayoutLog) return null;
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const entries = STATE.commissionPayoutLog.filter(e => e.repName === repName && e.monthKey === monthKey);
+  if(entries.length === 0) return null;
+  return entries.reduce((latest, e) => (!latest || new Date(e.at) > new Date(latest)) ? e.at : latest, null);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -17571,6 +17590,7 @@ function addOrderPolicy() {
   if(!text) { showToast('⚠ Enter policy text first.'); return; }
   ensureOrderPolicies().unshift({ id: 'op' + Date.now(), text });
   saveState();
+  postOrderPoliciesToBackend(STATE.orderPolicies); // Aug 29 fix — was local-only before
   input.value = '';
   renderCustomerScorecard();
   showToast('✓ Policy published to the portal.');
@@ -17579,7 +17599,53 @@ function addOrderPolicy() {
 function removeOrderPolicy(policyId) {
   STATE.orderPolicies = ensureOrderPolicies().filter(p => p.id !== policyId);
   saveState();
+  postOrderPoliciesToBackend(STATE.orderPolicies); // Aug 29 fix — was local-only before
   renderCustomerScorecard();
+}
+
+// Aug 29 fix — Order Policies persistence. Found via Bob's own testing:
+// an added policy showed on the browser that added it, but never
+// appeared on a second device — same class of bug as Commission
+// Payout/Security Log/Event Log earlier, just a 4th instance, found
+// independently. Unlike those 3 (which needed dedicated append-only-
+// log tables, since each is a running history of many entries), Order
+// Policies is a single VALUE — the whole array gets replaced wholesale
+// on every add/remove — which is exactly what the existing generic
+// '/settings/:key' singleton-blob endpoint is already built for (see
+// syncScorecardSettingsFromBackend()/postScorecardSettingsToBackend()
+// and the 13 Phase 2E settings using the same pattern below it). No
+// new backend table or route needed — this reuses infrastructure
+// that's already proven working for 14 other settings.
+async function syncOrderPoliciesFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/order-policies`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) return; // backend has no value set yet — leave local default alone
+    STATE.orderPolicies = data.settings;
+    saveState();
+    if(currentModule === 'loyalty') renderOrderPolicies();
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other sync calls.
+  }
+}
+
+async function postOrderPoliciesToBackend(policies) {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/settings/order-policies`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: policies, updatedBy: 'owner' }),
+    });
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other backend syncs.
+  }
 }
 
 function renderFeedbackReview() {
@@ -28232,6 +28298,8 @@ document.addEventListener('DOMContentLoaded', () => {
   syncCommissionPayoutsFromBackend();
   syncCreditOverrideLogFromBackend();
   syncEventLogFromBackend();
+  // Aug 29 fix — Order Policies, found local-only via Bob's own testing.
+  syncOrderPoliciesFromBackend();
 
   populateSelects();
   renderDashboard();
