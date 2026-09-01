@@ -20,6 +20,18 @@ function extractBearerToken(req) {
 // asking Supabase directly whether this token corresponds to a real,
 // currently-valid session, rather than attempting to verify the JWT
 // signature manually here.
+//
+// role (Sep 1 2026, Sales Rep Access project): read from the Supabase
+// user's own app_metadata.role, set via the Supabase Admin API when an
+// account is created/edited — never trust a client-supplied role, since
+// req.body/req.headers are fully attacker-controlled. Defaults to
+// 'owner' when app_metadata.role is missing entirely — this is
+// deliberate backward compatibility: every account that exists today
+// (Bob's own login) predates this feature and has no role set at all;
+// defaulting the ABSENT case to 'rep' would silently lock out every
+// existing session. New rep accounts must have role:'rep' explicitly
+// set at creation time — only an explicit tag narrows access, an
+// absent one never does.
 function requireSupabaseAuth() {
   return async (req, res, next) => {
     if(!supabaseAdmin) return res.status(500).json({ error: 'Server misconfigured — SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set.' });
@@ -29,8 +41,31 @@ function requireSupabaseAuth() {
     const { data, error } = await supabaseAdmin.auth.getUser(token);
     if(error || !data?.user) return res.status(401).json({ error: 'Invalid or expired session — please log in again.' });
 
-    req.user = { id: data.user.id, email: data.user.email };
+    req.user = {
+      id: data.user.id,
+      email: data.user.email,
+      role: data.user.app_metadata?.role || 'owner',
+    };
     req.apiKeyRole = 'erp'; // downstream role checks stay unchanged
+    next();
+  };
+}
+
+// Gate for finance-sensitive routes — must run AFTER requireSupabaseAuth()
+// in the same route (relies on req.user.role already being set). A rep
+// hitting a gated route gets a clean 403, same shape as the existing
+// requireAuth() role-mismatch response, not a generic auth failure —
+// so the ERP's error handling doesn't need two different code paths.
+// Deliberately NOT usable standalone: if req.user is missing entirely
+// (requireSupabaseAuth wasn't called first, or failed), this fails
+// closed with 401 rather than silently treating a missing user as
+// either role.
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if(!req.user) return res.status(401).json({ error: 'Not authenticated.' });
+    if(!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: `Your role (${req.user.role}) cannot access this endpoint.` });
+    }
     next();
   };
 }
@@ -45,7 +80,11 @@ function requireEitherAuth() {
     if(token && supabaseAdmin) {
       const { data, error } = await supabaseAdmin.auth.getUser(token);
       if(!error && data?.user) {
-        req.user = { id: data.user.id, email: data.user.email };
+        req.user = {
+          id: data.user.id,
+          email: data.user.email,
+          role: data.user.app_metadata?.role || 'owner',
+        };
         req.apiKeyRole = 'erp';
         return next();
       }
@@ -83,4 +122,4 @@ function requireAuth(...allowedRoles) {
   };
 }
 
-module.exports = { createApiKey, requireAuth, requireSupabaseAuth, requireEitherAuth, hashKey };
+module.exports = { createApiKey, requireAuth, requireSupabaseAuth, requireEitherAuth, requireRole, hashKey };
