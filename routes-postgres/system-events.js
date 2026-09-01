@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
@@ -11,6 +11,13 @@ const router = express.Router();
 //
 // Append-only, same ON CONFLICT DO NOTHING pattern as the other 2 new
 // tables here — a logged event never changes after it's created.
+//
+// POST deliberately stays open to any authenticated role (Sep 1 2026,
+// Sales Rep Access): this is the app's own audit trail, written
+// automatically as ANY user works. Owner-gating the write side would
+// create a blind spot in the log exactly around rep activity — the
+// opposite of what an audit log is for. GET (reading the full log
+// back) is the sensitive side and IS owner-only.
 router.post('/', requireSupabaseAuth(), async (req, res) => {
   const { entryId, category, level, message, detail, at } = req.body;
 
@@ -39,7 +46,7 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
 // caps its own local copy at EVLOG_MAX (100) and merges by entry_id,
 // so anything older than this cap simply won't be pulled down again,
 // same as it already isn't kept locally past that cap today.
-router.get('/', requireSupabaseAuth(), async (req, res) => {
+router.get('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const rows = await db.prepare('SELECT * FROM system_events ORDER BY created_at DESC LIMIT 500').all();
   res.json(rows);
 });

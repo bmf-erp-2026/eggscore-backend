@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
@@ -12,7 +12,7 @@ const router = express.Router();
 // client-generated once and never changes, so re-posting the same
 // entry after a local mutation naturally becomes an update, not a
 // duplicate row.
-router.post('/', requireSupabaseAuth(), async (req, res) => {
+router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const {
     entryId, saleId, saleRef, customerName, action, amount, grossDue,
     balanceBefore, balanceAfter, method, recordedBy, note, previousPayment,
@@ -50,7 +50,7 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
 // GET /sales and GET /orders. No date filtering yet; the settlement
 // log is small enough (one row per posting, not per day) that a full
 // pull is fine for now.
-router.get('/', requireSupabaseAuth(), async (req, res) => {
+router.get('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const rows = await db.prepare('SELECT * FROM settlements ORDER BY created_at DESC').all();
   // NUMERIC columns come back from the Postgres driver as strings, not
   // JS numbers, to avoid float precision loss — confirmed live Aug 23

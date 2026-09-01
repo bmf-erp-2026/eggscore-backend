@@ -1,11 +1,11 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
 // ERP-only — suppliers are never portal-facing, unlike customers.
-router.post('/', requireSupabaseAuth(), async (req, res) => {
+router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const {
     name, location, phone, distanceKm, capacityCratesPerWeek, status,
     documentsOnFile, biosecurityChecklist, biosecurityAssessedAt,
@@ -32,11 +32,11 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
   res.status(201).json(await db.prepare('SELECT * FROM suppliers WHERE id = ?').get(info.lastInsertRowid));
 });
 
-router.get('/', requireSupabaseAuth(), async (req, res) => {
+router.get('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   res.json(await db.prepare('SELECT * FROM suppliers ORDER BY id ASC').all());
 });
 
-router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
+router.patch('/:id', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const {
     name, location, phone, distanceKm, capacityCratesPerWeek, status,
     documentsOnFile, biosecurityChecklist, biosecurityAssessedAt,

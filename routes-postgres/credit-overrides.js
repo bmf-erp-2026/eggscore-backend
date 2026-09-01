@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ const router = express.Router();
 // and get restored as-is client-side. Append-only, same ON CONFLICT
 // DO NOTHING pattern as commission_payouts — an override entry never
 // changes after it's created.
-router.post('/', requireSupabaseAuth(), async (req, res) => {
+router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { entryId, type, customerName, recordedBy, at, detail } = req.body;
 
   if(!entryId) {
@@ -34,7 +34,7 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
 
 // Full-log pull for cross-device sync — same shape/intent as
 // GET /settlements. Small append-only table, full pull is fine.
-router.get('/', requireSupabaseAuth(), async (req, res) => {
+router.get('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const rows = await db.prepare('SELECT * FROM credit_overrides ORDER BY created_at DESC').all();
   res.json(rows);
 });

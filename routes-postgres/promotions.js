@@ -1,11 +1,11 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
 // ERP-only, same as suppliers — promotions are never portal-facing.
-router.post('/', requireSupabaseAuth(), async (req, res) => {
+router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { name, segment, discount, minCrates, until, desc, created } = req.body;
 
   if(!name) {
@@ -28,7 +28,13 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
 // or manual "End Promotion") — promotions aren't otherwise edited once
 // created, but this stays a generic partial-update route like the others
 // rather than a narrow expire-only endpoint, in case that changes later.
-router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
+// NOTE: owner-gating this means the client-side auto-expiry check only
+// actually closes out a lapsed promo when it runs during an OWNER
+// session — if only reps are logged in when a promo's `until` date
+// passes, it'll sit expired-but-not-marked until an owner session picks
+// it up. Not urgent (nothing money-moving depends on this timestamp
+// being instant) but worth knowing.
+router.patch('/:id', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { active, expiredAt, expiredHow } = req.body;
   const existing = await db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
   if(!existing) return res.status(404).json({ error: 'Promotion not found.' });

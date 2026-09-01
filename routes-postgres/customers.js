@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireEitherAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
@@ -13,7 +13,7 @@ function genReferralCode(name) {
   return `BEL-${letters}${digits}`;
 }
 
-router.post('/', requireSupabaseAuth(), async (req, res) => {
+router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { cid, name, location, contact, phone, type, creditLimit, referral, notes, trustTier } = req.body;
 
   if(!name || !location) {
@@ -43,8 +43,29 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
 // saved to local browser storage, meaning contact-info edits never
 // actually reached the backend, on top of the Type/Contact fields not
 // being editable there at all until now.
+//
+// Field-level role split (Sep 1 2026, Sales Rep Access): this route
+// bundles safe contact-info fields with finance-sensitive ones in one
+// request, so it can't be gated at the whole-route level like most
+// others. A rep may still fix a customer's phone/location/contact/type,
+// or let referralCode auto-mint — but creditLimit/trustTier/loyaltyTier
+// are owner-only. Deliberately rejects the WHOLE request with a clear
+// error if a non-owner includes any restricted field, rather than
+// silently applying only the allowed ones — a silent partial-apply here
+// would mean a rep believes they changed a credit limit that quietly
+// never took effect, discovered only much later.
+const OWNER_ONLY_CUSTOMER_FIELDS = ['creditLimit', 'trustTier', 'loyaltyTier'];
+
 router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
   const { phone, location, contact, type, creditLimit, trustTier, loyaltyTier, referralCode } = req.body;
+
+  if(req.user.role !== 'owner') {
+    const attempted = OWNER_ONLY_CUSTOMER_FIELDS.filter(f => req.body[f] !== undefined);
+    if(attempted.length > 0) {
+      return res.status(403).json({ error: `Your role cannot update: ${attempted.join(', ')}.` });
+    }
+  }
+
   const existing = await db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if(!existing) return res.status(404).json({ error: 'Customer not found.' });
 

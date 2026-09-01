@@ -1,19 +1,19 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireEitherAuth, requireSupabaseAuth } = require('../auth.postgres');
+const { requireEitherAuth, requireSupabaseAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
 // Read is open to either auth (ERP staff and the customer-facing portal
-// both need to know the live price) — write is owner/staff-only, same
-// as the batches write routes.
+// both need to know the live price) — write is owner-only (Sep 1 2026,
+// Sales Rep Access), same as every other route in this file.
 router.get('/selling-price', requireEitherAuth(), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'selling_price'").get();
   if(!row) return res.json({ price: null });
   res.json({ price: parseFloat(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
 
-router.patch('/selling-price', requireSupabaseAuth(), async (req, res) => {
+router.patch('/selling-price', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { price, updatedBy } = req.body;
   if(typeof price !== 'number' || price <= 0) {
     return res.status(400).json({ error: 'price must be a positive number.' });
@@ -36,13 +36,13 @@ router.patch('/selling-price', requireSupabaseAuth(), async (req, res) => {
 // JSON blob rather than exploded into columns — same generic-settings
 // convention as selling-price, just a structured value instead of a
 // single number.
-router.get('/loyalty-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/loyalty-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'loyalty_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
 
-router.patch('/loyalty-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/loyalty-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -58,13 +58,13 @@ router.patch('/loyalty-settings', requireSupabaseAuth(), async (req, res) => {
 // ERP-only — full scorecardSettings object (credit-scorecard weights plus
 // relationshipTagPoints, the only part the /loyalty endpoint actually
 // needs). Same JSON-blob convention as loyalty-settings above.
-router.get('/scorecard-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/scorecard-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'scorecard_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
 
-router.patch('/scorecard-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/scorecard-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -92,12 +92,12 @@ router.patch('/scorecard-settings', requireSupabaseAuth(), async (req, res) => {
 // on every single-field save, or risk one device's edit clobbering
 // another's untouched fields. Separate keys match the existing
 // independent-save behavior exactly, same as selling-price.
-router.get('/price-watch-threshold', requireSupabaseAuth(), async (req, res) => {
+router.get('/price-watch-threshold', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'price_watch_threshold'").get();
   if(!row) return res.json({ threshold: null });
   res.json({ threshold: parseFloat(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/price-watch-threshold', requireSupabaseAuth(), async (req, res) => {
+router.patch('/price-watch-threshold', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { threshold, updatedBy } = req.body;
   if(typeof threshold !== 'number' || threshold < 0) {
     return res.status(400).json({ error: 'threshold must be a non-negative number.' });
@@ -110,12 +110,12 @@ router.patch('/price-watch-threshold', requireSupabaseAuth(), async (req, res) =
   res.json({ ok: true, threshold });
 });
 
-router.get('/stop-loss-ceiling', requireSupabaseAuth(), async (req, res) => {
+router.get('/stop-loss-ceiling', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'stop_loss_ceiling'").get();
   if(!row) return res.json({ ceiling: null });
   res.json({ ceiling: parseFloat(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/stop-loss-ceiling', requireSupabaseAuth(), async (req, res) => {
+router.patch('/stop-loss-ceiling', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { ceiling, updatedBy } = req.body;
   if(typeof ceiling !== 'number' || ceiling < 0) {
     return res.status(400).json({ error: 'ceiling must be a non-negative number.' });
@@ -128,12 +128,12 @@ router.patch('/stop-loss-ceiling', requireSupabaseAuth(), async (req, res) => {
   res.json({ ok: true, ceiling });
 });
 
-router.get('/price-floor', requireSupabaseAuth(), async (req, res) => {
+router.get('/price-floor', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'price_floor'").get();
   if(!row) return res.json({ floor: null });
   res.json({ floor: parseFloat(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/price-floor', requireSupabaseAuth(), async (req, res) => {
+router.patch('/price-floor', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { floor, updatedBy } = req.body;
   if(typeof floor !== 'number' || floor < 0) {
     return res.status(400).json({ error: 'floor must be a non-negative number.' });
@@ -146,12 +146,12 @@ router.patch('/price-floor', requireSupabaseAuth(), async (req, res) => {
   res.json({ ok: true, floor });
 });
 
-router.get('/target-margin', requireSupabaseAuth(), async (req, res) => {
+router.get('/target-margin', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'target_margin'").get();
   if(!row) return res.json({ margin: null });
   res.json({ margin: parseFloat(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/target-margin', requireSupabaseAuth(), async (req, res) => {
+router.patch('/target-margin', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { margin, updatedBy } = req.body;
   if(typeof margin !== 'number' || margin < 0) {
     return res.status(400).json({ error: 'margin must be a non-negative number.' });
@@ -166,12 +166,12 @@ router.patch('/target-margin', requireSupabaseAuth(), async (req, res) => {
 
 // Hold windows — full tier→{warn,decide} object (STATE.holdWindows), one
 // JSON blob, same convention as loyalty-settings.
-router.get('/hold-windows', requireSupabaseAuth(), async (req, res) => {
+router.get('/hold-windows', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'hold_windows'").get();
   if(!row) return res.json({ windows: null });
   res.json({ windows: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/hold-windows', requireSupabaseAuth(), async (req, res) => {
+router.patch('/hold-windows', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { windows, updatedBy } = req.body;
   if(!windows || typeof windows !== 'object') {
     return res.status(400).json({ error: 'windows object is required.' });
@@ -187,12 +187,12 @@ router.patch('/hold-windows', requireSupabaseAuth(), async (req, res) => {
 // Market reference THRESHOLDS only (ceilingPct/floorPct) — NOT the
 // current reference price itself, which also appends to
 // marketReferenceHistory[] and is out of scope for this migration pass.
-router.get('/market-reference-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/market-reference-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'market_reference_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/market-reference-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/market-reference-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -205,12 +205,12 @@ router.patch('/market-reference-settings', requireSupabaseAuth(), async (req, re
   res.json({ ok: true, settings });
 });
 
-router.get('/supplier-scorecard-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/supplier-scorecard-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'supplier_scorecard_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/supplier-scorecard-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/supplier-scorecard-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -223,12 +223,12 @@ router.patch('/supplier-scorecard-settings', requireSupabaseAuth(), async (req, 
   res.json({ ok: true, settings });
 });
 
-router.get('/abuse-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/abuse-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'abuse_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/abuse-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/abuse-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -241,12 +241,12 @@ router.patch('/abuse-settings', requireSupabaseAuth(), async (req, res) => {
   res.json({ ok: true, settings });
 });
 
-router.get('/reservation-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/reservation-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'reservation_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/reservation-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/reservation-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -259,12 +259,12 @@ router.patch('/reservation-settings', requireSupabaseAuth(), async (req, res) =>
   res.json({ ok: true, settings });
 });
 
-router.get('/logistics-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/logistics-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'logistics_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/logistics-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/logistics-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -277,13 +277,13 @@ router.patch('/logistics-settings', requireSupabaseAuth(), async (req, res) => {
   res.json({ ok: true, settings });
 });
 
-router.get('/procurement-reminder-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/procurement-reminder-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'procurement_reminder_settings'").get();
   if(!row) return res.json({ threshold: null });
   const parsed = JSON.parse(row.value);
   res.json({ threshold: parsed.largeVolumeThreshold, updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/procurement-reminder-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/procurement-reminder-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { threshold, updatedBy } = req.body;
   if(typeof threshold !== 'number' || threshold <= 0) {
     return res.status(400).json({ error: 'threshold must be a positive number.' });
@@ -296,12 +296,12 @@ router.patch('/procurement-reminder-settings', requireSupabaseAuth(), async (req
   res.json({ ok: true, threshold });
 });
 
-router.get('/branding-readiness-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/branding-readiness-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'branding_readiness_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/branding-readiness-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/branding-readiness-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -314,12 +314,12 @@ router.patch('/branding-readiness-settings', requireSupabaseAuth(), async (req, 
   res.json({ ok: true, settings });
 });
 
-router.get('/time-value-rate', requireSupabaseAuth(), async (req, res) => {
+router.get('/time-value-rate', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'time_value_rate'").get();
   if(!row) return res.json({ rate: null });
   res.json({ rate: parseFloat(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/time-value-rate', requireSupabaseAuth(), async (req, res) => {
+router.patch('/time-value-rate', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { rate, updatedBy } = req.body;
   if(typeof rate !== 'number' || rate < 0.25 || rate > 0.30) {
     return res.status(400).json({ error: 'rate must be between 0.25 and 0.30.' });
@@ -337,12 +337,12 @@ router.patch('/time-value-rate', requireSupabaseAuth(), async (req, res) => {
 // route is ever called and explicitly nulls any legacy plaintext).
 // lockoutUntil syncs too (deliberate decision — closes the gap where a
 // lockout on one device wouldn't stop a retry on another).
-router.get('/owner-pin', requireSupabaseAuth(), async (req, res) => {
+router.get('/owner-pin', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'owner_pin'").get();
   if(!row) return res.json({ pin: null });
   res.json({ pin: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/owner-pin', requireSupabaseAuth(), async (req, res) => {
+router.patch('/owner-pin', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { pin, updatedBy } = req.body;
   if(!pin || typeof pin !== 'object' || !pin.hash) {
     return res.status(400).json({ error: 'pin object with hash is required.' });
@@ -358,12 +358,12 @@ router.patch('/owner-pin', requireSupabaseAuth(), async (req, res) => {
 // Distribution pricing — added after the fact, found during Phase 2E
 // verification (missed in the original 15-area audit, same local-only
 // category as the other 13). 6-field singleton object.
-router.get('/distribution-pricing-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/distribution-pricing-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'distribution_pricing_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/distribution-pricing-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/distribution-pricing-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -381,12 +381,12 @@ router.patch('/distribution-pricing-settings', requireSupabaseAuth(), async (req
 // verification (commission tiers was actually the original audit
 // trigger, dropped somewhere along the way; ramp step and shipper
 // details are new finds). Same pattern as everything above.
-router.get('/price-ramp-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/price-ramp-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'price_ramp_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/price-ramp-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/price-ramp-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -399,12 +399,12 @@ router.patch('/price-ramp-settings', requireSupabaseAuth(), async (req, res) => 
   res.json({ ok: true, settings });
 });
 
-router.get('/commission-tier-settings', requireSupabaseAuth(), async (req, res) => {
+router.get('/commission-tier-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'commission_tier_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/commission-tier-settings', requireSupabaseAuth(), async (req, res) => {
+router.patch('/commission-tier-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
@@ -417,12 +417,12 @@ router.patch('/commission-tier-settings', requireSupabaseAuth(), async (req, res
   res.json({ ok: true, settings });
 });
 
-router.get('/shipper-details', requireSupabaseAuth(), async (req, res) => {
+router.get('/shipper-details', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'shipper_details'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
-router.patch('/shipper-details', requireSupabaseAuth(), async (req, res) => {
+router.patch('/shipper-details', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { settings, updatedBy } = req.body;
   if(!settings || typeof settings !== 'object') {
     return res.status(400).json({ error: 'settings object is required.' });
