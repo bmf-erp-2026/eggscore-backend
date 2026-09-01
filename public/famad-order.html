@@ -2122,13 +2122,23 @@ async function renderMyLoyaltyPanel(customerName) {
   if(!panel) return;
   const erp = loadERPData();
   const profile = await computePortalLoyaltyProfile(erp, customerName);
+  // The headline badge must show the REAL, purchase-gated Scorecard tier
+  // (customer.loyalty — the same field promo eligibility checks, requires
+  // 3+ purchases and owner clearance to advance), NOT profile.loyaltyLevel,
+  // which is a separate points-only computation with no purchase
+  // requirement. Showing the latter as "Your Loyalty" told customers they'd
+  // reached a tier they hadn't actually been cleared for (found via live
+  // testing, Aug 31 2026 — see Iyo Diverse Caravan: portal showed "Gold"
+  // from 69 engagement points alone, while her real Scorecard tier hadn't
+  // even started being evaluated yet, since she's under the 3-purchase floor).
+  const officialTier = portalState.matchedCustomer?.loyalty || 'New';
   panel.style.display = 'block';
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--sun)">🏅 Your Loyalty: ${profile.loyaltyLevel}</span>
-      <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--sun)">${profile.loyaltyPoints} pts</span>
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--sun)">🏅 Your Loyalty: ${officialTier}</span>
     </div>
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.8">
+      Engagement points (build your case for your next tier review): ${profile.loyaltyPoints} —
       Advocacy ${profile.breakdown.advocacy} · Feedback ${profile.breakdown.feedback} ·
       Communication ${profile.breakdown.communication} · Respect ${profile.breakdown.respect}
     </div>
@@ -2141,6 +2151,7 @@ async function renderMyLoyaltyPanel(customerName) {
     </div>`}
   `;
 }
+
 
 // Portal-facing wallet balance — now read live from the backend instead
 // of the old erp.walletTransactions local blob, which a real customer's
