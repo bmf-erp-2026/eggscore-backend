@@ -1601,25 +1601,41 @@ async function initPortal() {
     batchNoteEl.style.display = 'block';
   }
 
-  // ── Active promos — respect validity date ──
-  const today  = new Date().toISOString().split('T')[0];
-  const promos = (erp.promotions || []).filter(p =>
+  // ── Active promos — respect validity date. Full date-eligible list is
+  // cached; WHICH one (if any) actually applies to THIS visitor is
+  // resolved separately in refreshPromoBanner(), since we don't know who
+  // they are yet at page load and that can change once they're matched. ──
+  const today = new Date().toISOString().split('T')[0];
+  portalState.allActivePromos = (erp.promotions || []).filter(p =>
     p.active && (!p.until || p.until === '—' || p.until >= today)
   );
-  if(promos.length > 0) {
-    const p = promos[0];
-    portalState.activePromo = p;
-    const banner     = document.getElementById('promo-banner');
-    const bannerText = document.getElementById('promo-banner-text');
-    if(banner && bannerText) {
-      banner.style.display = 'flex';
-      bannerText.textContent =
-        `🎯 ${p.name} — ₦${p.discount}/crate off orders ≥ ${p.minCrates} crates. Valid until ${p.until}`;
-    }
-  }
+  refreshPromoBanner();
 
   updateOrderCalc();
   updateWAFallback();
+}
+
+// Picks, from the date-eligible promos already cached in
+// portalState.allActivePromos, the first one this specific visitor (or an
+// anonymous/unmatched visitor, treated as 'New') actually qualifies for —
+// then shows/hides the banner accordingly. Call this any time the known
+// customer changes (page load, showMatch, hideMatch) so the banner never
+// advertises a promo the visitor can't actually get.
+function refreshPromoBanner() {
+  const promos = portalState.allActivePromos || [];
+  const eligible = promos.find(p => promoAppliesToCustomer(p, portalState.matchedCustomer));
+  portalState.activePromo = eligible || null;
+
+  const banner     = document.getElementById('promo-banner');
+  const bannerText = document.getElementById('promo-banner-text');
+  if(!banner || !bannerText) return;
+  if(eligible) {
+    banner.style.display = 'flex';
+    bannerText.textContent =
+      `🎯 ${eligible.name} — ₦${eligible.discount}/crate off orders ≥ ${eligible.minCrates} crates. Valid until ${eligible.until}`;
+  } else {
+    banner.style.display = 'none';
+  }
 }
 
 /* ── A/B test scaffold: "one more crate" nudge ────────────────
@@ -2221,11 +2237,13 @@ function showMatch(c) {
   refreshPortalWalletBalance(c.name);
   renderMyLoyaltyPanel(c.name);
   checkPhoneMismatch();
+  refreshPromoBanner();
   updateOrderCalc();
 }
 function hideMatch() {
   portalState.matchedCustomer = null;
   portalState.walletBalanceCache = 0;
+  refreshPromoBanner();
   const box = document.getElementById('customer-match-box');
   if(box) box.style.display = 'none';
   const note = document.getElementById('price-change-notice');
@@ -2427,6 +2445,32 @@ function onCrateInputChange(el) {
   setCratesValue(el.value);
 }
 
+// Loyalty-tier ranking — mirrors getTierRank() in famad-erp.html exactly,
+// so a promo aimed at "Gold Loyalty" also covers any tier above Gold
+// (Bob's call, Aug 31 2026: fewer higher-tier customers, and a Gold
+// customer shouldn't watch a Silver promo pass them by).
+const PORTAL_TIER_RANK = { New: -1, Bronze: 0, Silver: 1, Gold: 2, Platinum: 3 };
+
+// Promo "Target Segment" values that map to a loyalty tier requirement.
+// Only these two are enforced right now — "Wholesalers Only",
+// "Inactive (30+ days)", and "High-Volume (200+ crates/mo)" are NOT yet
+// checked here (need customer type / order-history data not confirmed
+// available in the portal — flagged as a follow-up, not silently ignored).
+const PROMO_TIER_SEGMENT = { 'Gold Loyalty': 'Gold', 'Silver Loyalty': 'Silver' };
+
+// Does this specific customer (or an unmatched/anonymous visitor, treated
+// as 'New') actually qualify for this promo's Target Segment? This is the
+// single gate every promo-discount call site below goes through — before
+// this fix, ANY active-by-date promo applied to ANY customer regardless
+// of Target Segment (root cause of the Golden Big / Madam Ruth's Stall bug).
+function promoAppliesToCustomer(promo, customer) {
+  if(!promo) return false;
+  const requiredTier = PROMO_TIER_SEGMENT[promo.segment];
+  if(!requiredTier) return true; // no tier restriction we currently enforce
+  const custTier = customer?.loyalty || 'New';
+  return PORTAL_TIER_RANK[custTier] >= PORTAL_TIER_RANK[requiredTier];
+}
+
 function updateOrderCalc() {
   const erp     = loadERPData();
   const stock   = erp.inventory?.main ?? 0;
@@ -2435,9 +2479,12 @@ function updateOrderCalc() {
   const promo   = portalState.activePromo;
   const base    = portalState.basePrice; // headline/ceiling price — shown in the stock ticker, unaffected by volume
 
-  // Promo discount on egg price only
+  // Promo discount on egg price only — gated by BOTH crate minimum AND
+  // the customer's actual loyalty-tier eligibility for this promo's segment.
   let promoDiscount = 0;
-  if(promo && crates >= promo.minCrates) promoDiscount = promo.discount || 0;
+  if(promo && crates >= promo.minCrates && promoAppliesToCustomer(promo, portalState.matchedCustomer)) {
+    promoDiscount = promo.discount || 0;
+  }
 
   // ── Progressive volume price for THIS order's crate count. Margin
   // decays from the ceiling toward the floor as crates grows — see
@@ -2755,8 +2802,9 @@ function updateWAFallback() {
   const base     = getProgressivePricePerCrate(erp, crates);
   const promo    = portalState.activePromo;
 
-  // Promo line
-  const promoDiscount = promo && crates >= promo.minCrates ? promo.discount : 0;
+  // Promo line — same tier-eligibility gate as updateOrderCalc()
+  const promoDiscount = promo && crates >= promo.minCrates && promoAppliesToCustomer(promo, portalState.matchedCustomer)
+    ? promo.discount : 0;
   const deliveryPerCrate = getCurrentDeliveryLevyPerCrate();
   const eggPrice      = base - promoDiscount + deliveryPerCrate; // blended — no separate delivery line anywhere
   const eggSubtotal   = crates * eggPrice;
@@ -3022,7 +3070,8 @@ async function submitReservation() {
 
   const ref              = genRef();
   const promo            = portalState.activePromo;
-  const promoDiscount    = promo && portalState.crates >= promo.minCrates ? promo.discount : 0;
+  const promoDiscount    = promo && portalState.crates >= promo.minCrates && promoAppliesToCustomer(promo, portalState.matchedCustomer)
+    ? promo.discount : 0;
   const progressivePrice = getProgressivePricePerCrate(erp, portalState.crates);
   const eggPrice          = Math.max(0, progressivePrice - promoDiscount);
   const eggSubtotal       = portalState.crates * eggPrice; // no nudge discount on reservations — that offer is for immediate purchase
@@ -3121,7 +3170,8 @@ async function submitOrder() {
 
   const ref          = genRef();
   const promo        = portalState.activePromo;
-  const promoDiscount= promo && portalState.crates >= promo.minCrates ? promo.discount : 0;
+  const promoDiscount= promo && portalState.crates >= promo.minCrates && promoAppliesToCustomer(promo, portalState.matchedCustomer)
+    ? promo.discount : 0;
   const progressivePrice = getProgressivePricePerCrate(erp, portalState.crates);
   const eggPrice     = Math.max(0, progressivePrice - promoDiscount);
   // Nudge discount — recomputed here rather than trusted from portalState,
@@ -3183,7 +3233,8 @@ function initPaystack() {
   const phone = document.getElementById('c-phone')?.value.trim();
   const email = `${phone.replace(/\D/g,'')}@bmfeggscore.ng`;
   const promo = portalState.activePromo;
-  const disc  = promo && portalState.crates >= promo.minCrates ? promo.discount : 0;
+  const disc  = promo && portalState.crates >= promo.minCrates && promoAppliesToCustomer(promo, portalState.matchedCustomer)
+    ? promo.discount : 0;
   const price = (portalState.basePrice - disc) * portalState.crates;
   const ref   = genRef();
 
