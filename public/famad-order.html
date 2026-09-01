@@ -1616,14 +1616,20 @@ async function initPortal() {
 }
 
 // Picks, from the date-eligible promos already cached in
-// portalState.allActivePromos, the first one this specific visitor (or an
+// portalState.allActivePromos, the BEST one this specific visitor (or an
 // anonymous/unmatched visitor, treated as 'New') actually qualifies for —
-// then shows/hides the banner accordingly. Call this any time the known
-// customer changes (page load, showMatch, hideMatch) so the banner never
-// advertises a promo the visitor can't actually get.
+// "best" meaning highest ₦/crate discount among the ones they're tier-
+// eligible for, not just whichever was created most recently (the old
+// .find()-first-match behavior — confirmed with Bob, Sep 1 2026, that
+// wasn't an intentional "recency wins" rule, just an accident of list
+// order). Then shows/hides the banner accordingly. Call this any time the
+// known customer changes (page load, showMatch, hideMatch) so the banner
+// never advertises a promo the visitor can't actually get.
 function refreshPromoBanner() {
   const promos = portalState.allActivePromos || [];
-  const eligible = promos.find(p => promoAppliesToCustomer(p, portalState.matchedCustomer));
+  const eligible = promos
+    .filter(p => promoAppliesToCustomer(p, portalState.matchedCustomer))
+    .reduce((best, p) => (!best || (p.discount || 0) > (best.discount || 0)) ? p : best, null);
   portalState.activePromo = eligible || null;
 
   const banner     = document.getElementById('promo-banner');
