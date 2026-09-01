@@ -127,7 +127,7 @@ router.get('/:ref', requireEitherAuth(), async (req, res) => {
 });
 
 router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
-  const { status, paymentVerified, batchId, convertedAt, cancelledAt } = req.body;
+  const { status, paymentVerified, batchId, convertedAt, cancelledAt, agreedPaymentTerms } = req.body;
   const order = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
 
@@ -137,6 +137,11 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
   if(batchId !== undefined) { fields.push('batch_id = ?'); values.push(batchId); }
   if(convertedAt !== undefined) { fields.push('converted_at = ?'); values.push(convertedAt); }
   if(cancelledAt !== undefined) { fields.push('cancelled_at = ?'); values.push(cancelledAt); }
+  // The REAL agreed payment terms (cash/transfer/credit7/credit30/part),
+  // set explicitly by staff at Orders Inbox — see the matching column
+  // comment in migration-agreed-payment-terms.sql for why this is a
+  // separate field from payment_method (the customer's own portal choice).
+  if(agreedPaymentTerms !== undefined) { fields.push('agreed_payment_terms = ?'); values.push(agreedPaymentTerms); }
   fields.push("updated_at = now()");
 
   if(fields.length === 1) return res.status(400).json({ error: 'No updatable fields provided.' });
