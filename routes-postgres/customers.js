@@ -91,7 +91,7 @@ router.get('/search', requireEitherAuth(), async (req, res) => {
   const q = (req.query.q || '').trim();
   if(q.length < 3) return res.json(null);
   const rows = await db.prepare(
-    `SELECT name, cid, phone, location, referral_code AS "referralCode" FROM customers
+    `SELECT name, cid, phone, location, referral_code AS "referralCode", loyalty_tier AS "loyalty" FROM customers
      WHERE LOWER(name) LIKE ? OR LOWER(contact) LIKE ? LIMIT 1`
   ).all(`%${q.toLowerCase()}%`, `%${q.toLowerCase()}%`);
   res.json(rows[0] || null);
@@ -102,7 +102,7 @@ router.get('/by-code', requireEitherAuth(), async (req, res) => {
   const code = (req.query.code || '').trim();
   if(!code) return res.json(null);
   const row = await db.prepare(
-    `SELECT name, cid, phone, location, referral_code AS "referralCode" FROM customers WHERE cid = ?`
+    `SELECT name, cid, phone, location, referral_code AS "referralCode", loyalty_tier AS "loyalty" FROM customers WHERE cid = ?`
   ).get(code);
   res.json(row || null);
 });
