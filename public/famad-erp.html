@@ -1033,6 +1033,13 @@ input[type=number]{-moz-appearance:textfield;}
         // rather than silently disappear for a payment that actually
         // does need checking.
         existing.paymentMethod = row.payment_method || existing.paymentMethod || 'transfer';
+        // agreed_payment_terms — the REAL terms set by staff at Orders
+        // Inbox (see the migration comment). Backend is authoritative
+        // once set; never overwrite a real value with a null from a
+        // stale row, but do pull a genuinely new value forward.
+        if(row.agreed_payment_terms !== undefined && row.agreed_payment_terms !== null) {
+          existing.agreedPaymentTerms = row.agreed_payment_terms;
+        }
         const localRank   = orderStatusRank(existing.status);
         const backendRank = orderStatusRank(row.status);
         if(!existing.status || backendRank > localRank) {
@@ -1074,6 +1081,12 @@ input[type=number]{-moz-appearance:textfield;}
           status: row.status,
           notes: row.notes,
           paymentMethod: row.payment_method || 'transfer',
+          // FIX (standing lesson from the Aug 3 reservation-fields bug):
+          // this new-record branch must map every field the update-
+          // existing branch maps, including brand-new ones, or a device
+          // seeing this order for the FIRST time gets a silently
+          // incomplete record.
+          agreedPaymentTerms: row.agreed_payment_terms || null,
           paymentVerified: false,
           createdAt: row.created_at,
           date: new Date(row.created_at).toISOString().split('T')[0],
@@ -4783,8 +4796,9 @@ input[type=number]{-moz-appearance:textfield;}
         <div class="form-group"><label class="form-label">Crates Dispatched <span class="req">*</span></label><input class="form-input" type="number" placeholder="e.g. 50" id="s-crates" oninput="computeSale();runSaleErrorChecks();checkSoloDispatchThreshold()"/></div>
         <div class="form-group"><label class="form-label">Price per Crate (₦) <span class="req">*</span></label><input class="form-input" type="number" placeholder="5700" id="s-price" value="5700" oninput="this.dataset.touched='1';computeSale()"/></div>
         <div class="form-group"><label class="form-label">Gross Revenue (Egg Only)</label><div class="computed" id="c-gross"><span>—</span><span class="cs">crates × egg price</span></div></div>
-        <div class="form-group"><label class="form-label">Payment Status</label>
+        <div class="form-group"><label class="form-label">Payment Status <span class="req">*</span></label>
           <select class="form-select" id="s-payment" onchange="runSaleErrorChecks()">
+            <option value="">— Select Payment Status —</option>
             <option value="cash">Paid — Cash</option>
             <option value="transfer">Paid — Transfer</option>
             <option value="credit7">Credit (7 days)</option>
@@ -10317,7 +10331,7 @@ function updateRepInfo() {
    5 fields · large touch targets · mobile-optimised.
    Submits through handleSave() — all guards apply.
 ═══════════════════════════════════════════════════════ */
-let qeState = { crates: 10, payment: 'cash' };
+let qeState = { crates: 10, payment: null };
 
 function toggleQuickEntry() {
   const panel = document.getElementById('quick-entry-panel');
@@ -10332,10 +10346,12 @@ function toggleQuickEntry() {
   }
   if(!isOpen) {
     populateQESelects();
-    qeState = { crates: 10, payment: 'cash' };
+    // No default payment selection — same standing rule applied
+    // everywhere else in this form now (Sep 1 2026): nothing should
+    // look "already decided" until a human actually taps it.
+    qeState = { crates: 10, payment: null };
     const disp = document.getElementById('qe-crates-display');
     if(disp) disp.textContent = '10';
-    qeSelectPayment('cash');
     qeCompute();
     panel.scrollIntoView({ behavior:'smooth', block:'start' });
   }
@@ -10424,6 +10440,10 @@ function quickEntrySave() {
     if(errEl) { errEl.style.display='block'; errEl.textContent='⚠ At least 1 crate required.'; }
     return;
   }
+  if(!qeState.payment) {
+    if(errEl) { errEl.style.display='block'; errEl.textContent='⚠ Select a Payment Status — no default is assumed.'; }
+    return;
+  }
   if(errEl) errEl.style.display='none';
 
   // Pre-fill main Sales Log form fields then invoke handleSave()
@@ -10431,7 +10451,7 @@ function quickEntrySave() {
   const setV  = (id, val) => { const el=document.getElementById(id); if(el) el.value=val; };
   setV('s-date',    today);
   setV('s-crates',  qeState.crates);
-  setV('s-payment', qeState.payment);
+  setV('s-payment', qeState.payment || '');
 
   const repSel = document.getElementById('s-rep');
   if(repSel) { repSel.value = rep; updateRepInfo(); }
@@ -12762,6 +12782,12 @@ function handleSave() {
   if(!customer) { showToast('⚠ Select a customer.'); return; }
   if(crates < 1) { showToast('⚠ Enter crate count.'); return; }
   if(price < 1) { showToast('⚠ Enter price per crate.'); return; }
+  // Hard safety net — catches any path that reaches this form without
+  // Payment Status ever being touched, including manually-entered sales
+  // with no linked order at all (Orders Inbox's own gate only covers
+  // order-linked sales). Sep 1 2026 — root cause of receipts showing
+  // "SETTLED" for orders that were actually on credit/part payment.
+  if(!payment) { showToast('⚠ Select the real Payment Status — no default is assumed.'); return; }
   if(crates > STATE.inventory.main) { showToast('⚠ Insufficient stock. Only '+STATE.inventory.main+' crates available.'); return; }
 
   // ── Stop-loss gate — real-currency exposure from a floor-breaching
@@ -21770,10 +21796,33 @@ function buildOrderCard(o, queueNum) {
         </div>
       </div>`;
     })()}
+    ${(isPending || isConfirmed) ? `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;
+      padding:8px 10px;background:${o.agreedPaymentTerms ? 'rgba(61,214,192,0.05)' : 'rgba(224,144,48,0.08)'};
+      border:1px solid ${o.agreedPaymentTerms ? 'rgba(61,214,192,0.2)' : 'rgba(224,144,48,0.3)'};border-radius:6px">
+      <label style="font-family:'DM Mono',monospace;font-size:9px;color:${o.agreedPaymentTerms ? 'var(--mist)' : 'var(--amber)'};
+        letter-spacing:0.5px;text-transform:uppercase;white-space:nowrap">
+        ${o.agreedPaymentTerms ? '💳 Payment Terms' : '⚠ Payment Terms — required before fulfilment'}
+      </label>
+      <select class="form-select" style="width:auto;flex:1;min-width:160px;font-size:11px;padding:5px 8px"
+        onchange="setOrderPaymentTerms('${o.ref}', this.value)">
+        <option value="" ${!o.agreedPaymentTerms ? 'selected' : ''}>— Select —</option>
+        <option value="cash" ${o.agreedPaymentTerms==='cash' ? 'selected' : ''}>Paid — Cash</option>
+        <option value="transfer" ${o.agreedPaymentTerms==='transfer' ? 'selected' : ''}>Paid — Transfer</option>
+        <option value="credit7" ${o.agreedPaymentTerms==='credit7' ? 'selected' : ''}>Credit (7 days)</option>
+        <option value="credit30" ${o.agreedPaymentTerms==='credit30' ? 'selected' : ''}>Credit (30 days)</option>
+        <option value="part" ${o.agreedPaymentTerms==='part' ? 'selected' : ''}>Part Payment</option>
+      </select>
+      <span style="font-family:'DM Mono',monospace;font-size:8px;color:var(--dust)">
+        set here, not the customer's portal selection — carries into Record Sale
+      </span>
+    </div>
+    ` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       ${isPending ? `
-        <button class="btn btn-primary" style="font-size:10px"
-          onclick="sendToSalesLog('${o.ref}')">
+        <button class="btn btn-primary" style="font-size:10px${!o.agreedPaymentTerms ? ';opacity:0.4;cursor:not-allowed' : ''}"
+          ${!o.agreedPaymentTerms ? 'disabled' : ''}
+          onclick="sendToSalesLog('${o.ref}')" title="${!o.agreedPaymentTerms ? 'Set Payment Terms above first' : ''}">
           📋 Send to Sales Log
         </button>
         <button class="btn btn-ghost" style="font-size:10px"
@@ -21796,8 +21845,9 @@ function buildOrderCard(o, queueNum) {
           onclick="waReplyOrder('${o.ref}')">💬 WA Reply</button>
       ` : ''}
       ${isConfirmed ? `
-        <button class="btn btn-primary" style="font-size:10px"
-          onclick="sendToSalesLog('${o.ref}')">
+        <button class="btn btn-primary" style="font-size:10px${!o.agreedPaymentTerms ? ';opacity:0.4;cursor:not-allowed' : ''}"
+          ${!o.agreedPaymentTerms ? 'disabled' : ''}
+          onclick="sendToSalesLog('${o.ref}')" title="${!o.agreedPaymentTerms ? 'Set Payment Terms above first' : ''}">
           📋 Open in Sales Log
         </button>
         <button class="btn btn-ghost" style="font-size:10px"
@@ -25286,6 +25336,16 @@ async function sendToSalesLog(orderRef) {
     return;
   }
 
+  // ── Hard gate: real payment terms must be set at Orders Inbox first ──
+  // Redundant with the disabled Send/Open in Sales Log button on the
+  // card itself (belt-and-suspenders, per Bob's explicit "still block if
+  // somehow skipped" — Sep 1 2026), and the only guard at all for any
+  // path that calls this function directly rather than through the card.
+  if(!o.agreedPaymentTerms) {
+    showToast('⚠ Set this order\'s real Payment Terms in Orders Inbox before sending to Sales Log.');
+    return;
+  }
+
   // Mark as confirmed if still pending
   if(o.status === 'pending') {
     o.status      = 'confirmed';
@@ -25338,11 +25398,23 @@ async function sendToSalesLog(orderRef) {
       }
     }
 
-    // Set payment method from order
+    // Set payment status from the REAL agreed terms staff set at Orders
+    // Inbox — NOT the customer's own portal payment-method choice, which
+    // has no concept of credit terms at all (root cause of the "SETTLED
+    // instead of Partially Paid" bug, Sep 1 2026 — see task queue notes).
+    // Locked/visually marked the same way Crates/Price/Delivery already
+    // are, so it's obviously sourced rather than looking like a fresh
+    // default someone forgot to touch.
     const payEl = document.getElementById('s-payment');
     if(payEl) {
-      const payMap = { bank:'transfer', ussd:'transfer', cash:'cash', paystack:'transfer' };
-      payEl.value = payMap[o.paymentMethod] || 'transfer';
+      payEl.value = o.agreedPaymentTerms || '';
+      payEl.disabled = !!o.agreedPaymentTerms;
+      payEl.style.color = o.agreedPaymentTerms ? 'var(--teal)' : '';
+      payEl.style.borderColor = o.agreedPaymentTerms ? 'rgba(61,214,192,0.3)' : '';
+      payEl.title = o.agreedPaymentTerms
+        ? 'Locked — real payment terms set in Orders Inbox. Change there, not here.'
+        : '';
+      runSaleErrorChecks();
     }
 
     // Run error checks on pre-filled data
@@ -27142,6 +27214,26 @@ function applyWalletCredit(customerName, ref, amountOwed) {
   STATE.walletTransactions.unshift(tx);
   postWalletTransactionToBackend(tx);
   return applyAmt;
+}
+
+// Sets the REAL agreed payment terms for a pending/confirmed order —
+// staff's own decision at Orders Inbox, separate from whatever delivery/
+// payment method the customer picked on the portal (which has no concept
+// of credit terms at all). This is what sendToSalesLog() carries into
+// the Record Sale form's Payment Status field, and what Send/Open in
+// Sales Log is gated on. Fire-and-forget backend sync, same convention
+// as every other per-order field update in this app.
+function setOrderPaymentTerms(orderRef, value) {
+  const orders = loadOrders();
+  const o = orders.find(x => x.ref === orderRef);
+  if(!o) { showToast('⚠ Order not found.'); return; }
+  o.agreedPaymentTerms = value || null;
+  saveOrders(orders);
+  renderOrders();
+  if(value) {
+    patchOrderStatusOnBackend(orderRef, { agreedPaymentTerms: value });
+    logOk('orders', `Payment terms set — ${o.customerName} · ${o.ref} · ${PAY_LABELS[value] || value}`);
+  }
 }
 
 function applyWalletToOrder(orderRef) {
