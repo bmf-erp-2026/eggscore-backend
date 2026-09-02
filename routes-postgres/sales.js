@@ -4,11 +4,36 @@ const { requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
 
 const router = express.Router();
 
+// "Own sales only" (Sep 1 2026, Sales Rep Access): resolves which rep
+// NAME a non-owner request is actually allowed to act as/see, by
+// looking up their linked rep record via email — never trusting a
+// client-supplied `rep` field, since that's just a string a request
+// could put anything in. An owner passes through untouched (keeps
+// today's flexibility — backfilling historical sales under any rep
+// name, entering a sale for a rep not yet linked, etc). Returns null
+// for a rep with no linked record yet, same "nothing shared/allowed
+// yet" default used in reps.js, rather than guessing or erroring oddly.
+async function resolveRepNameForRequest(req) {
+  if(req.user.role === 'owner') return undefined; // undefined = no forced filter
+  const repRow = await db.prepare('SELECT name FROM reps WHERE email = ?').get(req.user.email);
+  return repRow?.name || null;
+}
+
 router.post('/', requireSupabaseAuth(), async (req, res) => {
   const { orderRef, rep, customerName, crates, pricePerCrate, deliveryTotal, commission,
           batchId, batchCost, paymentMethod, saleDate, invoiceRef } = req.body;
 
-  if(!rep || !customerName || !crates || !pricePerCrate || !paymentMethod) {
+  // A rep can only ever record a sale as themselves — the client-
+  // supplied `rep` field is ignored/overridden for non-owner requests,
+  // and rejected outright if this login isn't linked to a rep record
+  // at all (see resolveRepNameForRequest). Owners keep full flexibility.
+  const forcedRep = await resolveRepNameForRequest(req);
+  if(req.user.role !== 'owner' && !forcedRep) {
+    return res.status(403).json({ error: 'Your login isn\'t linked to a rep record yet — ask the owner to link it.' });
+  }
+  const effectiveRep = forcedRep !== undefined ? forcedRep : rep;
+
+  if(!effectiveRep || !customerName || !crates || !pricePerCrate || !paymentMethod) {
     return res.status(400).json({ error: 'rep, customerName, crates, pricePerCrate, and paymentMethod are required.' });
   }
 
@@ -25,7 +50,7 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
     INSERT INTO sales (order_ref, rep, customer_id, customer_name, crates, price_per_crate, gross, delivery_total,
       commission, batch_id, batch_cost, payment_method, sale_date, invoice_ref)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(orderRef || null, rep, customerRow?.id || null, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
+  `).run(orderRef || null, effectiveRep, customerRow?.id || null, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
     commission || 0, batchId || null, batchCost || null, paymentMethod, saleDate || new Date().toISOString().split('T')[0], invoiceRef || null);
 
   // Real multi-batch FIFO deduction — same logic verified in the
@@ -48,11 +73,21 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
 
 router.get('/', requireSupabaseAuth(), async (req, res) => {
   const { from, to, rep } = req.query;
+
+  // "Own sales only" for reps — same forced-filter approach as POST.
+  // A rep with no linked record sees an empty list, not an error or
+  // (worse) everyone's sales by accident.
+  const forcedRep = await resolveRepNameForRequest(req);
+  if(req.user.role !== 'owner' && !forcedRep) {
+    return res.json([]);
+  }
+  const effectiveRepFilter = forcedRep !== undefined ? forcedRep : rep;
+
   let query = 'SELECT * FROM sales WHERE 1=1';
   const params = [];
   if(from) { query += ' AND sale_date >= ?'; params.push(from); }
   if(to)   { query += ' AND sale_date <= ?'; params.push(to); }
-  if(rep)  { query += ' AND rep = ?'; params.push(rep); }
+  if(effectiveRepFilter) { query += ' AND rep = ?'; params.push(effectiveRepFilter); }
   query += ' ORDER BY sale_date DESC, created_at DESC';
   res.json(await db.prepare(query).all(...params));
 });

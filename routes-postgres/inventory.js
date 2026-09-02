@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireEitherAuth, requireSupabaseAuth } = require('../auth.postgres');
+const { requireEitherAuth, requireSupabaseAuth, requireRole } = require('../auth.postgres');
 
 const router = express.Router();
 
@@ -17,7 +17,10 @@ router.get('/', requireEitherAuth(), async (req, res) => {
   res.json({ totalAvailable, batches });
 });
 
-router.post('/batches', requireSupabaseAuth(), async (req, res) => {
+// Owner-only (Sep 1 2026, Sales Rep Access): receiving/adjusting/removing
+// inventory batches is stock management, not sales work — no reason a
+// rep processing orders would need to touch this.
+router.post('/batches', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { id, supplier, cost, received, qaGrade, receivedDate } = req.body;
   if(!id || !cost || !received) {
     return res.status(400).json({ error: 'id, cost, and received are required.' });
@@ -37,7 +40,7 @@ router.post('/batches', requireSupabaseAuth(), async (req, res) => {
 // Persist a batch's remaining count after a write-off (or any authoritative
 // local change) — without this, syncBatchesFromBackend()'s "trust the
 // backend" rule silently resurrects the pre-write-off quantity on next sync.
-router.patch('/batches/:id', requireSupabaseAuth(), async (req, res) => {
+router.patch('/batches/:id', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { id } = req.params;
   const { remaining } = req.body;
   if(remaining === undefined || remaining === null || isNaN(remaining) || remaining < 0) {
@@ -55,7 +58,7 @@ router.patch('/batches/:id', requireSupabaseAuth(), async (req, res) => {
 // remaining but keeps the row for history). Only for batches created in
 // error or otherwise meant to be fully removed. Gated by owner PIN on the
 // client side before this is ever called.
-router.delete('/batches/:id', requireSupabaseAuth(), async (req, res) => {
+router.delete('/batches/:id', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { id } = req.params;
   const existing = await db.prepare('SELECT * FROM batches WHERE id = ?').get(id);
   if(!existing) {

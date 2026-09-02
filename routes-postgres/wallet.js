@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireEitherAuth, requireRole } = require('../auth.postgres');
 const router = express.Router();
 
 // ERP-only — records a wallet transaction (credit, applied, refund_pending,
@@ -10,6 +10,19 @@ const router = express.Router();
 // self-healing retry can tell which local transactions the backend has
 // already seen, same role ref/inv/cid play for Orders/Sales/Customers.
 // ON CONFLICT makes a retried POST safe — it won't create a duplicate row.
+//
+// Type-level role split (Sep 1 2026, Sales Rep Access): a rep applying
+// EXISTING wallet credit to an order they're processing is normal,
+// everyday sales work — Bob's own call: "wallet money is already
+// banked... no harm for rep to see and apply." But 'credit' and
+// 'refund_pending' both CREATE or return money the wallet didn't
+// already have — that's the same trust step as verifying a real bank
+// deposit landed (see the Verify Payment modal's own warning elsewhere
+// in this app), and stays owner-only regardless of who's logged in.
+// 'info' doesn't move money at all (excluded from the /balance sum
+// below) so it's harmless either way.
+const OWNER_ONLY_WALLET_TYPES = ['credit', 'refund_pending'];
+
 router.post('/', requireSupabaseAuth(), async (req, res) => {
   const { customerId, amount, type, orderRef, createdBy, clientId } = req.body;
 
@@ -18,6 +31,9 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
   }
   if(!['credit', 'applied', 'refund_pending', 'info'].includes(type)) {
     return res.status(400).json({ error: 'type must be one of credit, applied, refund_pending, info.' });
+  }
+  if(OWNER_ONLY_WALLET_TYPES.includes(type) && req.user.role !== 'owner') {
+    return res.status(403).json({ error: `Your role cannot create a '${type}' wallet transaction.` });
   }
 
   await db.prepare(`
@@ -33,11 +49,11 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
   res.status(201).json(row);
 });
 
-// ERP-only — every wallet transaction across all customers, for the
-// self-healing retry's client_id comparison (mirrors the bulk GET
-// /customers and /batches endpoints — one fetch instead of looping
-// per-customer).
-router.get('/', requireSupabaseAuth(), async (req, res) => {
+// ERP-only — every wallet transaction across ALL customers. Owner-only
+// (Sep 1 2026, Sales Rep Access): this is company-wide wallet exposure
+// in one list, not the single-customer context a rep needs to do a
+// sale — that's /balance and /:customerId below, both left open.
+router.get('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   res.json(await db.prepare('SELECT * FROM wallet_transactions ORDER BY created_at DESC').all());
 });
 
@@ -75,6 +91,11 @@ router.get('/balance', requireEitherAuth(), async (req, res) => {
 
 // ERP-only — full transaction history for one customer, for the ERP's
 // own sync-with-retry (mirrors how Customers/Orders/Sales/Batches sync).
+// Deliberately left open to reps (not owner-gated) — the ERP's own
+// "Apply wallet credit" UI a rep uses during a normal sale likely
+// depends on this sync path to know the correct amount/dedup against
+// what's already applied; gating it would risk silently breaking the
+// exact feature Bob confirmed reps should keep.
 router.get('/:customerId', requireSupabaseAuth(), async (req, res) => {
   res.json(await db.prepare(
     'SELECT * FROM wallet_transactions WHERE customer_id = ? ORDER BY created_at DESC'
