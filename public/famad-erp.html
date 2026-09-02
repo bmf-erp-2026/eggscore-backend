@@ -873,11 +873,54 @@ input[type=number]{-moz-appearance:textfield;}
   const erpSupabase = window.supabase.createClient(ERP_SUPABASE_URL, ERP_SUPABASE_ANON_KEY, { auth: { storage: window.sessionStorage } });
   const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
 
+  // Sep 1 2026, Sales Rep Access — set for real in erpCheckSession()
+  // once a session exists. 'owner' until then is just a safe default
+  // for the brief pre-login window; it has no effect on anything since
+  // the login overlay blocks all interaction until a session exists.
+  let ERP_ROLE = 'owner';
+
+  // Modules that are ENTIRELY finance/admin content — no mixed rep-safe
+  // material on the page at all, so a whole-module hide is clean and
+  // correct. (Modules that MIX operational content reps need with an
+  // embedded settings panel — Scorecard, Reservations, Logistics,
+  // Document Centre, Rep Centre, Dashboard — are deliberately NOT in
+  // this list yet; each needs its own look at what's actually on the
+  // page before hiding anything, rather than guessing. Flagged as
+  // follow-up work, not forgotten.)
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'eventlog'];
+
+  // UI-layer only (see the comment on ERP_ROLE above) — hides nav
+  // entries for owner-only modules and, as a hard safety net, refuses
+  // to render one even if reached directly (a stale bookmark, a
+  // console call, a button that wasn't updated). This does NOT replace
+  // backend enforcement; it just keeps the UI honest about what a rep
+  // can actually do once they click something.
+  function applyRoleUI() {
+    if(ERP_ROLE === 'owner') return;
+    document.querySelectorAll('.si').forEach(el => {
+      const onclick = el.getAttribute('onclick') || '';
+      const match = onclick.match(/switchModule\('(\w+)'\)/);
+      if(match && OWNER_ONLY_MODULES.includes(match[1])) {
+        el.style.display = 'none';
+      }
+    });
+  }
+
+
   async function erpCheckSession() {
     const { data: { session } } = await erpSupabase.auth.getSession();
     document.getElementById('erp-login-overlay').style.display = session ? 'none' : 'flex';
     const label = document.getElementById('erp-logged-in-as');
     if(label) label.textContent = session?.user?.email || '';
+    // ERP_ROLE (Sep 1 2026, Sales Rep Access) — read the SAME way the
+    // backend does (app_metadata.role, default 'owner'), so the two
+    // never disagree about who's logged in as what. This is a UI
+    // convenience only — it decides what's SHOWN, never what's
+    // actually allowed; the real boundary is the backend role checks
+    // already in place, which apply regardless of what this variable
+    // says or whether this code even runs.
+    ERP_ROLE = session?.user?.app_metadata?.role || 'owner';
+    if(session) applyRoleUI();
   }
 
   async function erpHandleLogin() {
@@ -9770,6 +9813,16 @@ function closeSidebar() {
 window.addEventListener('resize', () => { if(window.innerWidth >= 768) closeSidebar(); });
 
 function switchModule(name) {
+  // Hard safety net (Sep 1 2026, Sales Rep Access) — refuses to render
+  // an owner-only module for a rep even if reached directly (a stale
+  // bookmark, a console call, a nav button applyRoleUI() somehow missed
+  // hiding). This is still just the UI layer; every backend route
+  // behind these modules already enforces the real boundary regardless.
+  if(ERP_ROLE !== 'owner' && OWNER_ONLY_MODULES.includes(name)) {
+    showToast('⚠ Your role cannot access this section.');
+    return;
+  }
+
   // Hide all modules
   document.querySelectorAll('.module-page').forEach(el => el.classList.remove('active'));
   document.getElementById('mod-' + name)?.classList.add('active');
