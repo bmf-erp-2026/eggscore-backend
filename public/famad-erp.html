@@ -887,7 +887,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'eventlog'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'eventlog', 'reps'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -903,6 +903,15 @@ input[type=number]{-moz-appearance:textfield;}
       if(match && OWNER_ONLY_MODULES.includes(match[1])) {
         el.style.display = 'none';
       }
+    });
+    // Panel-level hides within otherwise rep-safe modules (Sep 1 2026)
+    // — e.g. Customer Scorecard's Credit Line Register/Scoring Weights/
+    // Pending Clearances/Loyalty Settings panels, embedded alongside
+    // rep-safe content on the same page. These are static wrapper divs
+    // (not rebuilt by any render function), so one pass here at login
+    // is sufficient — nothing later resets their display style.
+    document.querySelectorAll('.rep-hide-finance').forEach(el => {
+      el.style.display = 'none';
     });
   }
 
@@ -4347,7 +4356,7 @@ input[type=number]{-moz-appearance:textfield;}
   <!-- BALLPARK PROFIT PREDICTOR — collapsed by default so it doesn't
        compete with the daily at-a-glance tiles above; genuinely lives
        on the Command Centre, just not forced into every visit. -->
-  <div class="panel" id="dash-profit-predictor" style="margin-bottom:14px">
+  <div class="rep-hide-finance panel" id="dash-profit-predictor" style="margin-bottom:14px">
     <div class="panel-hdr" style="cursor:pointer" onclick="toggleProfitPredictor()">
       <div class="panel-title">🎯 Ballpark Profit Predictor</div>
       <div class="panel-tag" id="predictor-toggle-arrow">▸ click to explore</div>
@@ -4384,7 +4393,7 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="kc-sub">crates available</div>
       <div class="kc-delta" id="d-stock-d">loading…</div>
     </div>
-    <div class="kc c2">
+    <div class="kc c2 rep-hide-finance">
       <div class="kc-label">Revenue MTD</div>
       <div class="kc-val" id="d-rev">—</div>
       <div class="kc-sub">gross receipts</div>
@@ -4402,13 +4411,13 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="kc-sub">dispatched</div>
       <div class="kc-delta d-ne" id="d-sold-d">month to date</div>
     </div>
-    <div class="kc c4">
+    <div class="kc c4 rep-hide-finance">
       <div class="kc-label">Outstanding Debt</div>
       <div class="kc-val" id="d-debt">—</div>
       <div class="kc-sub">credit exposure</div>
       <div class="kc-delta" id="d-debt-d">unpaid</div>
     </div>
-    <div class="kc c5">
+    <div class="kc c5 rep-hide-finance">
       <div class="kc-label">Commission Due</div>
       <div class="kc-val" id="d-comm">—</div>
       <div class="kc-sub">all reps · MTD</div>
@@ -4426,7 +4435,7 @@ input[type=number]{-moz-appearance:textfield;}
         <div class="chart-area" id="dash-chart-weekly"></div>
       </div>
     </div>
-    <div class="panel" id="dash-leaderboard-panel">
+    <div class="rep-hide-finance panel" id="dash-leaderboard-panel">
       <div class="panel-hdr">
         <div class="panel-title">Rep Leaderboard — MTD</div>
         <div class="panel-tag" id="dash-month-tag">May 2026</div>
@@ -5797,6 +5806,7 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="kc c4"><div class="kc-label">Cancelled / Expired</div><div class="kc-val" id="resv-lost">0</div><div class="kc-sub">did not convert</div></div>
   </div>
 
+  <div class="rep-hide-finance">
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">⚙ Reservation Policy</div>
@@ -5837,6 +5847,7 @@ input[type=number]{-moz-appearance:textfield;}
       <div id="resv-settings-status" style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--teal)"></div>
     </div>
   </div>
+  </div>
 
   <div class="panel">
     <div class="panel-hdr"><div class="panel-title">Live Adaptive Window</div><div class="panel-tag">what a NEW reservation would get right now</div></div>
@@ -5859,6 +5870,7 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="panel-body panel-scroll" id="resv-recent-table"></div>
   </div>
 
+  <div class="rep-hide-finance">
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">⚙ Abuse Prevention Settings</div>
@@ -5876,6 +5888,7 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="btn btn-primary" onclick="saveAbuseSettings()">Save Settings</button>
       <div id="ap-settings-status" style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px"></div>
     </div>
+  </div>
   </div>
 
   <div class="panel">
@@ -5944,7 +5957,7 @@ input[type=number]{-moz-appearance:textfield;}
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;color:var(--dust);margin-bottom:8px">Vehicles</div>
       <div id="vehicle-doc-alert-banner"></div>
       <div id="lg-vehicle-list" style="margin-bottom:10px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:20px">
+      <div class="rep-hide-finance" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:20px">
         <div><label class="form-label">Type</label><input class="form-input" id="lg-veh-type" placeholder="T250 Van"/></div>
         <div><label class="form-label">Plate</label><input class="form-input" id="lg-veh-plate" placeholder="If known"/></div>
         <div><label class="form-label">Tracking Provider</label><input class="form-input" id="lg-veh-tracker" placeholder="3rd-party tracker"/></div>
@@ -5953,7 +5966,7 @@ input[type=number]{-moz-appearance:textfield;}
       </div>
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;color:var(--dust);margin-bottom:8px">Drivers</div>
       <div id="lg-driver-list" style="margin-bottom:10px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
+      <div class="rep-hide-finance" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
         <div><label class="form-label">Name</label><input class="form-input" id="lg-drv-name"/></div>
         <div><label class="form-label">Phone</label><input class="form-input" id="lg-drv-phone"/></div>
         <button class="btn btn-primary" onclick="addDriver()">Add</button>
@@ -5971,7 +5984,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="panel-body">
       <div id="lg-destination-list" style="margin-bottom:10px"></div>
-      <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end">
+      <div class="rep-hide-finance" style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end">
         <div><label class="form-label">Destination</label><input class="form-input" id="lg-dest-name" placeholder="e.g. Mile 12 Market, Lagos"/></div>
         <div><label class="form-label">Distance (km)</label><input class="form-input" type="number" id="lg-dest-km"/></div>
         <button class="btn btn-primary" onclick="addDestination()">Add</button>
@@ -5979,6 +5992,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
   </div>
 
+  <div class="rep-hide-finance">
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">⚙ Cost Rate Settings</div>
@@ -6008,6 +6022,7 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="btn btn-primary" onclick="saveLogisticsSettings()">Save Settings</button>
       <div id="lg-settings-status" style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px"></div>
     </div>
+  </div>
   </div>
 
   <div class="panel">
@@ -6054,6 +6069,7 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="kc c4"><div class="kc-label">Pending Clearances</div><div class="kc-val" id="sc-count-pending">0</div><div class="kc-sub" id="sc-pending-sub">awaiting owner review</div></div>
   </div>
 
+  <div class="rep-hide-finance">
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">💜 Credit Line Register</div>
@@ -6103,6 +6119,7 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="panel-hdr"><div class="panel-title">🏅 Pending Badge Clearances</div><div class="panel-tag">upgrades only — downgrades apply automatically to protect exposure</div></div>
     <div class="panel-body panel-scroll" id="sc-clearance-queue"></div>
   </div>
+  </div>
 
   <div class="panel">
     <div class="panel-hdr"><div class="panel-title">📝 Log a Relationship Moment</div><div class="panel-tag">immediate — no clearance needed for tags themselves</div></div>
@@ -6144,6 +6161,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
   </div>
 
+  <div class="rep-hide-finance">
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">📣 Loyalty Engine — Settings</div>
@@ -6176,6 +6194,7 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="btn btn-primary" onclick="saveLoyaltySettings()">Save Loyalty Settings</button>
       <div id="ly-settings-status" style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px"></div>
     </div>
+  </div>
   </div>
 
   <div class="panel">
@@ -6550,8 +6569,8 @@ input[type=number]{-moz-appearance:textfield;}
 
   <div class="sec-title">Procurement &amp; Logistics Documents</div>
   <div class="doc-grid">
-    <div class="doc-card" onclick="openPurchaseOrderModal()"><div class="doc-icon">📋</div><div class="doc-name">Purchase Order</div><div class="doc-desc">Order stock from a supplier</div></div>
-    <div class="doc-card" onclick="openGoodsReceivedNoteModal()"><div class="doc-icon">📥</div><div class="doc-name">Goods Received Note</div><div class="doc-desc">QA/condition record at intake</div></div>
+    <div class="doc-card rep-hide-finance" onclick="openPurchaseOrderModal()"><div class="doc-icon">📋</div><div class="doc-name">Purchase Order</div><div class="doc-desc">Order stock from a supplier</div></div>
+    <div class="doc-card rep-hide-finance" onclick="openGoodsReceivedNoteModal()"><div class="doc-icon">📥</div><div class="doc-name">Goods Received Note</div><div class="doc-desc">QA/condition record at intake</div></div>
     <div class="doc-card" onclick="openDriverTripSheetModal()"><div class="doc-icon">🚚</div><div class="doc-name">Driver Trip Sheet</div><div class="doc-desc">A driver/vehicle's trips for a day</div></div>
   </div>
 
@@ -6570,7 +6589,7 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 
   <div class="sec-title">Audit Preparation</div>
-  <div class="doc-grid">
+  <div class="rep-hide-finance doc-grid">
     <div class="doc-card" onclick="generateFixedAssetRegisterPDF()"><div class="doc-icon">🏭</div><div class="doc-name">Fixed Asset Register</div><div class="doc-desc">Real assets, cost, depreciation, net book value — instant</div></div>
     <div class="doc-card" onclick="openVATWorksheetModal()"><div class="doc-icon">🧮</div><div class="doc-name">VAT Summary Worksheet</div><div class="doc-desc">Delivery-only VAT, date range — verify the exemption split with your accountant</div></div>
     <div class="doc-card" onclick="openCommissionRegisterModal()"><div class="doc-icon">💼</div><div class="doc-name">Commission / Payout Register</div><div class="doc-desc">Per-rep commission for a period</div></div>
@@ -17579,6 +17598,21 @@ function renderCustomerScorecard() {
         const limit = getSuggestedCreditLimit(c.name);
         const partPay = Math.round(getSuggestedPartPaymentPct(c.name) * 100);
         const tt = getCustomerTrustTier(c.name);
+        const ttLabels = { new:'New (0%)', building:'Building (25%)', established:'Established (50%)', proven:'Proven (80%)' };
+        // Trust Tier edit control is owner-only (Sep 1 2026, Sales Rep
+        // Access) — the backend already rejects a rep's attempt to
+        // change it (customers.js PATCH), so leaving an editable
+        // dropdown here for reps would just 403 on every use, which
+        // looks broken rather than restricted. Read-only badge instead,
+        // same information, no dead-end control.
+        const trustTierCell = ERP_ROLE === 'owner' ? `
+            <select class="form-select" style="padding:3px 6px;font-size:10px;height:26px" onchange="setCustomerTrustTier('${escapeHtml(c.name).replace(/'/g,"\\'")}', this.value)">
+              <option value="new" ${tt==='new'?'selected':''}>New (0%)</option>
+              <option value="building" ${tt==='building'?'selected':''}>Building (25%)</option>
+              <option value="established" ${tt==='established'?'selected':''}>Established (50%)</option>
+              <option value="proven" ${tt==='proven'?'selected':''}>Proven (80%)</option>
+            </select>
+          ` : `<span class="panel-tag" style="font-size:10px">${ttLabels[tt] || tt}</span>`;
         return `<tr>
           <td>${escapeHtml(c.name)}</td>
           <td class="mono" style="color:var(--blue)">${getOrCreateReferralCode(c.name)}</td>
@@ -17589,14 +17623,7 @@ function renderCustomerScorecard() {
           <td>${c.loyalty || 'New'}</td>
           <td style="color:var(--teal)">₦${limit.toLocaleString()}</td>
           <td>${partPay}% upfront</td>
-          <td>
-            <select class="form-select" style="padding:3px 6px;font-size:10px;height:26px" onchange="setCustomerTrustTier('${escapeHtml(c.name).replace(/'/g,"\\'")}', this.value)">
-              <option value="new" ${tt==='new'?'selected':''}>New (0%)</option>
-              <option value="building" ${tt==='building'?'selected':''}>Building (25%)</option>
-              <option value="established" ${tt==='established'?'selected':''}>Established (50%)</option>
-              <option value="proven" ${tt==='proven'?'selected':''}>Proven (80%)</option>
-            </select>
-          </td>
+          <td>${trustTierCell}</td>
         </tr>`;
       }).join('');
     renderPaginationControls('sc-table-pagination', result, 'goToScTablePage');
