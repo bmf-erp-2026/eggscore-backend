@@ -1203,7 +1203,7 @@ input[type=number]{-moz-appearance:textfield;}
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           repId: rep.id, name: rep.name, zone: rep.zone, phone: rep.phone,
-          target: rep.target, status: rep.status,
+          target: rep.target, status: rep.status, email: rep.email || null,
         }),
       });
     } catch(networkErr) {
@@ -4024,6 +4024,12 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="form-row cols-2">
       <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="nr-phone" placeholder="08X XXXX XXXX"/></div>
       <div class="form-group"><label class="form-label">Monthly Target (crates)</label><input class="form-input" type="number" id="nr-target" placeholder="250"/></div>
+    </div>
+    <div class="form-row cols-2">
+      <div class="form-group">
+        <label class="form-label">Login Email <span style="color:var(--mist);font-weight:400">(optional — links this rep to a real ERP login)</span></label>
+        <input class="form-input" id="nr-email" type="email" placeholder="Must match their Supabase login exactly"/>
+      </div>
     </div>
     <div class="submit-btns" style="margin-top:8px">
       <button class="btn btn-ghost" onclick="closeModal('modal-add-rep')">Cancel</button>
@@ -14375,8 +14381,15 @@ function saveRep() {
   const zone   = document.getElementById('nr-zone')?.value.trim();
   const phone  = document.getElementById('nr-phone')?.value.trim() || '—';
   const target = parseInt(document.getElementById('nr-target')?.value) || 0;
+  const email  = document.getElementById('nr-email')?.value.trim() || null;
   if(!name||!zone) { showToast('⚠ Name and zone required.'); return; }
-  const newRep = { id:'r'+Date.now(), name, zone, phone, target, status:'active' };
+  // email links this rep record to a real Supabase login (Sep 1 2026,
+  // Sales Rep Access) — must match the login's email exactly, since
+  // that's what the backend matches against for "own sales/commission
+  // only" filtering. No format validation beyond the input's own
+  // type="email" — a typo here just means the link silently doesn't
+  // work (rep sees an empty list) rather than anything unsafe.
+  const newRep = { id:'r'+Date.now(), name, zone, phone, target, status:'active', email };
   STATE.reps.push(newRep);
   saveState();
   postRepToBackend(newRep);
