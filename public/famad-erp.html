@@ -863,6 +863,38 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 </div>
 
+<!-- Password recovery landing (Sep 3 2026, Sales Rep Access) — shown
+     instead of the normal login form when a Supabase recovery link is
+     clicked. Before this existed, "Send password recovery" was a dead
+     end: Supabase would put a valid recovery session in the URL, but
+     nothing in this app ever looked for it, so the link just landed
+     back on the ordinary login screen with an unused token, and no
+     way to actually set a new password. This is the only way anyone
+     (owner or rep) can recover a forgotten password, since there's no
+     admin "set password directly" option in Supabase's own dashboard.
+     Markup deliberately mirrors #erp-login-overlay exactly (same inline
+     styles, no shared CSS class exists to reuse) so it doesn't look
+     like a different, less-trustworthy screen. -->
+<div id="erp-recovery-overlay" style="position:fixed;inset:0;z-index:99999;background:#0a0e17;display:none;align-items:center;justify-content:center;font-family:'Syne',sans-serif;">
+  <div style="width:100%;max-width:360px;padding:32px;background:#131826;border:1px solid #232938;border-radius:14px;">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;color:#4a9eff">EggScore</div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:#6b7280;margin-top:4px">Set a New Password</div>
+    </div>
+    <div style="margin-bottom:18px">
+      <label style="display:block;font-family:'DM Mono',monospace;font-size:10px;color:#9ca3af;margin-bottom:6px">New Password</label>
+      <input id="recovery-new-password" type="password" autocomplete="new-password"
+        style="width:100%;padding:11px 12px;background:#1a2030;border:1px solid #2a3142;border-radius:8px;color:#f5f5f5;font-size:13px;box-sizing:border-box"
+        onkeydown="if(event.key==='Enter') submitNewPassword()"/>
+    </div>
+    <button onclick="submitNewPassword()" id="recovery-submit-btn"
+      style="width:100%;padding:12px;background:#3dd6c0;color:#000;border:none;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer">
+      Set Password &amp; Continue
+    </button>
+    <div id="recovery-error" style="display:none;margin-top:12px;padding:10px 12px;background:rgba(224,72,72,0.12);border:1px solid rgba(224,72,72,0.3);border-radius:8px;font-family:'DM Mono',monospace;font-size:10.5px;color:#e09090"></div>
+  </div>
+</div>
+
 <script>
   // Fill in your real project values from Supabase → Settings → API.
   // The anon key is safe to expose client-side — that's its intended
@@ -872,6 +904,60 @@ input[type=number]{-moz-appearance:textfield;}
   const ERP_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwbXVkeW9wa2x4bmlhcmZvYm13Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTY2MTksImV4cCI6MjA5NDE3MjYxOX0.ZKTggPV565wIxBGMEfcMIqiLtmsgWZ0XnggmEsjIoP0';
   const erpSupabase = window.supabase.createClient(ERP_SUPABASE_URL, ERP_SUPABASE_ANON_KEY, { auth: { storage: window.sessionStorage } });
   const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
+
+  // Password recovery (Sep 3 2026, Sales Rep Access) — Supabase JS v2
+  // auto-detects a recovery token in the URL on load (detectSessionInUrl
+  // defaults to true) and fires this specific event once it establishes
+  // a temporary recovery session. That's the ONLY reliable signal that
+  // this page load came from a recovery link rather than a normal visit
+  // — checking the URL hash directly would be fragile (Supabase's own
+  // format for it isn't something this app should hardcode against).
+  // Set by the PASSWORD_RECOVERY handler below — lets erpCheckSession()
+  // know not to treat this as a normal "already logged in" session and
+  // jump straight into the app, since a recovery token also establishes
+  // a real (if temporary) session. Without this guard, whichever of the
+  // two checks happens to run last would win, and a user could land in
+  // the app without ever actually setting their new password.
+  let isPasswordRecoveryFlow = false;
+  erpSupabase.auth.onAuthStateChange((event) => {
+    if(event === 'PASSWORD_RECOVERY') {
+      isPasswordRecoveryFlow = true;
+      document.getElementById('erp-login-overlay').style.display = 'none';
+      document.getElementById('erp-recovery-overlay').style.display = 'flex';
+    }
+  });
+
+  async function submitNewPassword() {
+    const pw = document.getElementById('recovery-new-password')?.value || '';
+    const errEl = document.getElementById('recovery-error');
+    const btn = document.getElementById('recovery-submit-btn');
+    errEl.style.display = 'none';
+    if(pw.length < 6) {
+      errEl.textContent = 'Password must be at least 6 characters.';
+      errEl.style.display = 'block';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Setting…';
+    // The temporary recovery session (established automatically by the
+    // onAuthStateChange listener above catching the URL token) is what
+    // authorizes this call — updateUser() doesn't need the old password
+    // at all, which is the whole point of a recovery flow.
+    const { error } = await erpSupabase.auth.updateUser({ password: pw });
+    if(error) {
+      errEl.textContent = error.message || 'Could not set password — try the recovery link again.';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Set Password & Continue';
+      return;
+    }
+    // Password is set AND this browser already holds a valid session
+    // from the recovery flow — reloading lands straight in the app via
+    // the normal erpCheckSession() path, same as any other logged-in
+    // visit, rather than sending them back to type the password they
+    // just set.
+    location.reload();
+  }
 
   // Sep 1 2026, Sales Rep Access — set for real in erpCheckSession()
   // once a session exists. 'owner' until then is just a safe default
@@ -917,6 +1003,10 @@ input[type=number]{-moz-appearance:textfield;}
 
 
   async function erpCheckSession() {
+    // Recovery flow already has control of the screen — don't let a
+    // normal "session exists" check race it into the app before a new
+    // password is actually set. See isPasswordRecoveryFlow above.
+    if(isPasswordRecoveryFlow) return;
     const { data: { session } } = await erpSupabase.auth.getSession();
     document.getElementById('erp-login-overlay').style.display = session ? 'none' : 'flex';
     const label = document.getElementById('erp-logged-in-as');
