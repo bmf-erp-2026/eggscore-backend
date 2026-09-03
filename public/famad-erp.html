@@ -4446,8 +4446,8 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 
   <!-- MARGIN WATCH — floor & least batch cost, kept impossible to miss -->
-  <div id="dash-margin-watch" style="margin-bottom:14px"></div>
-  <div id="dash-cost-drift-chart" style="margin-bottom:14px"></div>
+  <div class="rep-hide-finance" id="dash-margin-watch" style="margin-bottom:14px"></div>
+  <div class="rep-hide-finance" id="dash-cost-drift-chart" style="margin-bottom:14px"></div>
 
   <!-- BALLPARK PROFIT PREDICTOR — collapsed by default so it doesn't
        compete with the daily at-a-glance tiles above; genuinely lives
@@ -13729,22 +13729,30 @@ function renderDashAlerts() {
     });
   });
 
-  // Credit exposure
-  const debt = getTotalDebt();
-  if(debt > 500000)
-    alerts.push({cls:'warn', msg:'📋 Credit exposure ' + fmt(debt) + ' outstanding — follow up with customers on credit.'});
+  // Credit exposure — owner-only (Sep 3 2026, Sales Rep Access). These
+  // were bundled into the same alerts array as stock/expiry warnings,
+  // which stay visible to reps since they're operationally relevant to
+  // fulfilling orders — but company-wide debt exposure figures don't
+  // belong on a rep's screen. Missed in the original dashboard pass
+  // since this whole alerts panel sits above where that pass started
+  // looking (found via a live rep-login test, not a code review).
+  if(ERP_ROLE === 'owner') {
+    const debt = getTotalDebt();
+    if(debt > 500000)
+      alerts.push({cls:'warn', msg:'📋 Credit exposure ' + fmt(debt) + ' outstanding — follow up with customers on credit.'});
 
-  // Overdue credit — same single source of truth as the Credit/Debt
-  // Register (getOutstandingCreditSales), so a fully-settled sale stops
-  // triggering this alert instead of firing forever regardless of payment.
-  const now = new Date();
-  const overdue = getOutstandingCreditSales().filter(s => {
-    const d    = new Date(s.date);
-    const days = (now - d) / 86400000;
-    return (s.payment==='credit7' && days>7) || (s.payment==='credit30' && days>30);
-  });
-  if(overdue.length)
-    alerts.push({cls:'crit', msg:`🔴 ${overdue.length} credit transaction(s) overdue — escalate to customers immediately.`});
+    // Overdue credit — same single source of truth as the Credit/Debt
+    // Register (getOutstandingCreditSales), so a fully-settled sale stops
+    // triggering this alert instead of firing forever regardless of payment.
+    const now = new Date();
+    const overdue = getOutstandingCreditSales().filter(s => {
+      const d    = new Date(s.date);
+      const days = (now - d) / 86400000;
+      return (s.payment==='credit7' && days>7) || (s.payment==='credit30' && days>30);
+    });
+    if(overdue.length)
+      alerts.push({cls:'crit', msg:`🔴 ${overdue.length} credit transaction(s) overdue — escalate to customers immediately.`});
+  }
 
   if(!alerts.length)
     alerts.push({cls:'ok', msg:'✓ All systems nominal. No alerts.'});
