@@ -19168,7 +19168,19 @@ function getLastCostPrice() {
 // ── Single source of truth: inventory = sum of all batch remaining ──
 function syncInventoryFromBatches() {
   ensureBatches();
-  return STATE.batches.reduce((sum, b) => sum + (b.remaining || 0), 0);
+  // Floor each batch's contribution at 0 (Sep 4 2026) — matches the
+  // backend's own inventory.js GET route exactly (Math.max(b.remaining,0)),
+  // which already guarded against this. A batch can never physically
+  // hold fewer than 0 crates; if one somehow has a negative `remaining`
+  // (oversold past what it ever received, or double-decremented), it
+  // should never be allowed to drag the WHOLE company total negative —
+  // that's how a single bad batch produced a company-wide "-1993 crates"
+  // reading and silently broke every price/margin panel that checks
+  // for "no active batches" (Sep 3-4 2026, found via live dashboard
+  // testing). This fixes the AGGREGATE; it does not explain or fix
+  // WHY any individual batch went negative in the first place — that's
+  // flagged separately as its own investigation, not guessed at here.
+  return STATE.batches.reduce((sum, b) => sum + Math.max(b.remaining || 0, 0), 0);
 }
 
 // ── Simulate a FIFO draw WITHOUT mutating state ──
