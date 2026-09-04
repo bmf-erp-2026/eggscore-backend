@@ -45,20 +45,42 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
   // exactly, still leaves it null rather than blocking the sale.
   const customerRow = await db.prepare('SELECT id FROM customers WHERE name = ?').get(customerName);
 
+  // Verify batchId actually exists before trusting it (Sep 4 2026) —
+  // found via a real crash: a sale created weeks ago (Justina Manilla,
+  // Gboloba Farms, Aug 22) referencing a batch (B019) that had since
+  // been cleaned up kept getting retried by the client's self-healing
+  // sync, and every retry 500'd, apparently silently, for weeks —
+  // surfaced only once someone was actually watching the Railway logs
+  // during unrelated testing. A sale's batch reference going stale
+  // over time is normal and expected (batches get depleted, written
+  // off, or deleted; sales are permanent history) — it should never
+  // be able to crash the whole insert. Falls back to null exactly like
+  // "no batch was ever specified" rather than blocking the sale or
+  // losing its other fields.
+  let safeBatchId = null;
+  if(batchId) {
+    const batchExists = await db.prepare('SELECT id FROM batches WHERE id = ?').get(batchId);
+    safeBatchId = batchExists ? batchId : null;
+  }
+
   const gross = crates * pricePerCrate;
   const info = await db.prepare(`
     INSERT INTO sales (order_ref, rep, customer_id, customer_name, crates, price_per_crate, gross, delivery_total,
       commission, batch_id, batch_cost, payment_method, sale_date, invoice_ref)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(orderRef || null, effectiveRep, customerRow?.id || null, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
-    commission || 0, batchId || null, batchCost || null, paymentMethod, saleDate || new Date().toISOString().split('T')[0], invoiceRef || null);
+    commission || 0, safeBatchId, batchCost || null, paymentMethod, saleDate || new Date().toISOString().split('T')[0], invoiceRef || null);
 
   // Real multi-batch FIFO deduction — same logic verified in the
   // SQLite version, converted to properly-awaited Postgres calls.
-  if(batchId) {
+  // Uses safeBatchId, not the raw client value — a stale/deleted batch
+  // reference should skip deduction cleanly (nothing to draw down),
+  // not silently misattribute the draw to whatever batch happens to
+  // sort first.
+  if(safeBatchId) {
     let remaining = crates;
     const batches = await db.prepare('SELECT * FROM batches WHERE remaining > 0 ORDER BY received_date ASC').all();
-    const startIdx = batches.findIndex(b => b.id === batchId);
+    const startIdx = batches.findIndex(b => b.id === safeBatchId);
     const orderedBatches = startIdx >= 0 ? batches.slice(startIdx) : batches;
     for(const b of orderedBatches) {
       if(remaining <= 0) break;
