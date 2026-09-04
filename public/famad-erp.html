@@ -1361,18 +1361,26 @@ input[type=number]{-moz-appearance:textfield;}
     // name match against a DIFFERENT rep_id means this is likely a
     // stale/duplicate local id, not a genuine new rep — flag instead
     // of silently creating a duplicate.
-    const backendRepIds = new Set(backendRows.map(r => r.rep_id).filter(Boolean));
-    const backendNames  = new Set(backendRows.map(r => (r.name||'').trim().toLowerCase()));
-    STATE.reps
-      .filter(r => r.id && !backendRepIds.has(r.id))
-      .forEach(r => {
-        if(backendNames.has((r.name||'').trim().toLowerCase())) {
-          logWarn('reps', `Possible duplicate rep skipped — ${r.name}`,
-            `Local record has id ${r.id}, which the backend doesn't recognise, but a rep named "${r.name}" already exists there under a different id. Not auto-created — needs manual review.`);
-          return;
-        }
-        postRepToBackend(r);
-      });
+    // OWNER-ONLY GUARD (Sep 3 2026, Sales Rep Access): GET /reps returns
+    // ONLY this rep's own record for a non-owner (see reps.js), not a
+    // 403 — so every OTHER rep already cached locally on this device
+    // looks exactly like "failed to sync" without this guard, flooding
+    // POST /reps with attempts that correctly 403 (creating/managing
+    // reps is owner-only) but retry forever regardless.
+    if(ERP_ROLE === 'owner') {
+      const backendRepIds = new Set(backendRows.map(r => r.rep_id).filter(Boolean));
+      const backendNames  = new Set(backendRows.map(r => (r.name||'').trim().toLowerCase()));
+      STATE.reps
+        .filter(r => r.id && !backendRepIds.has(r.id))
+        .forEach(r => {
+          if(backendNames.has((r.name||'').trim().toLowerCase())) {
+            logWarn('reps', `Possible duplicate rep skipped — ${r.name}`,
+              `Local record has id ${r.id}, which the backend doesn't recognise, but a rep named "${r.name}" already exists there under a different id. Not auto-created — needs manual review.`);
+            return;
+          }
+          postRepToBackend(r);
+        });
+    }
   }
 
   async function postSettlementToBackend(entry) {
@@ -1548,10 +1556,22 @@ input[type=number]{-moz-appearance:textfield;}
 
     saveState();
 
-    const backendEntryIds = new Set(backendRows.map(r => r.entry_id).filter(Boolean));
-    STATE.commissionPayoutLog
-      .filter(e => e.id && !backendEntryIds.has(e.id))
-      .forEach(e => postCommissionPayoutToBackend(e));
+    // Self-healing retry — same reasoning as Sales/Customers: a local
+    // entry the backend has never seen (offline at creation time, or
+    // predates this feature but was just created) needs to go out again.
+    // OWNER-ONLY GUARD (Sep 3 2026, Sales Rep Access): GET /commission-payouts
+    // returns a FILTERED subset for a rep ("own earnings only" — see
+    // commission-payouts.js), not a 403 — so without this guard, every
+    // OTHER rep's payout entries already cached locally (from an earlier
+    // owner session on this device) look exactly like "failed to sync"
+    // to this logic, triggering a flood of POSTs that correctly 403
+    // (recording a payout is owner-only) but retry forever regardless.
+    if(ERP_ROLE === 'owner') {
+      const backendEntryIds = new Set(backendRows.map(r => r.entry_id).filter(Boolean));
+      STATE.commissionPayoutLog
+        .filter(e => e.id && !backendEntryIds.has(e.id))
+        .forEach(e => postCommissionPayoutToBackend(e));
+    }
 
     if(currentModule === 'commission') renderCommission();
   }
@@ -1892,10 +1912,20 @@ input[type=number]{-moz-appearance:textfield;}
     // actually happened. Retry it now instead of leaving it silently
     // stuck until someone notices a KPI mismatch and has to go
     // hunting for it by hand — same lesson Orders already learned.
-    const backendRefs = new Set(backendSales.map(r => r.invoice_ref).filter(Boolean));
-    STATE.sales
-      .filter(s => s.inv && !backendRefs.has(s.inv))
-      .forEach(s => postSaleToBackend(s));
+    // OWNER-ONLY GUARD (Sep 3 2026, Sales Rep Access): GET /sales
+    // returns ONLY this rep's own sales for a non-owner (see sales.js),
+    // not a 403 — so every OTHER rep's sale already cached locally on
+    // this device looks exactly like "failed to sync" without this
+    // guard, triggering retries for sales that were never this rep's to
+    // begin with (a likely contributor to a live 500 seen during
+    // testing — the backend forces the sale's rep field to the caller's
+    // own identity, which is never correct for someone else's sale).
+    if(ERP_ROLE === 'owner') {
+      const backendRefs = new Set(backendSales.map(r => r.invoice_ref).filter(Boolean));
+      STATE.sales
+        .filter(s => s.inv && !backendRefs.has(s.inv))
+        .forEach(s => postSaleToBackend(s));
+    }
   }
 
   async function postCustomerToBackend(customer) {
@@ -13439,6 +13469,17 @@ function renderDashboard() {
   const el = document.getElementById('dash-month-tag');
   if(el) el.textContent = `${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`;
   document.getElementById('dash-sub').textContent = `BMF EggScore Limited · ${DAYS[now.getDay()]}, ${String(now.getDate()).padStart(2,'0')} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+
+  // Defensive re-apply (Sep 3 2026, Sales Rep Access) — found via a live
+  // rep-login test: Margin Watch / Batch Cost Drift stayed visible to a
+  // rep despite being correctly hidden right after login. Root cause
+  // never fully pinned down (this function runs repeatedly as data
+  // syncs in, and something in that cycle was winning the race against
+  // the one-time hide in erpCheckSession()) — rather than chase the
+  // exact mechanism further, applyRoleUI() is now idempotent and safe
+  // to call here every time, so correctness doesn't depend on it having
+  // "stuck" from earlier. No-ops instantly for an owner.
+  applyRoleUI();
 }
 
 function updateAllKPIs() {
@@ -17411,6 +17452,11 @@ function renderReservationIntelligence() {
   renderFlaggedReservations();
   renderOutreachQueue();
   renderBlocklist();
+
+  // Defensive re-apply (Sep 3 2026, Sales Rep Access) — see renderDashboard()
+  // for why this pattern is needed rather than relying on the one-time
+  // hide at login alone.
+  applyRoleUI();
 }
 
 function renderAbuseSettingsFields() {
@@ -17744,6 +17790,9 @@ function renderCustomerScorecard() {
   renderOrderPolicies();
   renderFeedbackReview();
   renderRespectRecordForm(customers);
+
+  // Defensive re-apply (Sep 3 2026, Sales Rep Access) — see renderDashboard().
+  applyRoleUI();
 }
 
 function renderLoyaltySettingsFields() {
@@ -23114,6 +23163,9 @@ function renderLogistics() {
   renderReadyForWaybill();
   renderInTransitPanel();
   renderWaybillLog();
+
+  // Defensive re-apply (Sep 3 2026, Sales Rep Access) — see renderDashboard().
+  applyRoleUI();
 }
 
 function setVal(id, val) {
