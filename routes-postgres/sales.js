@@ -63,12 +63,27 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
     safeBatchId = batchExists ? batchId : null;
   }
 
+  // Same reasoning, different column — Sep 5 2026. The Railway logs
+  // showed the SAME stuck sale still crashing after the batch fix
+  // shipped, but on a DIFFERENT foreign key entirely:
+  // "sales_order_ref_fkey", not the batch one. order_ref references
+  // orders.ref, and this sale's originating order no longer exists
+  // there (same story as the batch — old records move on). A sale is
+  // permanent history independent of whether its originating order
+  // record still exists; that link going stale should never be able
+  // to block the sale itself.
+  let safeOrderRef = null;
+  if(orderRef) {
+    const orderExists = await db.prepare('SELECT ref FROM orders WHERE ref = ?').get(orderRef);
+    safeOrderRef = orderExists ? orderRef : null;
+  }
+
   const gross = crates * pricePerCrate;
   const info = await db.prepare(`
     INSERT INTO sales (order_ref, rep, customer_id, customer_name, crates, price_per_crate, gross, delivery_total,
       commission, batch_id, batch_cost, payment_method, sale_date, invoice_ref)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(orderRef || null, effectiveRep, customerRow?.id || null, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
+  `).run(safeOrderRef, effectiveRep, customerRow?.id || null, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
     commission || 0, safeBatchId, batchCost || null, paymentMethod, saleDate || new Date().toISOString().split('T')[0], invoiceRef || null);
 
   // Real multi-batch FIFO deduction — same logic verified in the
