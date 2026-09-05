@@ -26,6 +26,35 @@ router.patch('/selling-price', requireSupabaseAuth(), requireRole('owner'), asyn
   res.json({ ok: true, price });
 });
 
+// Read is open to either auth, same reasoning and same pattern as
+// selling-price above — order policies are published content shown
+// directly to customers on the portal (each one adhered to earns bonus
+// respect points), not internal configuration, so the portal's own
+// shared key needs to read this too, not just ERP staff of any role.
+// Write is owner-only — changing what's published to customers is a
+// business decision. Added Sep 4 2026: this route was referenced by
+// the ERP client (syncOrderPoliciesFromBackend()) but had never
+// actually been built — a genuine pre-existing gap, unrelated to the
+// Sales Rep Access work, caught via a live 404 in the console.
+router.get('/order-policies', requireEitherAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'order_policies'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+
+router.patch('/order-policies', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('order_policies', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(settings), updatedBy || null);
+  res.json({ ok: true, settings });
+});
+
 // ERP-only — full loyaltySettings object (referral/feedback/communication/
 // respect point values + level thresholds). Unlike selling-price, the
 // portal never needs to read this directly — it's Bob's own internal
