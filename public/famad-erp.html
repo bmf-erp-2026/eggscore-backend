@@ -1002,6 +1002,22 @@ input[type=number]{-moz-appearance:textfield;}
   }
 
 
+  // Extracted so it can be called defensively on a timer, not just once
+  // at login/session-check (Sep 6 2026) — after a long, inconclusive
+  // hunt for exactly what clears/fails-to-set this label (confirmed via
+  // live DOM-breakpoint debugging that it isn't any of the usual
+  // suspects — no CSS animation, no wholesale re-render, no duplicate
+  // ID), the pragmatic fix is to keep re-asserting it from the actual
+  // current session rather than trust a single one-time set to stick.
+  // Harmless to call repeatedly — it's just a read + a textContent set.
+  async function refreshLoggedInLabel() {
+    const label = document.getElementById('erp-logged-in-as');
+    if(!label) return;
+    const { data: { session } } = await erpSupabase.auth.getSession();
+    label.textContent = session?.user?.email || '';
+  }
+  setInterval(refreshLoggedInLabel, 4000);
+
   async function erpCheckSession() {
     // Recovery flow already has control of the screen — don't let a
     // normal "session exists" check race it into the app before a new
@@ -1009,8 +1025,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(isPasswordRecoveryFlow) return;
     const { data: { session } } = await erpSupabase.auth.getSession();
     document.getElementById('erp-login-overlay').style.display = session ? 'none' : 'flex';
-    const label = document.getElementById('erp-logged-in-as');
-    if(label) label.textContent = session?.user?.email || '';
+    refreshLoggedInLabel();
     // ERP_ROLE (Sep 1 2026, Sales Rep Access) — read the SAME way the
     // backend does (app_metadata.role, default 'owner'), so the two
     // never disagree about who's logged in as what. This is a UI
