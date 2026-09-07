@@ -4620,9 +4620,9 @@ input[type=number]{-moz-appearance:textfield;}
 
   <div class="kpi-strip-4">
     <div class="kc c1"><div class="kc-label">Crates MTD</div><div class="kc-val" id="sl-crates">—</div><div class="kc-sub">sold this month</div></div>
-    <div class="kc c2"><div class="kc-label">Revenue MTD</div><div class="kc-val" id="sl-rev">—</div><div class="kc-sub">gross</div></div>
+    <div class="kc c2 rep-hide-finance"><div class="kc-label">Revenue MTD</div><div class="kc-val" id="sl-rev">—</div><div class="kc-sub">gross</div></div>
     <div class="kc c3"><div class="kc-label">Avg Price</div><div class="kc-val" id="sl-avg">—</div><div class="kc-sub">per crate blended</div></div>
-    <div class="kc c4"><div class="kc-label">Outstanding</div><div class="kc-val" id="sl-debt">₦0</div><div class="kc-sub">credit unpaid</div></div>
+    <div class="kc c4 rep-hide-finance"><div class="kc-label">Outstanding</div><div class="kc-val" id="sl-debt">₦0</div><div class="kc-sub">credit unpaid</div></div>
   </div>
 
   <!-- QUICK ENTRY PANEL — field-optimised, hidden by default -->
@@ -4746,6 +4746,7 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 
   <!-- PRICE MANAGEMENT PANEL — syncs to portal -->
+  <div class="rep-hide-finance">
   <div class="panel" id="price-mgmt-panel">
     <div class="panel-hdr">
       <div class="panel-title">Current Selling Price</div>
@@ -4960,6 +4961,7 @@ input[type=number]{-moz-appearance:textfield;}
       <div id="hold-window-settings" style="margin-top:10px"></div>
     </div>
   </div>
+  </div>
 
   <!-- RECORD SALE FORM -->
   <div class="panel">
@@ -5134,6 +5136,7 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 
   <!-- DISTRIBUTION PRICING MODEL — replaces the old Zone A/B/C config -->
+  <div class="rep-hide-finance">
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">🚚 Distribution Pricing Model</div>
@@ -5159,6 +5162,7 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="btn btn-primary" onclick="saveDistributionPricing()">Save Distribution Pricing</button>
       <div id="dp-settings-status" style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px"></div>
     </div>
+  </div>
   </div>
 
   <!-- DELIVERY VOLUME ANALYSIS — real order history, not assumption -->
@@ -13851,6 +13855,11 @@ function renderSales() {
   renderDistributionPricingSettings();
   renderDeliveryVolumeAnalysis();
   computeSale();
+
+  // Defensive re-apply (Sep 6 2026, Sales Rep Access) — see renderDashboard()
+  // for why this pattern is needed rather than relying on the one-time
+  // hide at login alone.
+  applyRoleUI();
 }
 
 function goToLedgerPage(page) { paginationState['ledger'] = page; renderLedger(); }
