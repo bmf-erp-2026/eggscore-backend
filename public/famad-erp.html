@@ -10681,7 +10681,7 @@ function quickEntrySave() {
 
   setTimeout(() => {
     const invEl = document.getElementById('s-inv');
-    if(invEl && !invEl.value) autoInvRef();
+    if(invEl && !invEl.value) invEl.value = autoInvRef();
     runSaleErrorChecks();
     handleSave();
     setTimeout(() => {
@@ -13385,12 +13385,22 @@ function handleSave() {
 }
 
 function autoInvRef() {
-  const n = STATE.sales.length + 1;
-  return 'BEL-INV-' + String(n).padStart(4,'0');
+  // Timestamp-based, matching the format used everywhere else in this
+  // app (BEL-ORD-YYMMDD-HHMMSS, BEL-INV-YYMMDD-HHMMSS from real portal
+  // orders) — Sep 7 2026 fix. The old scheme (local sales-array length
+  // + 1) was a per-device counter: two different devices with different
+  // local caches could independently compute the exact same ref for
+  // two entirely different sales, since neither device knows the
+  // other's count. A timestamp is unique on its own, no coordination
+  // between devices required.
+  const now = new Date();
+  const p = n => String(n).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(2);
+  return `BEL-INV-${yy}${p(now.getMonth()+1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
 }
 
 function clearSaleForm() {
-  ['s-crates','s-mtd'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['s-crates','s-mtd','s-inv'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const sp = document.getElementById('s-price');
   if(sp) { sp.value = getCurrentSellingPrice(); delete sp.dataset.touched; }
   // Release any portal-order field locks
