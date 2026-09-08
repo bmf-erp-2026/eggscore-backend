@@ -4708,6 +4708,7 @@ input[type=number]{-moz-appearance:textfield;}
           <div style="text-align:center">
             <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">PRICE/CRATE</div>
             <div id="qe-price" style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--cream)">—</div>
+            <div id="qe-discount-note" style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--lime);display:none"></div>
           </div>
           <div style="text-align:center">
             <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">GROSS (EGG)</div>
@@ -10618,8 +10619,16 @@ function qeSelectPayment(p) {
 }
 
 function qeCompute() {
-  const price  = getCurrentSellingPrice();
+  const basePrice = getCurrentSellingPrice();
   const crates = qeState.crates || 0;
+  // Auto-applied volume discount (Sep 7 2026, Bob's confirmed direction:
+  // Quick Entry gets the SAME curve the customer portal already uses —
+  // getProgressiveDiscountPerCrate() — auto-applied by crate count, no
+  // manual price field. This closes the gap where a rep entering a
+  // sale through Quick Entry had no way to honor a volume discount at
+  // all, unlike the full Record Sale form's editable price field.
+  const discountPerCrate = getProgressiveDiscountPerCrate(crates);
+  const price = basePrice - discountPerCrate;
   const gross  = crates * price;
   const {tier, rate} = getTier(crates);
   const comm   = crates * rate;
@@ -10635,7 +10644,19 @@ function qeCompute() {
   const dEl = document.getElementById('qe-delivery');
   const tEl = document.getElementById('qe-total');
   const cEl = document.getElementById('qe-comm');
+  const discEl = document.getElementById('qe-discount-note');
   if(pEl) pEl.textContent = '₦' + price.toLocaleString();
+  // Never silently apply a different price than the published one
+  // without saying so — same transparency standard as every other
+  // price-affecting change this session (promos, payment terms).
+  if(discEl) {
+    if(discountPerCrate > 0) {
+      discEl.style.display = 'block';
+      discEl.textContent = `₦${basePrice.toLocaleString()} − ₦${discountPerCrate}/crate volume`;
+    } else {
+      discEl.style.display = 'none';
+    }
+  }
   if(gEl) gEl.textContent = fmt(gross);
   if(dEl) dEl.textContent = fmt(deliveryTotal);
   if(tEl) tEl.textContent = fmt(totalPayable);
@@ -10677,7 +10698,11 @@ function quickEntrySave() {
   if(custSel) { custSel.value = customer; autoPopulateOrderRef(customer); }
 
   const priceEl = document.getElementById('s-price');
-  if(priceEl) { priceEl.value = getCurrentSellingPrice(); delete priceEl.dataset.touched; }
+  // Same volume-discount curve as the preview in qeCompute() — the
+  // ACTUAL saved price must match what was shown, never a different
+  // (undiscounted) number silently substituted at save time.
+  const discountedPrice = getCurrentSellingPrice() - getProgressiveDiscountPerCrate(qeState.crates);
+  if(priceEl) { priceEl.value = discountedPrice; delete priceEl.dataset.touched; }
 
   setTimeout(() => {
     const invEl = document.getElementById('s-inv');
