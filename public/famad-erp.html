@@ -10684,19 +10684,13 @@ function quickEntrySave() {
   }
   if(errEl) errEl.style.display='none';
 
-  // Pre-fill main Sales Log form fields then invoke handleSave().
-  // ORDER MATTERS (Sep 7 2026 fix): autoPopulateOrderRef() must run
-  // BEFORE crates/price are set, not after — for a walk-in Quick Entry
-  // sale (no matching portal order, which is the normal case), it falls
-  // into releaseLockedOrderFields(), which wipes s-crates back to ''
-  // and resets s-price to the undiscounted selling price. Previously
-  // that call sat in the middle of this function, silently erasing the
-  // crate count Quick Entry had just set and forcing a manual re-entry
-  // — which then triggered the full form's own price computation
-  // (unaware of Quick Entry's volume discount), erasing the discount
-  // too. Running the customer/order lookup first means any reset it
-  // triggers happens before Quick Entry's own values are written, not
-  // after.
+  // Capture Quick Entry's own values FIRST, before anything else runs —
+  // qeState itself won't be touched by any of the form logic below, but
+  // capturing now means these two lines are the single source of truth
+  // for what gets written, however this function evolves later.
+  const capturedCrates = qeState.crates;
+  const capturedPrice  = getCurrentSellingPrice() - getProgressiveDiscountPerCrate(capturedCrates);
+
   const repSel = document.getElementById('s-rep');
   if(repSel) { repSel.value = rep; updateRepInfo(); }
 
@@ -10706,17 +10700,23 @@ function quickEntrySave() {
   const today = new Date().toISOString().split('T')[0];
   const setV  = (id, val) => { const el=document.getElementById(id); if(el) el.value=val; };
   setV('s-date',    today);
-  setV('s-crates',  qeState.crates);
   setV('s-payment', qeState.payment || '');
 
-  const priceEl = document.getElementById('s-price');
-  // Same volume-discount curve as the preview in qeCompute() — the
-  // ACTUAL saved price must match what was shown, never a different
-  // (undiscounted) number silently substituted at save time.
-  const discountedPrice = getCurrentSellingPrice() - getProgressiveDiscountPerCrate(qeState.crates);
-  if(priceEl) { priceEl.value = discountedPrice; delete priceEl.dataset.touched; }
-
   setTimeout(() => {
+    // Re-asserted here, deliberately, as the LAST thing written before
+    // handleSave() reads them (Sep 7 2026 fix, round 2) — moving
+    // autoPopulateOrderRef() earlier in the function (the first fix)
+    // turned out not to be the whole story; something in this same
+    // 150ms window was still able to wipe s-crates/s-price back to
+    // blank/undiscounted before handleSave() ran, forcing a manual
+    // re-entry in the Sales Ledger every time. Rather than keep
+    // chasing the exact remaining cause, these two lines are now the
+    // unconditional last word — nothing runs between this and
+    // handleSave() that could touch either field again.
+    setV('s-crates', capturedCrates);
+    const priceEl = document.getElementById('s-price');
+    if(priceEl) { priceEl.value = capturedPrice; delete priceEl.dataset.touched; }
+
     const invEl = document.getElementById('s-inv');
     if(invEl && !invEl.value) invEl.value = autoInvRef();
     runSaleErrorChecks();
