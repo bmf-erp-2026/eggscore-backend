@@ -4552,6 +4552,12 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="kc-sub">dispatched</div>
       <div class="kc-delta d-ne" id="d-sold-d">month to date</div>
     </div>
+    <div class="kc c3">
+      <div class="kc-label">Crates Sold YTD</div>
+      <div class="kc-val" id="d-sold-ytd">—</div>
+      <div class="kc-sub">dispatched</div>
+      <div class="kc-delta d-ne" id="d-sold-ytd-d">year to date</div>
+    </div>
     <div class="kc c4 rep-hide-finance">
       <div class="kc-label">Outstanding Debt</div>
       <div class="kc-val" id="d-debt">—</div>
@@ -10194,6 +10200,15 @@ function getMonthSales() {
   return STATE.sales.filter(s => s.date.startsWith(prefix));
 }
 
+// Sep 7 2026 — Bob's request: MTD alone couldn't answer "how many
+// crates have we sold this year", only this month. Same prefix-match
+// pattern as getMonthSales(), just at year granularity.
+function getYearSales() {
+  const prefix = String(new Date().getFullYear());
+  return STATE.sales.filter(s => s.date.startsWith(prefix));
+}
+function getTotalCratesYTD() { return getYearSales().reduce((a,s) => a + s.crates, 0); }
+
 function getRepMTD(repName) {
   return getMonthSales().filter(s => s.rep === repName).reduce((a,s) => a + s.crates, 0);
 }
@@ -13554,6 +13569,7 @@ function updateAllKPIs() {
   const stock = STATE.inventory.main;
   const rev   = getTotalRevMTD();
   const sold  = getTotalCratesMTD();
+  const soldYTD = getTotalCratesYTD();
   const debt  = getTotalDebt();
   const comm  = getTotalCommMTD();
 
@@ -13589,6 +13605,7 @@ function updateAllKPIs() {
   setKPI('d-stock', stock, stockLabel, stockClass);
   setKPI('d-rev', fmtK(rev));
   setKPI('d-sold', sold, MONTHS_FULL[new Date().getMonth()], 'd-ne');
+  setKPI('d-sold-ytd', soldYTD, String(new Date().getFullYear()), 'd-ne');
   setKPI('d-sold-today', soldToday, dayDeltaLabel, dayDeltaClass);
   setKPI('d-debt', fmtK(debt), debt>0?'follow up':'clear', debt>0?'d-dn':'d-ne');
   setKPI('d-comm', fmtK(comm));
