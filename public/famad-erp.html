@@ -4102,6 +4102,7 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="modal-close" onclick="closeModal('modal-batch-viewer')">✕</button>
     </div>
     <div style="padding:0 20px 10px">
+      <div id="batch-viewer-summary" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--teal);margin-bottom:10px;padding:8px 10px;background:var(--raised);border-radius:6px"></div>
       <input class="form-input" id="batch-viewer-search" placeholder="🔍 Search supplier, batch ID, or date…" style="padding:4px 8px;font-size:10px;height:28px;width:100%" oninput="renderBatchViewer()"/>
     </div>
     <div id="batch-viewer-body"></div>
@@ -19860,6 +19861,22 @@ function renderBatchViewer() {
   if(!el) return;
   const current  = getFIFOBatch();
   const lastSell = getCurrentSellingPrice();
+
+  // Grand-total counter (Sep 7 2026, Bob's request) — deliberately
+  // computed from the FULL STATE.batches array, not whatever the search
+  // box has currently filtered down to, and floored per batch exactly
+  // the same way syncInventoryFromBatches() is (Math.max(remaining,0)).
+  // The whole point is a number Bob can eyeball against the Command
+  // Centre's Stock On-Hand figure — if the two ever disagree, that's
+  // the same class of red flag the -1993 batch bug was, caught here
+  // instead of only showing up as a broken dashboard days later.
+  const summaryEl = document.getElementById('batch-viewer-summary');
+  if(summaryEl) {
+    const activeBatches = STATE.batches.filter(b => (b.remaining || 0) > 0);
+    const totalRemaining = STATE.batches.reduce((sum, b) => sum + Math.max(b.remaining || 0, 0), 0);
+    summaryEl.textContent = `📦 Total Remaining: ${totalRemaining.toLocaleString()} crates across ${activeBatches.length} active batch${activeBatches.length===1?'':'es'} (${STATE.batches.length} on record) — should match Command Centre's Stock On-Hand`;
+  }
+
   const batchSearch = (document.getElementById('batch-viewer-search')?.value || '').trim().toLowerCase();
   const batches = batchSearch
     ? STATE.batches.filter(b => (b.supplier||'').toLowerCase().includes(batchSearch) || (b.id||'').toLowerCase().includes(batchSearch) || (b.date||'').toLowerCase().includes(batchSearch))
