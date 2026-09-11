@@ -993,6 +993,7 @@ const MESSAGES = {
     bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> to:<br/>🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited`,
     bankStep2: (ref) => `Use <strong>${ref}</strong> as your narration/reference.`,
     bankStep3: () => `<strong style="color:var(--sun)">Do not pay to any other account.</strong> BMF EggScore Limited's verified account is the only one above.`,
+    escrowNotice: () => `Except cash, all transactions are interbank related. Please contact your bank for all transfer clarifications held in escrow.`,
     committedNote: (committed) => `${committed} crates held for pending orders`,
     maxAvailable: (available) => `Max: ${available} crates available to order`,
   },
@@ -1032,6 +1033,13 @@ const MESSAGES = {
     bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> go:<br/>🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited`,
     bankStep2: (ref) => `Use <strong>${ref}</strong> as your transfer gist.`,
     bankStep3: () => `<strong style="color:var(--sun)">No pay enter any other akant.</strong> Na only the one wey dey up there don clear as BMF EggScore Limited's akant.`,
+    // TODO(Bob): English text only for now, Sep 7 2026 — needs proper
+    // Pidgin wording, same register as the vocabulary pass earlier
+    // (bonus mark, awoof, etc.), not a plain English fallback. Bob's
+    // own words on the earlier Pidgin build stand as the reason this
+    // wasn't guessed: he rejected a first pass as "textbook Pidgin...
+    // no street tone at all."
+    escrowNotice: () => `Except cash, all transactions are interbank related. Please contact your bank for all transfer clarifications held in escrow.`,
     committedNote: (committed) => `${committed} crates, naim we keep for who fes you buy`,
     maxAvailable: (available) => `Max: ${available} crates wey dey available make you order`,
   },
@@ -3363,7 +3371,10 @@ function showSuccess(order, paid) {
       </div></div>
       <div class="pi-step"><div class="pi-num">3</div><div class="pi-text">
         ${T().bankStep3()}
-      </div></div>`;
+      </div></div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">
+        ${T().escrowNotice()}
+      </div>`;
   }
 
   // Follow-up / payment complaint channel — deliberately NOT a re-announcement
