@@ -5938,6 +5938,14 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="panel-hdr"><div class="panel-title">Result</div><div class="panel-tag">Revenue − COGS − Depreciation − Other Costs</div></div>
     <div class="panel-body" id="pnl-result-section"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Break-Even &amp; Inventory Turnover</div>
+      <div class="panel-tag">same period as above — set it to "This Month" for a monthly break-even figure</div>
+    </div>
+    <div class="panel-body" id="pnl-sustainability-section"></div>
+  </div>
 </div>
 
 <!-- ════ MODULE: RESERVATION INTELLIGENCE ═════════════════════════════ -->
@@ -17409,6 +17417,80 @@ function renderPnL() {
         Progressive build — Revenue, COGS, and Commission are real, pulled from Sales Log. Depreciation is real math off whatever's in the Fixed Assets table.
         Anything in Other Cost Elements is only as complete as what's been added — a ₦0 total there means nothing's been entered yet, not that there's nothing to pay.
         Hover any line above for its exact composition.
+      </div>`;
+  }
+
+  // ── Break-Even & Inventory Turnover (Sep 7 2026) — built off the exact
+  // same period figures already computed above, nothing re-entered. ──
+  const sustEl = document.getElementById('pnl-sustainability-section');
+  if(sustEl) {
+    const cratesSoldInPeriod = salesInPeriod.reduce((sum,s) => sum + (s.crates||0), 0);
+    const pricePerCrate = getCurrentSellingPrice();
+
+    // Break-even: fixed costs (depreciation + other elements — these
+    // don't scale with crates sold) against the margin per crate
+    // (price minus the REAL blended variable cost per crate — batch
+    // cost AND commission both scale with volume, so both belong on
+    // the variable side, not just batch cost alone).
+    const fixedCostsInPeriod = round2(totalDepreciation + totalCustom);
+    const variableCostPerCrate = cratesSoldInPeriod > 0
+      ? round2((cogs + commission) / cratesSoldInPeriod)
+      : round2(getLastCostPrice() || 0);
+    const marginPerCrate = round2(pricePerCrate - variableCostPerCrate);
+    const breakEvenCrates = marginPerCrate > 0 ? Math.ceil(fixedCostsInPeriod / marginPerCrate) : null;
+
+    // Inventory turnover: crates sold ÷ average inventory. No historical
+    // daily stock snapshots exist to know the REAL beginning inventory
+    // for an arbitrary date range, so it's reconstructed algebraically
+    // from what changed (ending = beginning + received − sold) — this
+    // does NOT account for write-offs/damage during the period, which
+    // also reduce stock without being a sale. Flagged in the UI, not
+    // hidden.
+    const receivedInPeriod = STATE.batches
+      .filter(b => b.receivedDate >= from && b.receivedDate <= to)
+      .reduce((sum,b) => sum + (b.received||0), 0);
+    const endingInventory = STATE.inventory.main;
+    const beginningInventory = endingInventory - receivedInPeriod + cratesSoldInPeriod;
+    const averageInventory = round2((beginningInventory + endingInventory) / 2);
+    const turnoverRatio = averageInventory > 0 ? round2(cratesSoldInPeriod / averageInventory) : null;
+
+    sustEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">Break-Even</div>
+          <table class="data-table"><tbody>
+            <tr><td>Fixed Costs (Depreciation + Other, this period)</td><td class="mono">₦${fixedCostsInPeriod.toLocaleString()}</td></tr>
+            <tr><td>Price per Crate</td><td class="mono">₦${pricePerCrate.toLocaleString()}</td></tr>
+            <tr><td>Variable Cost per Crate (batch cost + commission, blended)</td><td class="mono">₦${variableCostPerCrate.toLocaleString()}</td></tr>
+            <tr><td>Margin per Crate</td><td class="mono" style="color:${marginPerCrate>=0?'var(--lime)':'var(--red)'}">₦${marginPerCrate.toLocaleString()}</td></tr>
+          </tbody></table>
+          <div style="margin-top:10px;padding:12px 14px;background:var(--raised);border-radius:8px">
+            ${breakEvenCrates !== null ? `
+              <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:var(--teal)">${breakEvenCrates.toLocaleString()} crates</span>
+              <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px">needed in this period to cover fixed costs — set the period above to "This Month" for a monthly figure</div>
+            ` : `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--red)">Margin per crate is zero or negative — break-even isn't reachable at the current price/cost, no crate count would cover it.</div>`}
+          </div>
+        </div>
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">Inventory Turnover</div>
+          <table class="data-table"><tbody>
+            <tr><td>Crates Sold (this period)</td><td class="mono">${cratesSoldInPeriod.toLocaleString()}</td></tr>
+            <tr><td>Crates Received (this period)</td><td class="mono">${receivedInPeriod.toLocaleString()}</td></tr>
+            <tr><td>Reconstructed Beginning Inventory</td><td class="mono">${beginningInventory.toLocaleString()}</td></tr>
+            <tr><td>Ending Inventory (current)</td><td class="mono">${endingInventory.toLocaleString()}</td></tr>
+            <tr><td>Average Inventory</td><td class="mono">${averageInventory.toLocaleString()}</td></tr>
+          </tbody></table>
+          <div style="margin-top:10px;padding:12px 14px;background:var(--raised);border-radius:8px">
+            ${turnoverRatio !== null ? `
+              <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:var(--teal)">${turnoverRatio}×</span>
+              <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:2px">higher = less spoilage risk, stock moving faster relative to what's on hand</div>
+            ` : `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Not enough inventory data in this period to compute a ratio.</div>`}
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
+            Beginning inventory is reconstructed (ending − received + sold), not from an actual historical snapshot — this app doesn't record daily stock levels.
+            Any write-offs/damage during the period aren't accounted for in that reconstruction, so treat this as a close approximation, not an exact figure.
+          </div>
+        </div>
       </div>`;
   }
 }
