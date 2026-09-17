@@ -5946,6 +5946,14 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="panel-body" id="pnl-sustainability-section"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Return on Investment</div>
+      <div class="panel-tag">Net Profit ÷ Total Investment × 100 — trend is always monthly, independent of the period picker above</div>
+    </div>
+    <div class="panel-body" id="pnl-roi-section"></div>
+  </div>
 </div>
 
 <!-- ════ MODULE: RESERVATION INTELLIGENCE ═════════════════════════════ -->
@@ -17079,10 +17087,18 @@ function ensurePnLData() {
         { id:'fa1', name:'Ford Transit T250 Van', cost:16000000, usefulLifeYears:5, purchaseDate:'2026-01-01', method:'straight-line' },
       ],
       customCostElements: [],
+      totalInvestment: 0,
     };
   }
   if(!STATE.pnl.fixedAssets) STATE.pnl.fixedAssets = [];
   if(!STATE.pnl.customCostElements) STATE.pnl.customCostElements = [];
+  // Sep 7 2026 — added for ROI. Distinct check from the array guards
+  // above: 0 is a genuinely valid (if unhelpful) value, so this must
+  // check for the key's absence specifically, not falsiness, or an
+  // owner-entered 0 would get silently overwritten back to 0 forever
+  // (harmless here since 0 either way, but the wrong pattern to copy
+  // if this field's default ever becomes non-zero).
+  if(STATE.pnl.totalInvestment === undefined) STATE.pnl.totalInvestment = 0;
   return STATE.pnl;
 }
 
@@ -17267,6 +17283,27 @@ document.addEventListener('pointerout', (e) => {
   if(goingTo && (host.contains(goingTo) || goingTo.closest?.('#global-metric-tooltip'))) return;
   document.getElementById('global-metric-tooltip').style.display = 'none';
 }, true);
+
+// Pure function of (from, to) — reuses the exact same formula and
+// per-item helpers renderPnL()'s own Result section uses (Sep 7 2026),
+// so a historical trend can never drift from what the live P&L
+// Calculator itself would show for that same range. No DOM access,
+// safe to call for arbitrary past periods without touching the
+// on-screen period picker.
+function computeNetProfitForPeriod(from, to) {
+  const pnl = ensurePnLData();
+  const salesInPeriod = STATE.sales.filter(s => s.date >= from && s.date <= to);
+  const eggRevenue = round2(salesInPeriod.reduce((sum,s) => sum + (s.gross||0), 0));
+  const deliveryRevenue = round2(salesInPeriod.reduce((sum,s) => sum + (s.deliveryTotal||0), 0));
+  const totalRevenue = round2(eggRevenue + deliveryRevenue);
+  const cogs = round2(salesInPeriod.reduce((sum,s) => sum + ((s.batchCost||0) * (s.crates||0)), 0));
+  const commission = round2(salesInPeriod.reduce((sum,s) => sum + (s.comm||0), 0));
+  const totalDepreciation = round2(pnl.fixedAssets.reduce((sum,a) => sum + getAssetDepreciationForPeriod(a, from, to), 0));
+  const totalCustom = round2(pnl.customCostElements.reduce((sum,c) => sum + getCustomElementValueForPeriod(c, from, to), 0));
+  const grossProfit = round2(totalRevenue - cogs);
+  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom);
+  return round2(grossProfit - totalOperatingCosts);
+}
 
 function renderPnL() {
   ensurePnLData();
@@ -17493,6 +17530,73 @@ function renderPnL() {
         </div>
       </div>`;
   }
+
+  // ── Return on Investment (Sep 7 2026) — Total Investment is the one
+  // figure nothing in this app can derive on its own (only the owner
+  // knows real capital put in), so it's a manual, persisted input.
+  // The trend is deliberately calendar-month-based and independent of
+  // the period picker above — a ROI trend spanning arbitrary custom
+  // ranges wouldn't mean much lined up next to each other. ──
+  const roiEl = document.getElementById('pnl-roi-section');
+  if(roiEl) {
+    const pnl = ensurePnLData();
+    const totalInvestment = pnl.totalInvestment || 0;
+    const roiPct = totalInvestment > 0 ? round2((netProfit / totalInvestment) * 100) : null;
+
+    // Last 6 real calendar months, oldest first — each computed fresh
+    // via computeNetProfitForPeriod(), never cached, so this can never
+    // silently go stale relative to the live sales/cost data.
+    const trendMonths = [];
+    const now = new Date();
+    for(let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthFrom = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+      const lastDay = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+      const monthTo = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+      const monthNetProfit = computeNetProfitForPeriod(monthFrom, monthTo);
+      const monthRoi = totalInvestment > 0 ? round2((monthNetProfit / totalInvestment) * 100) : 0;
+      trendMonths.push({ label: MONTHS[d.getMonth()], roi: monthRoi });
+    }
+    const maxAbsRoi = Math.max(1, ...trendMonths.map(m => Math.abs(m.roi)));
+
+    roiEl.innerHTML = `
+      <div style="display:flex;gap:14px;align-items:end;margin-bottom:16px;flex-wrap:wrap">
+        <div>
+          <label class="form-label">Total Investment (₦)</label>
+          <input class="form-input" type="number" id="pnl-total-investment" value="${totalInvestment}" style="width:180px" onchange="saveTotalInvestment()"/>
+        </div>
+        <div style="padding:10px 16px;background:var(--raised);border-radius:8px">
+          ${roiPct !== null ? `
+            <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:${roiPct>=0?'var(--teal)':'var(--red)'}">${roiPct}%</span>
+            <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-left:6px">this period · Net Profit ₦${netProfit.toLocaleString()} ÷ ₦${totalInvestment.toLocaleString()}</span>
+          ` : `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Enter Total Investment to see ROI%</span>`}
+        </div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:8px">Monthly ROI% trend — last 6 calendar months</div>
+      <div style="display:flex;align-items:flex-end;gap:10px;height:90px">
+        ${trendMonths.map(m => {
+          const heightPct = Math.round((Math.abs(m.roi) / maxAbsRoi) * 100);
+          const barColor = m.roi >= 0 ? 'var(--teal)' : 'var(--red)';
+          return `
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end">
+              <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:${barColor};margin-bottom:2px">${m.roi}%</div>
+              <div style="width:100%;max-width:32px;height:${Math.max(heightPct,3)}%;background:${barColor};border-radius:3px 3px 0 0"></div>
+              <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:4px">${m.label}</div>
+            </div>`;
+        }).join('')}
+      </div>
+      ${totalInvestment === 0 ? `<div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Bars above show 0% until Total Investment is set — the underlying monthly Net Profit is real either way.</div>` : ''}
+    `;
+  }
+}
+
+function saveTotalInvestment() {
+  const el = document.getElementById('pnl-total-investment');
+  if(!el) return;
+  const pnl = ensurePnLData();
+  pnl.totalInvestment = parseFloat(el.value) || 0;
+  saveState();
+  renderPnL();
 }
 
 function renderReservationIntelligence() {
