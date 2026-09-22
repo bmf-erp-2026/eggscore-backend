@@ -17744,15 +17744,33 @@ function renderPnL() {
       const inflow = round2((STATE.settlementLog || [])
         .filter(l => !l.reversedAt && l.action !== 'reversed' && !WALLET_METHODS.includes(l.method) && (l.at||'').startsWith(dayStr))
         .reduce((sum,l) => sum + (l.amount||0), 0));
-      const outflow = round2(STATE.batches
+      const supplierOutflow = round2(STATE.batches
         .filter(b => (b.date||'').startsWith(dayStr))
         .reduce((sum,b) => sum + ((b.cost||0) * (b.qty||0)), 0));
-      days.push({ label: `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`, inflow, outflow, net: round2(inflow - outflow) });
+      // Fuel — Sep 22 2026, moved from a monthly template guess to a real
+      // usage-day outflow, Bob's own call: "the fuel should be computed
+      // as a usage-day outflow, not a separate item." Every waybill,
+      // delivery AND pickup, already computes a real fuelCost (distance
+      // × the current fuel price/litre) — no reason to keep guessing a
+      // flat monthly figure when the dated real number already exists
+      // on every single trip. Summed across BOTH waybill sources,
+      // same "both count as trips" precedent as the driver wage model.
+      const deliveryFuel = loadOrders()
+        .filter(o => o.waybill && (o.waybill.generatedAt||'').startsWith(dayStr))
+        .reduce((sum,o) => sum + (o.waybill.costs?.fuelCost||0), 0);
+      const pickupFuel = STATE.batches
+        .filter(b => b.pickupWaybill && (b.pickupWaybill.generatedAt||'').startsWith(dayStr))
+        .reduce((sum,b) => sum + (b.pickupWaybill.costs?.fuelCost||0), 0);
+      const fuelOutflow = round2(deliveryFuel + pickupFuel);
+      const outflow = round2(supplierOutflow + fuelOutflow);
+      days.push({ label: `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`, inflow, supplierOutflow, fuelOutflow, outflow });
     }
     const totalInflow14 = round2(days.reduce((s,d) => s + d.inflow, 0));
-    const totalOutflow14 = round2(days.reduce((s,d) => s + d.outflow, 0));
+    const totalSupplier14 = round2(days.reduce((s,d) => s + d.supplierOutflow, 0));
+    const totalFuel14 = round2(days.reduce((s,d) => s + d.fuelOutflow, 0));
+    const totalOutflow14 = round2(totalSupplier14 + totalFuel14);
     const maxAbsNet = Math.max(1, ...days.map(d => Math.max(d.inflow, d.outflow)));
-    const monthlyRecurring = round2(cf.monthlySalary + cf.monthlyFuel + cf.monthlyMisc);
+    const monthlyRecurring = round2(cf.monthlySalary + cf.monthlyMisc);
     const isLow = cf.cashOnHand < cf.lowCashThreshold;
 
     cfEl.innerHTML = `
@@ -17765,30 +17783,32 @@ function renderPnL() {
         </div>
       </div>
 
-      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:8px">Daily Inflow (green) vs Supplier Outflow (red) — last 14 days, real data</div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:8px">Daily Inflow (green) vs Outflow — Goods cost + Fuel (red) — last 14 days, real data</div>
       <div style="display:flex;align-items:flex-end;gap:4px;height:100px;margin-bottom:8px">
         ${days.map(d => `
-          <div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end">
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end" title="Goods: ₦${d.supplierOutflow.toLocaleString()} · Fuel: ₦${d.fuelOutflow.toLocaleString()}">
             <div style="width:100%;max-width:20px;height:${Math.max(Math.round((d.inflow/maxAbsNet)*70),d.inflow>0?3:0)}px;background:var(--teal);border-radius:2px 2px 0 0;margin-bottom:1px"></div>
             <div style="width:100%;max-width:20px;height:${Math.max(Math.round((d.outflow/maxAbsNet)*70),d.outflow>0?3:0)}px;background:var(--red);opacity:0.7"></div>
             <div style="font-family:'DM Mono',monospace;font-size:7px;color:var(--mist);margin-top:3px;writing-mode:vertical-rl;text-orientation:mixed">${d.label}</div>
           </div>`).join('')}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
         <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Inflow (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--teal)">₦${totalInflow14.toLocaleString()}</div></div>
-        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Supplier Outflow (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--red)">₦${totalOutflow14.toLocaleString()}</div></div>
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Goods Outflow (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--red)">₦${totalSupplier14.toLocaleString()}</div></div>
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Fuel Outflow (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--red)">₦${totalFuel14.toLocaleString()}</div></div>
         <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Net (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:${totalInflow14-totalOutflow14>=0?'var(--teal)':'var(--red)'}">₦${(totalInflow14-totalOutflow14).toLocaleString()}</div></div>
       </div>
 
       <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:8px">Recurring Monthly Outflows (template — not daily-dated, so kept separate from the chart above)</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
         <div><label class="form-label">Salary (₦/mo)</label><input class="form-input" type="number" id="pnl-cf-salary" value="${cf.monthlySalary}" onchange="saveCashFlowSettings()"/></div>
-        <div><label class="form-label">Fuel (₦/mo)</label><input class="form-input" type="number" id="pnl-cf-fuel" value="${cf.monthlyFuel}" onchange="saveCashFlowSettings()"/></div>
         <div><label class="form-label">Misc (₦/mo)</label><input class="form-input" type="number" id="pnl-cf-misc" value="${cf.monthlyMisc}" onchange="saveCashFlowSettings()"/></div>
         <div style="padding:8px 12px;background:var(--raised);border-radius:6px;align-self:end"><div style="font-size:9px;color:var(--mist)">Total/mo</div><div style="font-family:'Syne',sans-serif;font-weight:700">₦${monthlyRecurring.toLocaleString()}</div></div>
       </div>
       <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
-        Cash on Hand is a manual snapshot you update yourself — this tracker doesn't auto-compute a running balance, since salary/fuel/misc outflows have no dated log to draw from yet, only supplier purchases do. Auto-computing against incomplete data would drift from your real balance and become misleading.
+        Fuel moved into the real daily chart above (Sep 22 2026) — every waybill, delivery and pickup, already logs a real dated fuel cost, so there was no reason to keep guessing a flat monthly figure for it.
+        Salary and Misc stay as monthly estimates since neither has any dated transaction log anywhere in this app yet. Cash on Hand is a manual snapshot you update yourself for the same reason — auto-computing against
+        outflows this incomplete would drift from your real balance and become misleading.
       </div>
     `;
   }
@@ -17800,7 +17820,6 @@ function saveCashFlowSettings() {
   cf.cashOnHand = parseFloat(document.getElementById('pnl-cash-on-hand')?.value) || 0;
   cf.lowCashThreshold = parseFloat(document.getElementById('pnl-low-cash-threshold')?.value) || 0;
   cf.monthlySalary = parseFloat(document.getElementById('pnl-cf-salary')?.value) || 0;
-  cf.monthlyFuel = parseFloat(document.getElementById('pnl-cf-fuel')?.value) || 0;
   cf.monthlyMisc = parseFloat(document.getElementById('pnl-cf-misc')?.value) || 0;
   saveState();
   renderPnL();
