@@ -5954,6 +5954,14 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="panel-body" id="pnl-roi-section"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Contractor Wage Model <span style="color:var(--mist);font-weight:400;font-size:10px">(template — adjust as real volume tells you more)</span></div>
+      <div class="panel-tag">base retainership + performance pay, always for the current calendar month</div>
+    </div>
+    <div class="panel-body" id="pnl-wage-section"></div>
+  </div>
 </div>
 
 <!-- ════ MODULE: RESERVATION INTELLIGENCE ═════════════════════════════ -->
@@ -17088,6 +17096,7 @@ function ensurePnLData() {
       ],
       customCostElements: [],
       totalInvestment: 0,
+      wageModel: { driverBaseFee: 50000, driverCommissionTarget: 100000, repBaseFee: 50000, repCommissionTarget: 100000 },
     };
   }
   if(!STATE.pnl.fixedAssets) STATE.pnl.fixedAssets = [];
@@ -17099,6 +17108,16 @@ function ensurePnLData() {
   // (harmless here since 0 either way, but the wrong pattern to copy
   // if this field's default ever becomes non-zero).
   if(STATE.pnl.totalInvestment === undefined) STATE.pnl.totalInvestment = 0;
+  // Wage model — Sep 2026, Bob's confirmed target structure: up to
+  // ₦150k/month total, split roughly 1/3 base (₦50k) to 2/3 performance
+  // pay (₦100k commission target), for BOTH driver and rep. Deliberately
+  // "containerized" (Bob's word) as adjustable settings, not constants —
+  // real volume will tell him whether ₦100k/month is realistically
+  // achievable at current trip/commission rates, and these need to move
+  // without a code change when it doesn't.
+  if(!STATE.pnl.wageModel) {
+    STATE.pnl.wageModel = { driverBaseFee: 50000, driverCommissionTarget: 100000, repBaseFee: 50000, repCommissionTarget: 100000 };
+  }
   return STATE.pnl;
 }
 
@@ -17588,6 +17607,99 @@ function renderPnL() {
       ${totalInvestment === 0 ? `<div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Bars above show 0% until Total Investment is set — the underlying monthly Net Profit is real either way.</div>` : ''}
     `;
   }
+
+  // ── Contractor Wage Model (Sep 2026) — always the current calendar
+  // month, since the base fee/commission target figures Bob supplied
+  // are explicitly monthly. Driver side uses REAL waybill data
+  // (o.waybill.driverName + generatedAt), rep side uses REAL commission
+  // already logged per sale (sale.comm) — nothing invented except the
+  // base fee / commission target, which are deliberately adjustable
+  // "template" inputs, not hardcoded constants.
+  const wageEl = document.getElementById('pnl-wage-section');
+  if(wageEl) {
+    const wm = ensurePnLData().wageModel;
+    const now = new Date();
+    const monthFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    const monthTo = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+
+    ensureFleet();
+    const driverSel = document.getElementById('pnl-wage-driver')?.value || STATE.fleet.drivers[0]?.name || '';
+    const repSel     = document.getElementById('pnl-wage-rep')?.value || (STATE.reps.find(r=>r.name!=='Direct')?.name || '');
+
+    // Driver side — real trip count this month, real flat trip rate.
+    const tripFee = ensureLogisticsSettings().driverWagePerTrip || 0;
+    const driverTrips = loadOrders().filter(o => o.waybill && o.waybill.driverName === driverSel &&
+      o.waybill.generatedAt >= monthFrom && o.waybill.generatedAt <= monthTo + 'T23:59:59').length;
+    const driverTripEarnings = round2(driverTrips * tripFee);
+    const driverTotalWage = round2(wm.driverBaseFee + driverTripEarnings);
+    const driverTargetPct = wm.driverCommissionTarget > 0 ? round2((driverTripEarnings / wm.driverCommissionTarget) * 100) : 0;
+    const tripsNeededForTarget = tripFee > 0 ? Math.ceil(wm.driverCommissionTarget / tripFee) : null;
+
+    // Rep side — real commission this month, already tiered/logged.
+    const repCommission = round2(STATE.sales
+      .filter(s => s.rep === repSel && s.date >= monthFrom && s.date <= monthTo)
+      .reduce((sum,s) => sum + (s.comm||0), 0));
+    const repTotalWage = round2(wm.repBaseFee + repCommission);
+    const repTargetPct = wm.repCommissionTarget > 0 ? round2((repCommission / wm.repCommissionTarget) * 100) : 0;
+
+    const driverOptions = STATE.fleet.drivers.map(d => `<option value="${escapeHtml(d.name)}" ${d.name===driverSel?'selected':''}>${escapeHtml(d.name)}</option>`).join('');
+    const repOptions = STATE.reps.filter(r=>r.name!=='Direct').map(r => `<option value="${escapeHtml(r.name)}" ${r.name===repSel?'selected':''}>${escapeHtml(r.name)}</option>`).join('');
+
+    wageEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+        <div><label class="form-label">Driver Base Fee (₦/mo)</label><input class="form-input" type="number" id="pnl-wage-driver-base" value="${wm.driverBaseFee}" onchange="saveWageModel()"/></div>
+        <div><label class="form-label">Driver Commission Target (₦/mo)</label><input class="form-input" type="number" id="pnl-wage-driver-target" value="${wm.driverCommissionTarget}" onchange="saveWageModel()"/></div>
+        <div><label class="form-label">Rep Base Fee (₦/mo)</label><input class="form-input" type="number" id="pnl-wage-rep-base" value="${wm.repBaseFee}" onchange="saveWageModel()"/></div>
+        <div><label class="form-label">Rep Commission Target (₦/mo)</label><input class="form-input" type="number" id="pnl-wage-rep-target" value="${wm.repCommissionTarget}" onchange="saveWageModel()"/></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">Driver — this month</div>
+          <select class="form-select" id="pnl-wage-driver" style="margin-bottom:10px" onchange="renderPnL()">${driverOptions || '<option>No drivers on file</option>'}</select>
+          <table class="data-table"><tbody>
+            <tr><td>Trips Completed</td><td class="mono">${driverTrips}</td></tr>
+            <tr><td>Trip Fee (flat, from Logistics Settings)</td><td class="mono">₦${tripFee.toLocaleString()}</td></tr>
+            <tr><td>Trip Earnings</td><td class="mono">₦${driverTripEarnings.toLocaleString()}</td></tr>
+            <tr><td>Base Fee</td><td class="mono">₦${wm.driverBaseFee.toLocaleString()}</td></tr>
+            <tr><td style="font-weight:700">Total Wage (this month)</td><td class="mono" style="font-weight:700;color:var(--teal)">₦${driverTotalWage.toLocaleString()}</td></tr>
+          </tbody></table>
+          <div style="margin-top:10px;padding:10px 12px;background:var(--raised);border-radius:8px;font-family:'DM Mono',monospace;font-size:10px">
+            ${driverTargetPct}% of the ₦${wm.driverCommissionTarget.toLocaleString()} trip-earnings target
+            ${tripsNeededForTarget ? ` — ${tripsNeededForTarget} trips/month needed to hit it at the current flat rate` : ''}
+          </div>
+        </div>
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">Sales Rep — this month</div>
+          <select class="form-select" id="pnl-wage-rep" style="margin-bottom:10px" onchange="renderPnL()">${repOptions || '<option>No reps on file</option>'}</select>
+          <table class="data-table"><tbody>
+            <tr><td>Commission Earned (real, from Sales Log)</td><td class="mono">₦${repCommission.toLocaleString()}</td></tr>
+            <tr><td>Base Fee</td><td class="mono">₦${wm.repBaseFee.toLocaleString()}</td></tr>
+            <tr><td style="font-weight:700">Total Wage (this month)</td><td class="mono" style="font-weight:700;color:var(--teal)">₦${repTotalWage.toLocaleString()}</td></tr>
+          </tbody></table>
+          <div style="margin-top:10px;padding:10px 12px;background:var(--raised);border-radius:8px;font-family:'DM Mono',monospace;font-size:10px">
+            ${repTargetPct}% of the ₦${wm.repCommissionTarget.toLocaleString()} commission target this month
+          </div>
+        </div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:10px">
+        Fuel is a company cost, not part of either wage — confirmed separately. Checkpoint/route fees stay outside this model too, handled by the driver directly.
+        Base fee and commission target are both adjustable above — change them as real volume tells you more about what's actually achievable.
+      </div>
+    `;
+  }
+}
+
+function saveWageModel() {
+  const pnl = ensurePnLData();
+  const wm = pnl.wageModel;
+  wm.driverBaseFee = parseFloat(document.getElementById('pnl-wage-driver-base')?.value) || 0;
+  wm.driverCommissionTarget = parseFloat(document.getElementById('pnl-wage-driver-target')?.value) || 0;
+  wm.repBaseFee = parseFloat(document.getElementById('pnl-wage-rep-base')?.value) || 0;
+  wm.repCommissionTarget = parseFloat(document.getElementById('pnl-wage-rep-target')?.value) || 0;
+  saveState();
+  renderPnL();
 }
 
 function saveTotalInvestment() {
