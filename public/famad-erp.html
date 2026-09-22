@@ -5970,6 +5970,22 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="panel-body" id="pnl-cashflow-section"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Working Capital Monitor</div>
+      <div class="panel-tag">Current Assets − Current Liabilities — Cash/Inventory/Receivables are real, Payables is the one manual input</div>
+    </div>
+    <div class="panel-body" id="pnl-workingcapital-section"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">CAC vs LTV</div>
+      <div class="panel-tag">New Customers and Avg Order Value are real; Marketing Spend and Assumed Lifespan need your input — target ratio &gt; 3</div>
+    </div>
+    <div class="panel-body" id="pnl-cacltv-section"></div>
+  </div>
 </div>
 
 <!-- ════ MODULE: RESERVATION INTELLIGENCE ═════════════════════════════ -->
@@ -17139,6 +17155,25 @@ function ensurePnLData() {
   if(!STATE.pnl.cashFlow) {
     STATE.pnl.cashFlow = { cashOnHand: 0, lowCashThreshold: 500000, monthlySalary: 0, monthlyFuel: 0, monthlyMisc: 0 };
   }
+  // Working Capital — Sep 22 2026. Payables/short-term loans is the ONE
+  // genuinely new manual input here — everything else this panel needs
+  // (Cash on Hand, Inventory Value, Receivables) already has a real or
+  // computed source elsewhere in this app, so it's reused directly
+  // rather than duplicated as a second input Bob would have to keep in
+  // sync by hand. Nothing tracks what the business itself owes anyone
+  // else, so there's no way to derive this one.
+  if(!STATE.pnl.workingCapital) {
+    STATE.pnl.workingCapital = { payables: 0 };
+  }
+  // CAC/LTV — Sep 22 2026. marketingSpend has no source anywhere (no ad
+  // spend/marketing cost tracking exists at all); assumedLifespanMonths
+  // is inherently a forward-looking business assumption, not something
+  // derivable from history even with perfect data — defaults to 12
+  // months as a reasonable, adjustable starting guess for a B2B
+  // wholesale relationship.
+  if(!STATE.pnl.cacLtv) {
+    STATE.pnl.cacLtv = { marketingSpend: 0, assumedLifespanMonths: 12 };
+  }
   return STATE.pnl;
 }
 
@@ -17845,6 +17880,139 @@ function renderPnL() {
       </div>
     `;
   }
+
+  // ── Working Capital Monitor (Sep 22 2026) — Cash on Hand, Inventory
+  // Value, and Receivables all reuse an existing real/computed source
+  // rather than duplicating a second input Bob would have to keep in
+  // sync by hand himself. Payables/short-term loans is the one
+  // genuinely new figure, since nothing else in the app tracks what
+  // the business itself owes anyone. ──
+  const wcEl = document.getElementById('pnl-workingcapital-section');
+  if(wcEl) {
+    ensureBatches();
+    const wc = ensurePnLData().workingCapital;
+    const cashOnHand = ensurePnLData().cashFlow.cashOnHand || 0;
+    const inventoryValue = round2(STATE.batches.reduce((sum,b) => sum + (b.cost||0) * Math.max(b.remaining||0, 0), 0));
+    const receivables = round2(getTotalDebt());
+    const currentAssets = round2(cashOnHand + inventoryValue + receivables);
+    const currentLiabilities = round2(wc.payables || 0);
+    const workingCapital = round2(currentAssets - currentLiabilities);
+    const currentRatio = currentLiabilities > 0 ? round2(currentAssets / currentLiabilities) : null;
+    const isHealthy = workingCapital >= 0;
+
+    wcEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Cash on Hand <span style="opacity:0.6">(from Cash Flow above)</span></div><div style="font-family:'Syne',sans-serif;font-weight:700">₦${cashOnHand.toLocaleString()}</div></div>
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Inventory Value <span style="opacity:0.6">(batches on hand, at cost)</span></div><div style="font-family:'Syne',sans-serif;font-weight:700">₦${inventoryValue.toLocaleString()}</div></div>
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Receivables <span style="opacity:0.6">(real credit exposure)</span></div><div style="font-family:'Syne',sans-serif;font-weight:700">₦${receivables.toLocaleString()}</div></div>
+      </div>
+      <div style="padding:10px 16px;background:var(--raised);border-radius:8px;margin-bottom:14px">
+        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Current Assets</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;margin-left:8px">₦${currentAssets.toLocaleString()}</span>
+      </div>
+
+      <div style="display:flex;gap:14px;align-items:end;margin-bottom:16px;flex-wrap:wrap">
+        <div><label class="form-label">Payables / Short-term Loans (₦, manual)</label><input class="form-input" type="number" id="pnl-wc-payables" value="${wc.payables}" style="width:220px" onchange="saveWorkingCapital()"/></div>
+        <div style="padding:10px 16px;background:${isHealthy?'var(--raised)':'rgba(224,72,72,0.12)'};border:1px solid ${isHealthy?'transparent':'var(--red)'};border-radius:8px">
+          <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:18px;color:${isHealthy?'var(--teal)':'var(--red)'}">${isHealthy?'✓ POSITIVE':'⚠ NEGATIVE'}</span>
+          <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-left:8px">Working Capital: ₦${workingCapital.toLocaleString()}</span>
+        </div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">
+        ${currentRatio !== null ? `Current Ratio: ${currentRatio} — assets ÷ liabilities. Above 1 means enough short-term assets to cover short-term obligations; below 1 is a real liquidity warning, not just a lower number.` : 'Current Ratio: enter Payables above to compute it.'}
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
+        Cash on Hand is the same manual snapshot from the Cash Flow Tracker above — one number, not entered twice. Inventory is valued at cost (what was paid, not what it could sell for), floored per batch so a corrupted
+        negative count can never drag this total down. Receivables is the same real credit-exposure figure used elsewhere in the app (Dashboard's Outstanding Debt, Sales Log). Payables has no existing source anywhere yet, so it stays manual.
+      </div>
+    `;
+  }
+
+  // ── CAC vs LTV (Sep 22 2026) — Bob's confirmed definition: a customer
+  // counts as "new" if their EARLIEST ever sale falls in the current
+  // calendar month, checked against their full history, not guessed.
+  // Avg Order Value and Purchase Frequency are real, current-month
+  // figures. Marketing Spend and Assumed Lifespan have no derivable
+  // source and stay manual — flagged to Bob that this ratio will be
+  // volatile with only a handful of mock customers and one month of
+  // data, worth real skepticism until several months of real volume
+  // exist. ──
+  const clEl = document.getElementById('pnl-cacltv-section');
+  if(clEl) {
+    const cl = ensurePnLData().cacLtv;
+    const now = new Date();
+    const monthPrefix = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+    // Earliest sale per customer, across ALL history — a customer is
+    // "new" this month only if THAT date (not just any sale date) falls
+    // in the current month.
+    const firstSaleByCustomer = {};
+    STATE.sales.forEach(s => {
+      if(!s.customer) return;
+      if(!firstSaleByCustomer[s.customer] || s.date < firstSaleByCustomer[s.customer]) {
+        firstSaleByCustomer[s.customer] = s.date;
+      }
+    });
+    const newCustomers = Object.values(firstSaleByCustomer).filter(d => d.startsWith(monthPrefix)).length;
+    const cac = newCustomers > 0 ? round2(cl.marketingSpend / newCustomers) : null;
+
+    const salesThisMonth = STATE.sales.filter(s => s.date.startsWith(monthPrefix));
+    const activeCustomersThisMonth = new Set(salesThisMonth.map(s => s.customer)).size;
+    const avgOrderValue = salesThisMonth.length > 0
+      ? round2(salesThisMonth.reduce((sum,s) => sum + (s.gross||0) + (s.deliveryTotal||0), 0) / salesThisMonth.length)
+      : 0;
+    const purchaseFrequency = activeCustomersThisMonth > 0 ? round2(salesThisMonth.length / activeCustomersThisMonth) : 0;
+    const ltv = round2(avgOrderValue * purchaseFrequency * cl.assumedLifespanMonths);
+    const ratio = cac !== null && cac > 0 ? round2(ltv / cac) : null;
+    const ratioHealthy = ratio !== null && ratio > 3;
+
+    clEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:16px">
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">CAC — this month</div>
+          <div style="margin-bottom:10px"><label class="form-label">Marketing Spend (₦/mo, manual)</label><input class="form-input" type="number" id="pnl-cl-marketing" value="${cl.marketingSpend}" onchange="saveCacLtvSettings()"/></div>
+          <table class="data-table"><tbody>
+            <tr><td>New Customers (first sale ever, this month)</td><td class="mono">${newCustomers}</td></tr>
+            <tr><td style="font-weight:700">CAC</td><td class="mono" style="font-weight:700;color:var(--teal)">${cac!==null ? '₦'+cac.toLocaleString() : '—'}</td></tr>
+          </tbody></table>
+          ${cac===null ? `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:6px">No new customers this month — CAC needs at least 1 to compute.</div>` : ''}
+        </div>
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">LTV — this month's rates</div>
+          <div style="margin-bottom:10px"><label class="form-label">Assumed Customer Lifespan (months, manual)</label><input class="form-input" type="number" id="pnl-cl-lifespan" value="${cl.assumedLifespanMonths}" onchange="saveCacLtvSettings()"/></div>
+          <table class="data-table"><tbody>
+            <tr><td>Avg Order Value</td><td class="mono">₦${avgOrderValue.toLocaleString()}</td></tr>
+            <tr><td>Purchase Frequency (orders/customer, this month)</td><td class="mono">${purchaseFrequency}</td></tr>
+            <tr><td style="font-weight:700">LTV</td><td class="mono" style="font-weight:700;color:var(--teal)">₦${ltv.toLocaleString()}</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+      <div style="padding:10px 16px;background:${ratio===null?'var(--raised)':(ratioHealthy?'var(--raised)':'rgba(224,72,72,0.12)')};border:1px solid ${ratio!==null && !ratioHealthy?'var(--red)':'transparent'};border-radius:8px">
+        ${ratio !== null ? `
+          <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:18px;color:${ratioHealthy?'var(--teal)':'var(--red)'}">${ratio}:1</span>
+          <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-left:8px">LTV : CAC — target above 3:1</span>
+        ` : `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Ratio needs both a new customer this month and Marketing Spend &gt; 0 to compute.</span>`}
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
+        With only a handful of customers and one month of real data, this ratio will swing hard on a single new customer or a single large order — treat it with real skepticism until several months of real volume exist, same caution as the Wage Model's early numbers.
+      </div>
+    `;
+  }
+}
+
+function saveCacLtvSettings() {
+  const pnl = ensurePnLData();
+  pnl.cacLtv.marketingSpend = parseFloat(document.getElementById('pnl-cl-marketing')?.value) || 0;
+  pnl.cacLtv.assumedLifespanMonths = parseFloat(document.getElementById('pnl-cl-lifespan')?.value) || 0;
+  saveState();
+  renderPnL();
+}
+
+function saveWorkingCapital() {
+  const pnl = ensurePnLData();
+  pnl.workingCapital.payables = parseFloat(document.getElementById('pnl-wc-payables')?.value) || 0;
+  saveState();
+  renderPnL();
 }
 
 function saveCashFlowSettings() {
