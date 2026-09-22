@@ -17611,7 +17611,7 @@ function renderPnL() {
   // ── Contractor Wage Model (Sep 2026) — always the current calendar
   // month, since the base fee/commission target figures Bob supplied
   // are explicitly monthly. Driver side uses REAL waybill data
-  // (o.waybill.driverName + generatedAt), rep side uses REAL commission
+  // (o.waybill.carrier.driverName + generatedAt), rep side uses REAL commission
   // already logged per sale (sale.comm) — nothing invented except the
   // base fee / commission target, which are deliberately adjustable
   // "template" inputs, not hardcoded constants.
@@ -17628,9 +17628,18 @@ function renderPnL() {
     const repSel     = document.getElementById('pnl-wage-rep')?.value || (STATE.reps.find(r=>r.name!=='Direct')?.name || '');
 
     // Driver side — real trip count this month, real flat trip rate.
+    // Sep 2026, Bob's confirmed call: pickups and deliveries both count
+    // as "trips" — no need to distinguish them. Deliveries live on
+    // orders (o.waybill), pickups live on batches (b.pickupWaybill) —
+    // two different parent records, same carrier.driverName/generatedAt
+    // shape, so both get filtered the same way and summed together.
     const tripFee = ensureLogisticsSettings().driverWagePerTrip || 0;
-    const driverTrips = loadOrders().filter(o => o.waybill && o.waybill.driverName === driverSel &&
+    const deliveryTrips = loadOrders().filter(o => o.waybill && o.waybill.carrier?.driverName === driverSel &&
       o.waybill.generatedAt >= monthFrom && o.waybill.generatedAt <= monthTo + 'T23:59:59').length;
+    ensureBatches();
+    const pickupTrips = STATE.batches.filter(b => b.pickupWaybill && b.pickupWaybill.carrier?.driverName === driverSel &&
+      b.pickupWaybill.generatedAt >= monthFrom && b.pickupWaybill.generatedAt <= monthTo + 'T23:59:59').length;
+    const driverTrips = deliveryTrips + pickupTrips;
     const driverTripEarnings = round2(driverTrips * tripFee);
     const driverTotalWage = round2(wm.driverBaseFee + driverTripEarnings);
     const driverTargetPct = wm.driverCommissionTarget > 0 ? round2((driverTripEarnings / wm.driverCommissionTarget) * 100) : 0;
@@ -17659,7 +17668,7 @@ function renderPnL() {
           <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">Driver — this month</div>
           <select class="form-select" id="pnl-wage-driver" style="margin-bottom:10px" onchange="renderPnL()">${driverOptions || '<option>No drivers on file</option>'}</select>
           <table class="data-table"><tbody>
-            <tr><td>Trips Completed</td><td class="mono">${driverTrips}</td></tr>
+            <tr><td>Trips Completed (deliveries + pickups)</td><td class="mono">${driverTrips} <span style="color:var(--mist);font-size:9px">(${deliveryTrips} deliv. + ${pickupTrips} pickup)</span></td></tr>
             <tr><td>Trip Fee (flat, from Logistics Settings)</td><td class="mono">₦${tripFee.toLocaleString()}</td></tr>
             <tr><td>Trip Earnings</td><td class="mono">₦${driverTripEarnings.toLocaleString()}</td></tr>
             <tr><td>Base Fee</td><td class="mono">₦${wm.driverBaseFee.toLocaleString()}</td></tr>
