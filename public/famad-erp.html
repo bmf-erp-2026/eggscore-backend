@@ -17330,6 +17330,45 @@ document.addEventListener('pointerout', (e) => {
 // Calculator itself would show for that same range. No DOM access,
 // safe to call for arbitrary past periods without touching the
 // on-screen period picker.
+// Unified read-model over both waybill sources (Sep 22 2026) — delivery
+// waybills live nested on order.waybill, pickup waybills on
+// batch.pickupWaybill, two different parent records with the same
+// carrier/costs shape. This is exactly what caused two real bugs in one
+// session (a driver-name lookup and a fuel-cost calc each independently
+// getting one of the two paths subtly wrong) — every new cross-cutting
+// feature had to remember both conventions itself. Deliberately NOT a
+// data migration: nothing existing is renamed or moved, this just reads
+// both sources fresh every call and returns one flat, consistently-
+// shaped list. Existing code (printing, Waybill Log, Logistics) is left
+// completely alone; only new features that need to query across both
+// types should use this instead of re-deriving the union themselves.
+function getAllWaybills() {
+  const deliveries = loadOrders()
+    .filter(o => o.waybill)
+    .map(o => ({
+      type: 'delivery',
+      waybillNumber: o.waybill.waybillNumber,
+      generatedAt: o.waybill.generatedAt,
+      driverName: o.waybill.carrier?.driverName || '—',
+      vehiclePlate: o.waybill.carrier?.vehiclePlate || '—',
+      costs: o.waybill.costs || {},
+      orderRef: o.ref,
+    }));
+  ensureBatches();
+  const pickups = STATE.batches
+    .filter(b => b.pickupWaybill)
+    .map(b => ({
+      type: 'pickup',
+      waybillNumber: b.pickupWaybill.waybillNumber,
+      generatedAt: b.pickupWaybill.generatedAt,
+      driverName: b.pickupWaybill.carrier?.driverName || '—',
+      vehiclePlate: b.pickupWaybill.carrier?.vehiclePlate || '—',
+      costs: b.pickupWaybill.costs || {},
+      batchId: b.id,
+    }));
+  return [...deliveries, ...pickups];
+}
+
 function computeNetProfitForPeriod(from, to) {
   const pnl = ensurePnLData();
   const salesInPeriod = STATE.sales.filter(s => s.date >= from && s.date <= to);
@@ -17649,18 +17688,15 @@ function renderPnL() {
     const repSel     = document.getElementById('pnl-wage-rep')?.value || (STATE.reps.find(r=>r.name!=='Direct')?.name || '');
 
     // Driver side — real trip count this month, real flat trip rate.
-    // Sep 2026, Bob's confirmed call: pickups and deliveries both count
-    // as "trips" — no need to distinguish them. Deliveries live on
-    // orders (o.waybill), pickups live on batches (b.pickupWaybill) —
-    // two different parent records, same carrier.driverName/generatedAt
-    // shape, so both get filtered the same way and summed together.
+    // Sep 22 2026 — now reads the unified getAllWaybills() list instead
+    // of separately re-deriving the delivery/pickup union itself (this
+    // exact re-derivation was the site of a real bug earlier).
     const tripFee = ensureLogisticsSettings().driverWagePerTrip || 0;
-    const deliveryTrips = loadOrders().filter(o => o.waybill && o.waybill.carrier?.driverName === driverSel &&
-      o.waybill.generatedAt >= monthFrom && o.waybill.generatedAt <= monthTo + 'T23:59:59').length;
-    ensureBatches();
-    const pickupTrips = STATE.batches.filter(b => b.pickupWaybill && b.pickupWaybill.carrier?.driverName === driverSel &&
-      b.pickupWaybill.generatedAt >= monthFrom && b.pickupWaybill.generatedAt <= monthTo + 'T23:59:59').length;
-    const driverTrips = deliveryTrips + pickupTrips;
+    const driverTripsThisMonth = getAllWaybills().filter(w => w.driverName === driverSel &&
+      w.generatedAt >= monthFrom && w.generatedAt <= monthTo + 'T23:59:59');
+    const deliveryTrips = driverTripsThisMonth.filter(w => w.type === 'delivery').length;
+    const pickupTrips = driverTripsThisMonth.filter(w => w.type === 'pickup').length;
+    const driverTrips = driverTripsThisMonth.length;
     const driverTripEarnings = round2(driverTrips * tripFee);
     const driverTotalWage = round2(wm.driverBaseFee + driverTripEarnings);
     const driverTargetPct = wm.driverCommissionTarget > 0 ? round2((driverTripEarnings / wm.driverCommissionTarget) * 100) : 0;
@@ -17735,6 +17771,7 @@ function renderPnL() {
     ensureBatches();
     const cf = ensurePnLData().cashFlow;
     const WALLET_METHODS = ['wallet_credit', 'wallet_credit_delivery'];
+    const allWaybills = getAllWaybills(); // built once, filtered per day below — no reason to rebuild it 14 times
     const days = [];
     const today = new Date();
     for(let i = 13; i >= 0; i--) {
@@ -17753,15 +17790,11 @@ function renderPnL() {
       // delivery AND pickup, already computes a real fuelCost (distance
       // × the current fuel price/litre) — no reason to keep guessing a
       // flat monthly figure when the dated real number already exists
-      // on every single trip. Summed across BOTH waybill sources,
-      // same "both count as trips" precedent as the driver wage model.
-      const deliveryFuel = loadOrders()
-        .filter(o => o.waybill && (o.waybill.generatedAt||'').startsWith(dayStr))
-        .reduce((sum,o) => sum + (o.waybill.costs?.fuelCost||0), 0);
-      const pickupFuel = STATE.batches
-        .filter(b => b.pickupWaybill && (b.pickupWaybill.generatedAt||'').startsWith(dayStr))
-        .reduce((sum,b) => sum + (b.pickupWaybill.costs?.fuelCost||0), 0);
-      const fuelOutflow = round2(deliveryFuel + pickupFuel);
+      // on every single trip. Now reads the unified getAllWaybills()
+      // list instead of re-deriving the delivery/pickup union itself.
+      const fuelOutflow = round2(allWaybills
+        .filter(w => (w.generatedAt||'').startsWith(dayStr))
+        .reduce((sum,w) => sum + (w.costs?.fuelCost||0), 0));
       const outflow = round2(supplierOutflow + fuelOutflow);
       days.push({ label: `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`, inflow, supplierOutflow, fuelOutflow, outflow });
     }
