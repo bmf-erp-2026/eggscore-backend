@@ -17524,8 +17524,8 @@ function renderPnL() {
     // also reduce stock without being a sale. Flagged in the UI, not
     // hidden.
     const receivedInPeriod = STATE.batches
-      .filter(b => b.receivedDate >= from && b.receivedDate <= to)
-      .reduce((sum,b) => sum + (b.received||0), 0);
+      .filter(b => b.date >= from && b.date <= to)
+      .reduce((sum,b) => sum + (b.qty||0), 0);
     const endingInventory = STATE.inventory.main;
     const beginningInventory = endingInventory - receivedInPeriod + cratesSoldInPeriod;
     const averageInventory = round2((beginningInventory + endingInventory) / 2);
@@ -17745,8 +17745,8 @@ function renderPnL() {
         .filter(l => !l.reversedAt && l.action !== 'reversed' && !WALLET_METHODS.includes(l.method) && (l.at||'').startsWith(dayStr))
         .reduce((sum,l) => sum + (l.amount||0), 0));
       const outflow = round2(STATE.batches
-        .filter(b => (b.receivedDate||'').startsWith(dayStr))
-        .reduce((sum,b) => sum + ((b.cost||0) * (b.received||0)), 0));
+        .filter(b => (b.date||'').startsWith(dayStr))
+        .reduce((sum,b) => sum + ((b.cost||0) * (b.qty||0)), 0));
       days.push({ label: `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`, inflow, outflow, net: round2(inflow - outflow) });
     }
     const totalInflow14 = round2(days.reduce((s,d) => s + d.inflow, 0));
