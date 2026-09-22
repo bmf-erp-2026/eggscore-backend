@@ -5962,6 +5962,14 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="panel-body" id="pnl-wage-section"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Cash Flow Tracker</div>
+      <div class="panel-tag">real daily inflow/outflow, last 14 days — recurring outflows below are a monthly estimate, not daily-dated</div>
+    </div>
+    <div class="panel-body" id="pnl-cashflow-section"></div>
+  </div>
 </div>
 
 <!-- ════ MODULE: RESERVATION INTELLIGENCE ═════════════════════════════ -->
@@ -17097,6 +17105,7 @@ function ensurePnLData() {
       customCostElements: [],
       totalInvestment: 0,
       wageModel: { driverBaseFee: 50000, driverCommissionTarget: 100000, repBaseFee: 50000, repCommissionTarget: 100000 },
+      cashFlow: { cashOnHand: 0, lowCashThreshold: 500000, monthlySalary: 0, monthlyFuel: 0, monthlyMisc: 0 },
     };
   }
   if(!STATE.pnl.fixedAssets) STATE.pnl.fixedAssets = [];
@@ -17117,6 +17126,18 @@ function ensurePnLData() {
   // without a code change when it doesn't.
   if(!STATE.pnl.wageModel) {
     STATE.pnl.wageModel = { driverBaseFee: 50000, driverCommissionTarget: 100000, repBaseFee: 50000, repCommissionTarget: 100000 };
+  }
+  // Cash Flow — Sep 2026. cashOnHand is DELIBERATELY a manual snapshot,
+  // not something this tracker computes automatically — only supplier
+  // outflow is genuinely dated/real; salary/fuel/misc have no dated
+  // transaction log anywhere in this app yet, so an auto-computed
+  // running balance would silently drift from Bob's real bank balance
+  // over time. A number he updates whenever he actually checks his
+  // balance stays honest; a computed one wouldn't. lowCashThreshold
+  // starts at Bob's own spec figure (₦500k), explicitly adjustable —
+  // his own call once it's running against real numbers for a while.
+  if(!STATE.pnl.cashFlow) {
+    STATE.pnl.cashFlow = { cashOnHand: 0, lowCashThreshold: 500000, monthlySalary: 0, monthlyFuel: 0, monthlyMisc: 0 };
   }
   return STATE.pnl;
 }
@@ -17698,6 +17719,91 @@ function renderPnL() {
       </div>
     `;
   }
+
+  // ── Cash Flow Tracker (Sep 2026) — real daily inflow/outflow for the
+  // last 14 days, built from data that's genuinely dated. Uses
+  // settlementLog as the SOLE inflow source (not sale.gross directly)
+  // since every real cash/transfer event already gets its own
+  // settlementLog entry at point of sale (upfront/delivery_collected)
+  // or at later payoff (settled/partial) — summing both would double-
+  // count the same cash. Wallet-derived entries ('wallet_credit',
+  // 'wallet_credit_delivery') are excluded per Bob's confirmed call:
+  // that money already arrived whenever the wallet was topped up, it
+  // isn't new cash today. ──
+  const cfEl = document.getElementById('pnl-cashflow-section');
+  if(cfEl) {
+    ensureBatches();
+    const cf = ensurePnLData().cashFlow;
+    const WALLET_METHODS = ['wallet_credit', 'wallet_credit_delivery'];
+    const days = [];
+    const today = new Date();
+    for(let i = 13; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dayStr = d.toISOString().split('T')[0];
+      const inflow = round2((STATE.settlementLog || [])
+        .filter(l => !l.reversedAt && l.action !== 'reversed' && !WALLET_METHODS.includes(l.method) && (l.at||'').startsWith(dayStr))
+        .reduce((sum,l) => sum + (l.amount||0), 0));
+      const outflow = round2(STATE.batches
+        .filter(b => b.receivedDate === dayStr)
+        .reduce((sum,b) => sum + ((b.cost||0) * (b.received||0)), 0));
+      days.push({ label: `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`, inflow, outflow, net: round2(inflow - outflow) });
+    }
+    const totalInflow14 = round2(days.reduce((s,d) => s + d.inflow, 0));
+    const totalOutflow14 = round2(days.reduce((s,d) => s + d.outflow, 0));
+    const maxAbsNet = Math.max(1, ...days.map(d => Math.max(d.inflow, d.outflow)));
+    const monthlyRecurring = round2(cf.monthlySalary + cf.monthlyFuel + cf.monthlyMisc);
+    const isLow = cf.cashOnHand < cf.lowCashThreshold;
+
+    cfEl.innerHTML = `
+      <div style="display:flex;gap:14px;align-items:end;margin-bottom:16px;flex-wrap:wrap">
+        <div><label class="form-label">Cash on Hand (₦, manual snapshot)</label><input class="form-input" type="number" id="pnl-cash-on-hand" value="${cf.cashOnHand}" style="width:180px" onchange="saveCashFlowSettings()"/></div>
+        <div><label class="form-label">Low-Cash Alert (₦)</label><input class="form-input" type="number" id="pnl-low-cash-threshold" value="${cf.lowCashThreshold}" style="width:150px" onchange="saveCashFlowSettings()"/></div>
+        <div style="padding:10px 16px;background:${isLow?'rgba(224,72,72,0.12)':'var(--raised)'};border:1px solid ${isLow?'var(--red)':'transparent'};border-radius:8px">
+          <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:18px;color:${isLow?'var(--red)':'var(--teal)'}">${isLow?'⚠ LOW':'✓ HEALTHY'}</span>
+          <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-left:8px">₦${cf.cashOnHand.toLocaleString()} vs ₦${cf.lowCashThreshold.toLocaleString()} threshold</span>
+        </div>
+      </div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:8px">Daily Inflow (green) vs Supplier Outflow (red) — last 14 days, real data</div>
+      <div style="display:flex;align-items:flex-end;gap:4px;height:100px;margin-bottom:8px">
+        ${days.map(d => `
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end">
+            <div style="width:100%;max-width:20px;height:${Math.max(Math.round((d.inflow/maxAbsNet)*70),d.inflow>0?3:0)}px;background:var(--teal);border-radius:2px 2px 0 0;margin-bottom:1px"></div>
+            <div style="width:100%;max-width:20px;height:${Math.max(Math.round((d.outflow/maxAbsNet)*70),d.outflow>0?3:0)}px;background:var(--red);opacity:0.7"></div>
+            <div style="font-family:'DM Mono',monospace;font-size:7px;color:var(--mist);margin-top:3px;writing-mode:vertical-rl;text-orientation:mixed">${d.label}</div>
+          </div>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Inflow (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--teal)">₦${totalInflow14.toLocaleString()}</div></div>
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Supplier Outflow (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--red)">₦${totalOutflow14.toLocaleString()}</div></div>
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px"><div style="font-size:9px;color:var(--mist)">Net (14d)</div><div style="font-family:'Syne',sans-serif;font-weight:700;color:${totalInflow14-totalOutflow14>=0?'var(--teal)':'var(--red)'}">₦${(totalInflow14-totalOutflow14).toLocaleString()}</div></div>
+      </div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:8px">Recurring Monthly Outflows (template — not daily-dated, so kept separate from the chart above)</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div><label class="form-label">Salary (₦/mo)</label><input class="form-input" type="number" id="pnl-cf-salary" value="${cf.monthlySalary}" onchange="saveCashFlowSettings()"/></div>
+        <div><label class="form-label">Fuel (₦/mo)</label><input class="form-input" type="number" id="pnl-cf-fuel" value="${cf.monthlyFuel}" onchange="saveCashFlowSettings()"/></div>
+        <div><label class="form-label">Misc (₦/mo)</label><input class="form-input" type="number" id="pnl-cf-misc" value="${cf.monthlyMisc}" onchange="saveCashFlowSettings()"/></div>
+        <div style="padding:8px 12px;background:var(--raised);border-radius:6px;align-self:end"><div style="font-size:9px;color:var(--mist)">Total/mo</div><div style="font-family:'Syne',sans-serif;font-weight:700">₦${monthlyRecurring.toLocaleString()}</div></div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
+        Cash on Hand is a manual snapshot you update yourself — this tracker doesn't auto-compute a running balance, since salary/fuel/misc outflows have no dated log to draw from yet, only supplier purchases do. Auto-computing against incomplete data would drift from your real balance and become misleading.
+      </div>
+    `;
+  }
+}
+
+function saveCashFlowSettings() {
+  const pnl = ensurePnLData();
+  const cf = pnl.cashFlow;
+  cf.cashOnHand = parseFloat(document.getElementById('pnl-cash-on-hand')?.value) || 0;
+  cf.lowCashThreshold = parseFloat(document.getElementById('pnl-low-cash-threshold')?.value) || 0;
+  cf.monthlySalary = parseFloat(document.getElementById('pnl-cf-salary')?.value) || 0;
+  cf.monthlyFuel = parseFloat(document.getElementById('pnl-cf-fuel')?.value) || 0;
+  cf.monthlyMisc = parseFloat(document.getElementById('pnl-cf-misc')?.value) || 0;
+  saveState();
+  renderPnL();
 }
 
 function saveWageModel() {
