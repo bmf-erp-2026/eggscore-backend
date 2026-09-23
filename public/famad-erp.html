@@ -835,6 +835,21 @@ input[type=number]{-moz-appearance:textfield;}
      later phase, not this one.
 ═══════════════════════════════════════════════════════ -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- Sep 23 2026, Geolocation Phase 1 — Maps JavaScript API, loaded
+     async/deferred so it never blocks the rest of the page. The key
+     below is domain-restricted (Website restrictions → this Railway
+     URL only) and API-restricted (Maps JavaScript API only) in Google
+     Cloud — it's meant to sit here in plain view, the same way the
+     Supabase anon key above is; nothing costs money or does anything
+     risky if someone else copies it, since it only works from this
+     domain. initEggScoreMaps() (defined below, in the main script
+     block) is Google's own callback pattern — it fires once the API
+     has actually finished loading, which may be before or after the
+     Logistics module is ever opened, so renderDestinationMap() checks
+     for readiness rather than assuming it. -->
+<script async defer
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCz-R0fq7giNk0nMYwZBsWimwzGZBKCEb4&callback=initEggScoreMaps&loading=async">
+</script>
 <div id="erp-login-overlay" style="position:fixed;inset:0;z-index:99999;background:#0a0e17;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;">
   <div style="width:100%;max-width:360px;padding:32px;background:#131826;border:1px solid #232938;border-radius:14px;">
     <div style="text-align:center;margin-bottom:24px">
@@ -2163,13 +2178,42 @@ input[type=number]{-moz-appearance:textfield;}
     const byBackendId = new Map(STATE.destinationReference.filter(d => d.backendId).map(d => [d.backendId, d]));
     rows.forEach(row => {
       const existing = byBackendId.get(row.id);
+      // Sep 23 2026, Geolocation Phase 1 — carry the map coordinates
+      // down from the backend the same way name/distanceKm already
+      // were. latitude stays null/undefined until GOOGLE_MAPS_SERVER_KEY
+      // is configured server-side or this particular address doesn't
+      // resolve — that's a normal, expected state here, not an error.
       if(existing) {
         existing.name = row.name; existing.distanceKm = row.distance_km; existing.backendId = row.id;
+        existing.latitude = row.latitude; existing.longitude = row.longitude; existing.formattedAddress = row.formatted_address;
       } else {
-        STATE.destinationReference.push({ id: 'sync-' + row.id, name: row.name, distanceKm: row.distance_km, backendId: row.id });
+        STATE.destinationReference.push({
+          id: 'sync-' + row.id, name: row.name, distanceKm: row.distance_km, backendId: row.id,
+          latitude: row.latitude, longitude: row.longitude, formattedAddress: row.formatted_address,
+        });
       }
     });
     saveState();
+  }
+
+  // Sep 23 2026, Geolocation Phase 1 — backfills coordinates for every
+  // destination that predates GOOGLE_MAPS_SERVER_KEY being configured
+  // (or was added before this feature existed at all), so Bob never
+  // has to delete-and-re-add destinations one at a time just to get
+  // them pinned. Returns the backend's {attempted, geocoded, failed}
+  // summary so the caller can show it, or null on a network failure.
+  async function postGeocodeMissingDestinations() {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/destinations/geocode-missing`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
   }
 
   async function postPromoToBackend(promo) {
@@ -6220,10 +6264,19 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="panel-title">📍 Destination Reference</div>
       <div class="panel-hdr-actions">
         <input class="form-input" id="lg-dest-search" placeholder="🔍 Search destination…" style="padding:4px 8px;font-size:10px;height:28px;width:180px" oninput="renderLogistics()"/>
+        <button class="btn btn-ghost" style="font-size:9px;padding:4px 10px" onclick="geocodeAllDestinations()" title="Pin any destination added before the map key was configured">📍 Geocode All</button>
         <div class="panel-tag">Ogun–Lagos corridor to start — add real destinations as coverage grows</div>
       </div>
     </div>
     <div class="panel-body">
+      <!-- Sep 23 2026, Geolocation Phase 1 — the actual map. Height is
+           fixed rather than viewport-relative so it doesn't fight the
+           rest of the page's scroll; renderDestinationMap() (called
+           from renderLogistics()) fills it with one pin per geocoded
+           destination. A placeholder message shows instead if the
+           Maps script hasn't loaded yet (offline, ad-blocker, or the
+           one-time few-seconds gap right after the page first opens). -->
+      <div id="lg-destination-map" style="height:340px;border-radius:8px;margin-bottom:14px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Loading map…</div>
       <div id="lg-destination-list" style="margin-bottom:10px"></div>
       <div class="rep-hide-finance" style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end">
         <div><label class="form-label">Destination</label><input class="form-input" id="lg-dest-name" placeholder="e.g. Mile 12 Market, Lagos"/></div>
@@ -24379,12 +24432,23 @@ function renderLogistics() {
     const filteredDests = destSearch ? dests.filter(d => d.name.toLowerCase().includes(destSearch)) : dests;
     destEl.innerHTML = filteredDests.length === 0
       ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">${destSearch ? `No matches for "${escapeHtml(destSearch)}".` : 'No destinations added yet.'}</div>`
-      : filteredDests.map(d => `
+      : filteredDests.map(d => {
+        // Sep 23 2026, Geolocation Phase 1 — pin-status affordance, so
+        // Bob can see at a glance which destinations already have real
+        // coordinates versus which are still waiting (no map key
+        // configured yet, or that address didn't resolve) without
+        // opening the map itself.
+        const pinStatus = (d.latitude != null && d.longitude != null)
+          ? `<span style="color:var(--lime)" title="${escapeHtml(d.formattedAddress || '')}">📍 pinned</span>`
+          : `<span style="color:var(--mist)">⏳ not yet mapped</span>`;
+        return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px">
-          <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(d.name)} — ${d.distanceKm}km</span>
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(d.name)} — ${d.distanceKm}km &nbsp;·&nbsp; ${pinStatus}</span>
           <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDestination('${d.id}')">Remove</button>
-        </div>`).join('');
+        </div>`;
+      }).join('');
   }
+  renderDestinationMap(dests);
 
   renderReadyForWaybill();
   renderInTransitPanel();
@@ -24392,6 +24456,99 @@ function renderLogistics() {
 
   // Defensive re-apply (Sep 3 2026, Sales Rep Access) — see renderDashboard().
   applyRoleUI();
+}
+
+// ── Geolocation Phase 1 (Sep 23 2026) — the actual live map ──
+//
+// googleMapsReady flips true once Google's own script (loaded async
+// in the <head>) finishes and fires its callback — that can happen
+// before OR after Bob ever opens the Logistics module, so every
+// render call below checks this flag rather than assuming the API
+// object exists. eggscoreDestMap/eggscoreDestMarkers are module-level
+// so repeated renders (every keystroke in the search box, every
+// add/remove) reuse the same map instance and just swap its markers,
+// instead of tearing down and rebuilding a whole Google Map object on
+// every render — that would be slow and would reset the pan/zoom the
+// user just set.
+let googleMapsReady = false;
+let eggscoreDestMap = null;
+let eggscoreDestMarkers = [];
+
+function initEggScoreMaps() {
+  googleMapsReady = true;
+  // The Logistics module may already be open and waiting (its first
+  // renderDestinationMap() call ran before the script finished
+  // loading and left the placeholder text up) — re-render now that
+  // the API is actually available, but only if that's the module
+  // currently on screen, same guard renderLogistics() itself uses.
+  if(currentModule === 'logistics') renderDestinationMap(ensureDestinationReference());
+}
+
+function renderDestinationMap(dests) {
+  const el = document.getElementById('lg-destination-map');
+  if(!el) return; // Logistics module isn't the one currently rendered
+
+  if(!googleMapsReady || typeof google === 'undefined' || !google.maps) {
+    el.innerHTML = '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">Loading map…</span>';
+    return;
+  }
+
+  const pinned = (dests || []).filter(d => d.latitude != null && d.longitude != null);
+
+  if(!eggscoreDestMap) {
+    // Center of gravity for a first paint: Ogun–Lagos corridor
+    // midpoint, since that's the stated starting coverage area — real
+    // pins (once any exist) immediately override this via fitBounds
+    // below, so this default only ever shows for a split second, or
+    // when nothing's pinned yet at all.
+    eggscoreDestMap = new google.maps.Map(el, {
+      center: { lat: 6.6, lng: 3.5 },
+      zoom: 9,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+    });
+  }
+
+  // Clear last render's markers before adding this render's — the
+  // list can shrink (a destination removed) as easily as it can grow,
+  // and stale markers left on the map would show deleted destinations
+  // as still-pinned, which is worse than the map being briefly empty.
+  eggscoreDestMarkers.forEach(m => m.setMap(null));
+  eggscoreDestMarkers = [];
+
+  if(pinned.length === 0) {
+    el.style.display = 'flex';
+    // google.maps.Map doesn't clean itself up when its container goes
+    // display:none and back — safest is to just leave the map object
+    // alone and show the "nothing pinned yet" state as an overlay
+    // message isn't worth the complexity here; the placeholder panel
+    // text below the search box already tells Bob why the map looks
+    // empty, so no separate empty-state needed on the map itself.
+    return;
+  }
+
+  const bounds = new google.maps.LatLngBounds();
+  pinned.forEach(d => {
+    const position = { lat: d.latitude, lng: d.longitude };
+    const marker = new google.maps.Marker({
+      position, map: eggscoreDestMap, title: d.name,
+    });
+    const infoWindow = new google.maps.InfoWindow({
+      content: `<div style="font-family:sans-serif;font-size:12px;color:#1a1a1a"><strong>${escapeHtml(d.name)}</strong><br>${d.distanceKm}km from farm${d.formattedAddress ? `<br><span style="color:#666">${escapeHtml(d.formattedAddress)}</span>` : ''}</div>`,
+    });
+    marker.addListener('click', () => infoWindow.open(eggscoreDestMap, marker));
+    eggscoreDestMarkers.push(marker);
+    bounds.extend(position);
+  });
+
+  // A single destination gives fitBounds a zero-size box, which
+  // over-zooms to street level — nudge back out for that one case
+  // rather than leaving Bob staring at one pin filling the whole map.
+  eggscoreDestMap.fitBounds(bounds);
+  if(pinned.length === 1) {
+    google.maps.event.addListenerOnce(eggscoreDestMap, 'bounds_changed', () => eggscoreDestMap.setZoom(Math.min(eggscoreDestMap.getZoom(), 13)));
+  }
 }
 
 function setVal(id, val) {
@@ -24456,11 +24613,36 @@ function addDestination() {
   if(!name || isNaN(km) || km <= 0) { showToast('⚠ Enter a destination name and a real distance.'); return; }
   const newDest = { id: 'dst' + Date.now(), name, distanceKm: km };
   ensureDestinationReference().push(newDest);
-  postDestinationToBackend(newDest).then(row => { if(row) newDest.backendId = row.id; saveState(); });
+  // Sep 23 2026, Geolocation Phase 1 — the POST now geocodes server-side
+  // before the row even comes back, so the same response that used to
+  // carry only the new backendId now also carries latitude/longitude
+  // (or nulls, if no server key yet / address didn't resolve) — no
+  // second round-trip needed.
+  postDestinationToBackend(newDest).then(row => {
+    if(row) {
+      newDest.backendId = row.id;
+      newDest.latitude = row.latitude; newDest.longitude = row.longitude; newDest.formattedAddress = row.formatted_address;
+    }
+    saveState();
+    renderLogistics();
+  });
   saveState();
   document.getElementById('lg-dest-name').value = ''; document.getElementById('lg-dest-km').value = '';
   renderLogistics();
   showToast('✓ Destination added.');
+}
+
+// Sep 23 2026, Geolocation Phase 1 — manual "catch up" for any
+// destination still missing a pin (added before the server key
+// existed, or an address Google couldn't resolve the first time).
+async function geocodeAllDestinations() {
+  showToast('⏳ Geocoding destinations still missing a pin…');
+  const result = await postGeocodeMissingDestinations();
+  if(!result) { showToast('⚠ Could not reach the geocoding service — check your connection and try again.'); return; }
+  if(result.attempted === 0) { showToast('✓ Every destination already has a pin.'); return; }
+  await syncDestinationsFromBackend();
+  renderLogistics();
+  showToast(`✓ ${result.geocoded}/${result.attempted} pinned` + (result.failed > 0 ? ` — ${result.failed} couldn't be matched (check spelling/detail).` : '.'));
 }
 function removeDestination(id) {
   const d = STATE.destinationReference.find(x => x.id === id);
