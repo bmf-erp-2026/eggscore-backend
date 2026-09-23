@@ -10388,6 +10388,37 @@ function computeCommissionReconciliation() {
   return results;
 }
 
+// Sep 23 2026 — the true lifetime outstanding-commission figure for a
+// rep, built the SAME reconciled, month-by-month way
+// computeCommissionReconciliation() already does (real earned per
+// month vs. real STATE.commPaidMTD per month), summed across every
+// month on record. Exists because the Deboard modal was using the raw
+// STATE.commPaid[repName] scalar instead — the exact "lifetime
+// accumulator... must never be compared against a month-scoped
+// commission figure" trap already documented above updateAllKPIs()'s
+// comm-paid KPI fix, just in a second call site that fix never
+// touched. Worse, STATE.commPaid can be silently corrupted independent
+// of any real payment: resolveCommDispute() used to zero it out on an
+// upheld dispute (removed below, since nothing ever actually read that
+// reset for its stated purpose) — so a rep with any upheld dispute in
+// their history could show a large phantom "outstanding" balance at
+// deboard time despite every real month being genuinely paid. This
+// helper is now the one honest source of truth for "does this rep
+// have real unpaid commission," reused by both the warning banner and
+// the actual deboard record.
+function getRepCommOutstandingLifetime(repName) {
+  const months = new Set();
+  STATE.sales.filter(s => s.rep === repName && s.date).forEach(s => months.add(s.date.slice(0, 7)));
+  Object.keys(STATE.commPaidMTD?.[repName] || {}).forEach(m => months.add(m));
+
+  let totalEarned = 0, totalPaid = 0;
+  months.forEach(m => {
+    totalEarned += getRepCommByMonth(repName, m);
+    totalPaid   += (STATE.commPaidMTD?.[repName]?.[m] || 0);
+  });
+  return { totalEarned: round2(totalEarned), totalPaid: round2(totalPaid), outstanding: Math.max(0, round2(totalEarned - totalPaid)) };
+}
+
 function getTotalRevMTD() { return getMonthSales().reduce((a,s) => a + s.gross, 0); }
 function ensureBrandingReadinessSettings() {
   if(!STATE.brandingReadinessSettings) STATE.brandingReadinessSettings = { watchThreshold: 5000, actionThreshold: 10000 };
@@ -16738,10 +16769,26 @@ function resolveCommDispute() {
   d.adjustedAmount  = outcome === 'dismissed' ? null : adjusted;
   d.resolutionNotes = notes;
 
-  // Apply adjustment to commPaid if upheld or partial
+  // Sep 23 2026 — this used to also run `STATE.commPaid[d.repName] = 0`
+  // here, with the comment "reset so adjusted amount becomes the new
+  // payable." Traced it: nothing anywhere ever reads d.adjustedAmount
+  // back into getRepCommMTD() or markCommPaid()'s pending calculation
+  // — it's stored purely for display in the resolved-dispute history,
+  // never applied. So the reset never actually accomplished its stated
+  // goal; all it did was zero out a rep's LIFETIME commPaid accumulator
+  // completely unrelated to the disputed month, silently erasing every
+  // prior real payment from that one figure. That's exactly what
+  // surfaced as a phantom "₦12,500 outstanding" on Alagbede Zuofa's
+  // Deboard page despite the Commission Engine showing him fully PAID
+  // — his commPaid scalar had been reset by an earlier resolved
+  // dispute and never caught back up. Removed outright; the Deboard
+  // modal now computes outstanding commission the reconciled way
+  // (getRepCommOutstandingLifetime()), which was never affected by
+  // this scalar in the first place. If "adjusted commission" should
+  // genuinely change what a rep is owed going forward, that needs its
+  // own real wiring into getRepCommMTD()/markCommPaid() — flagged, not
+  // built here.
   if(outcome === 'upheld' && adjusted !== null) {
-    // Set new commission target — rep gets adjusted amount
-    STATE.commPaid[d.repName] = 0; // reset so adjusted amount becomes the new payable
     logOk('commission',
       `Dispute upheld — ${d.repName} · commission adjusted to ${fmt(adjusted)}`,
       `Original: ${fmt(getRepCommMTD(d.repName))} · Adjusted: ${fmt(adjusted)} · ${notes}`
@@ -20984,12 +21031,12 @@ function openDeboardModal(repId) {
   document.getElementById('deboard-reason').value = '';
   document.getElementById('deboard-notes').value  = '';
 
-  // ── Settlement check — compute all outstanding emoluments ──
-  const totalCommEarned = STATE.sales
-    .filter(s => s.rep === rep.name)
-    .reduce((a,s) => a + (s.comm||0), 0);
-  const totalCommPaid  = STATE.commPaid?.[rep.name] || 0;
-  const outstandingComm= Math.max(0, totalCommEarned - totalCommPaid);
+  // ── Settlement check — compute all outstanding emoluments. Sep 23
+  // 2026: switched from the raw STATE.commPaid lifetime scalar (which
+  // can drift from reality — see getRepCommOutstandingLifetime's own
+  // comment) to the same reconciled month-by-month math the Commission
+  // Engine's own reconciliation panel already trusts. ──
+  const outstandingComm = getRepCommOutstandingLifetime(rep.name).outstanding;
 
   // Outstanding commission disputes involving this rep
   const openDisputes = (STATE.commDisputes||[])
@@ -21034,12 +21081,11 @@ function confirmDeboard() {
   const rep = STATE.reps.find(r => r.id === repId);
   if(!rep) return;
 
-  // ── Hard block: unsettled commission requires explicit acknowledgement ──
-  const totalCommEarned = STATE.sales
-    .filter(s => s.rep === rep.name)
-    .reduce((a,s) => a + (s.comm||0), 0);
-  const totalCommPaid   = STATE.commPaid?.[rep.name] || 0;
-  const outstanding     = Math.max(0, totalCommEarned - totalCommPaid);
+  // ── Hard block: unsettled commission requires explicit acknowledgement.
+  // Same reconciled source as openDeboardModal()'s warning banner above
+  // — must never diverge from what the rep was actually shown before
+  // confirming. ──
+  const outstanding     = getRepCommOutstandingLifetime(rep.name).outstanding;
   const ackEl           = document.getElementById('deboard-settlement-ack');
   const ackChecked      = ackEl?.checked || false;
 
