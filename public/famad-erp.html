@@ -5994,6 +5994,14 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="panel-body" id="pnl-araging-section"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Debt Service Monitor</div>
+      <div class="panel-tag">fully template — no loan/financing tracking exists anywhere in this app yet</div>
+    </div>
+    <div class="panel-body" id="pnl-debtservice-section"></div>
+  </div>
 </div>
 
 <!-- ════ MODULE: RESERVATION INTELLIGENCE ═════════════════════════════ -->
@@ -17182,6 +17190,16 @@ function ensurePnLData() {
   if(!STATE.pnl.cacLtv) {
     STATE.pnl.cacLtv = { marketingSpend: 0, assumedLifespanMonths: 12 };
   }
+  // Debt Service — Sep 23 2026. Fully template, no derivable source at
+  // all: nothing in this app tracks any loan or financing taken out
+  // for vehicles/cold storage/equipment (the P&L Calculator's Fixed
+  // Assets table tracks the van as a depreciating ASSET, never any
+  // loan used to finance it — a genuinely different thing). Each loan
+  // is a small manual record; outstanding balance is a snapshot Bob
+  // updates as it's paid down, same honesty principle as Cash on Hand.
+  if(!STATE.pnl.loans) {
+    STATE.pnl.loans = [];
+  }
   return STATE.pnl;
 }
 
@@ -18061,6 +18079,75 @@ function renderPnL() {
       </div>
     `;
   }
+
+  // ── Debt Service Monitor (Sep 23 2026) — fully template, same honesty
+  // principle as Cash on Hand: outstanding balance is a snapshot Bob
+  // updates himself as each loan is paid down, not something this app
+  // can track automatically since no repayment history exists anywhere.
+  // Monthly interest is a simple estimate (balance × annual rate ÷ 12),
+  // not a real amortization schedule — clearly labeled as such. ──
+  const dsEl = document.getElementById('pnl-debtservice-section');
+  if(dsEl) {
+    const loans = ensurePnLData().loans;
+    const totalMonthlyPayment = round2(loans.reduce((sum,l) => sum + (l.monthlyPayment||0), 0));
+    const totalOutstanding = round2(loans.reduce((sum,l) => sum + (l.outstandingBalance||0), 0));
+    const totalMonthlyInterest = round2(loans.reduce((sum,l) => sum + ((l.outstandingBalance||0) * (l.annualRate||0) / 100 / 12), 0));
+
+    dsEl.innerHTML = `
+      <table class="data-table" style="margin-bottom:12px">
+        <thead><tr><th>Loan / Financing</th><th>Outstanding Balance (₦)</th><th>Annual Rate (%)</th><th>Monthly Payment (₦)</th><th></th></tr></thead>
+        <tbody>
+          ${loans.map(l => `
+            <tr>
+              <td><input class="form-input" style="font-size:10px;padding:4px 6px" value="${escapeHtml(l.name)}" onchange="updateLoan('${l.id}','name',this.value)"/></td>
+              <td><input class="form-input" style="font-size:10px;padding:4px 6px" type="number" value="${l.outstandingBalance}" onchange="updateLoan('${l.id}','outstandingBalance',this.value)"/></td>
+              <td><input class="form-input" style="font-size:10px;padding:4px 6px" type="number" value="${l.annualRate}" onchange="updateLoan('${l.id}','annualRate',this.value)"/></td>
+              <td><input class="form-input" style="font-size:10px;padding:4px 6px" type="number" value="${l.monthlyPayment}" onchange="updateLoan('${l.id}','monthlyPayment',this.value)"/></td>
+              <td><button class="btn btn-ghost" style="font-size:9px;padding:2px 8px" onclick="removeLoan('${l.id}')">Remove</button></td>
+            </tr>`).join('') || `<tr><td colspan="5" style="color:var(--mist);font-size:10px">No loans on file yet — add one below.</td></tr>`}
+        </tbody>
+      </table>
+      <button class="btn btn-ghost" style="font-size:10px;margin-bottom:16px" onclick="addLoan()">+ Add Loan</button>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div style="padding:12px 14px;background:var(--raised);border-radius:8px">
+          <div style="font-size:9px;color:var(--mist)">TOTAL OUTSTANDING DEBT</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px">₦${totalOutstanding.toLocaleString()}</div>
+        </div>
+        <div style="padding:12px 14px;background:var(--raised);border-radius:8px">
+          <div style="font-size:9px;color:var(--mist)">MONTHLY REPAYMENT</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--red)">₦${totalMonthlyPayment.toLocaleString()}</div>
+        </div>
+        <div style="padding:12px 14px;background:var(--raised);border-radius:8px">
+          <div style="font-size:9px;color:var(--mist)">EST. MONTHLY INTEREST</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--sun)">₦${totalMonthlyInterest.toLocaleString()}</div>
+        </div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
+        Outstanding Balance is a snapshot you update yourself as each loan is paid down — nothing here tracks real repayment history. Monthly Interest is a simple estimate (balance × annual rate ÷ 12), not a real amortization schedule.
+      </div>
+    `;
+  }
+}
+
+function addLoan() {
+  const pnl = ensurePnLData();
+  pnl.loans.push({ id: 'loan_' + Date.now(), name: 'New Loan', outstandingBalance: 0, annualRate: 0, monthlyPayment: 0 });
+  saveState();
+  renderPnL();
+}
+function removeLoan(id) {
+  const pnl = ensurePnLData();
+  pnl.loans = pnl.loans.filter(l => l.id !== id);
+  saveState();
+  renderPnL();
+}
+function updateLoan(id, field, value) {
+  const pnl = ensurePnLData();
+  const loan = pnl.loans.find(l => l.id === id);
+  if(!loan) return;
+  loan[field] = field === 'name' ? value : (parseFloat(value) || 0);
+  saveState();
+  renderPnL();
 }
 
 function saveCacLtvSettings() {
