@@ -24978,29 +24978,57 @@ function pdfSignatureLines(doc, y, leftLabel, rightLabel) {
   return y + 15;
 }
 
-// Sep 23 2026 — faint, low-opacity logo behind the page content, for
-// document authenticity (so a customer can tell a genuine EggScore
-// document from a forged one at a glance). Deliberately separate from
-// pdfDocHeader()'s crisp, full-opacity logo — this one is large,
-// centered, and drawn first so every later element sits on top of it.
+// Sep 23 2026, revised same day — v1 was a large centered logo image at
+// 6% opacity; Bob's call after seeing it live: too bold for the intent.
+// The point isn't a decorative mark a customer notices — it's a quiet
+// authenticity check for a DISPUTE, the way a banknote's watermark is
+// something the public doesn't consciously register but that exists to
+// be checked. Rebuilt as small "EggScore" text tiled diagonally across
+// the whole page (security-paper style, not a single stamp), at a much
+// lower opacity, with a 1-line emboss: a faint pale "highlight" copy
+// offset one way and a fainter dark "shadow" copy offset the other way
+// under the same baseline text — the same highlight/shadow trick a
+// bevel-emboss filter uses, approximated with two low-opacity passes
+// since flat PDF has no real relief. Result reads as neutral paper
+// texture at a glance; only shows up as "EggScore" on close inspection
+// or print — exactly the "public unaware, exists as proof" brief.
 // Call this as the very FIRST thing in a document, before
 // pdfDocHeader() — jsPDF draws in call order, so anything drawn after
 // this naturally layers over it. Uses this build's real GState support
 // (confirmed present — doc.GState/doc.setGState are part of the
-// vendored jsPDF, same as every other doc.* call here) rather than a
-// second, transparent image asset. Scoped deliberately to customer-
-// facing money documents (Sales Invoice, Payment Receipt, Credit Note,
-// Customer Statement, Settlement Receipt) — NOT wired into
-// pdfDocHeader() itself, so the purely internal Document Centre PDFs
-// (VAT Worksheet, Bank Reconciliation, Fixed Asset Register, etc.)
-// stay exactly as they were.
+// vendored jsPDF, same as every other doc.* call here). Scoped
+// deliberately to customer-facing money documents (Sales Invoice,
+// Payment Receipt, Credit Note, Customer Statement, Settlement
+// Receipt, Order Confirmation) — NOT wired into pdfDocHeader() itself,
+// so the purely internal Document Centre PDFs (VAT Worksheet, Bank
+// Reconciliation, Fixed Asset Register, etc.) stay exactly as they were.
 function pdfWatermark(doc) {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const wmW = pageW * 0.7, wmH = wmW * (382/1200);
-  doc.setGState(new doc.GState({ opacity: 0.06 }));
-  doc.addImage(EGGSCORE_LOGO_BASE64, 'JPEG', (pageW-wmW)/2, (pageH-wmH)/2, wmW, wmH);
+  const label = 'EggScore';
+  const stepX = 42, stepY = 30;   // tile pitch — dense enough to read as texture, not a single mark
+  const angle = 30;               // shallow diagonal, like most security-paper text
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+
+  for (let row = 0, y = 12; y < pageH + stepY; y += stepY, row++) {
+    const xOffset = (row % 2) * (stepX / 2); // brick-stagger so no two rows line up vertically
+    for (let x = -stepX + xOffset; x < pageW + stepX; x += stepX) {
+      // shadow pass — faint dark, offset down-right
+      doc.setGState(new doc.GState({ opacity: 0.035 }));
+      doc.setTextColor(90, 90, 90);
+      doc.text(label, x + 0.25, y + 0.25, { angle });
+      // highlight pass — fainter pale, offset up-left; the two together
+      // read as a subtle engraved/embossed edge rather than flat gray text
+      doc.setGState(new doc.GState({ opacity: 0.025 }));
+      doc.setTextColor(255, 255, 255);
+      doc.text(label, x - 0.25, y - 0.25, { angle });
+    }
+  }
+
   doc.setGState(new doc.GState({ opacity: 1 })); // reset immediately — everything drawn after this must be fully opaque
+  doc.setTextColor(0, 0, 0);
 }
 
 /* ── 1. LETTERHEAD — blank branded page for ad-hoc correspondence ── */
