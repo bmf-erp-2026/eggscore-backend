@@ -2390,7 +2390,6 @@ async function checkPriceChangeSinceLastOrder(customerName) {
   const note = document.getElementById('price-change-notice');
   if(!note) return;
 
-  const currentPrice = portalState.basePrice;
   let lastSale;
   try {
     const resp = await fetch(`${BACKEND_URL}/sales/last-price?customer=${encodeURIComponent(customerName)}`, {
@@ -2405,7 +2404,24 @@ async function checkPriceChangeSinceLastOrder(customerName) {
 
   if(!lastSale || !lastSale.price) { note.style.display = 'none'; return; }
 
-  const lastPrice = lastSale.price;
+  // Sep 23 2026 fix — same root cause family as the Aug 26 wallet-notice
+  // bug just above: both currentPrice and lastSale.price come from
+  // egg-only figures (portalState.basePrice, and sales.price_per_crate
+  // which the backend stores separately from delivery_total), so this
+  // notice was quoting a different number than the Stock Available
+  // panel right next to it (which correctly adds getFlatDeliveryRate())
+  // — confirmed live, ₦5,925/crate here vs ₦6,125/crate on the stock
+  // panel, the exact ₦200/crate delivery levy, causing real customer
+  // confusion. There's no historical per-crate delivery rate stored
+  // against a past sale to look up, so both "last order" and "now" use
+  // TODAY's flat delivery rate applied consistently to each — this
+  // keeps the ₦-increase/decrease delta itself accurate (both sides
+  // shift by the same amount) while making the headline numbers match
+  // what the Stock panel actually quotes.
+  const hasDelivery = getCurrentDeliveryLevyPerCrate() > 0;
+  const deliveryLevy = hasDelivery ? getCurrentDeliveryLevyPerCrate() : 0;
+  const currentPrice = portalState.basePrice + deliveryLevy;
+  const lastPrice = lastSale.price + deliveryLevy;
   if(lastPrice === currentPrice) { note.style.display = 'none'; return; }
 
   const direction = currentPrice > lastPrice ? 'increased' : 'decreased';
