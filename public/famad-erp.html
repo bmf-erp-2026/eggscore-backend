@@ -22126,6 +22126,15 @@ function confirmSettlement() {
   closeModal('modal-quick-settle');
   updateAllKPIs();
   if(currentModule === 'credit') renderCredit();
+
+  // Context 3 (Sep 23 2026) — a customer closing off part or all of a
+  // financed/credit balance needs proof of THAT settlement to validate
+  // it against the Credit & Debit Register, same as any other payment
+  // gets a receipt. Auto-downloads immediately since the real data
+  // (settlementEntry, just written above) is already at hand — same
+  // "generate it now, don't make Bob dig for it later" pattern as the
+  // Overpayment Recorder auto-opening after Verify Payment.
+  generateSettlementReceiptPDF(settlementEntry.entryId);
 }
 
 function openReverseModal(saleId) {
@@ -22324,6 +22333,9 @@ function renderSettlementAuditLog() {
           ? `<span style="color:var(--lime)">₦0 closed</span>`
           : `<span style="color:var(--amber)">₦${l.balanceAfter.toLocaleString()} remaining</span>`)
       : '';
+    // Context 3 (Sep 23 2026) — receipt only makes sense for a real
+    // money-received entry, not a reversal note.
+    const canReceipt = (l.action === 'settled' || l.action === 'partial') && l.entryId;
     return `
     <div class="audit-row">
       <div class="ar-left">
@@ -22333,6 +22345,7 @@ function renderSettlementAuditLog() {
       </div>
       <div class="ar-right">
         ${l.by}<br>${l.at ? new Date(l.at).toLocaleDateString('en-GB') : ''}
+        ${canReceipt ? `<br><button class="btn btn-ghost" style="font-size:8px;padding:2px 8px;margin-top:4px" onclick="generateSettlementReceiptPDF('${l.entryId}')">🧾 Receipt</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -23280,6 +23293,8 @@ function buildOrderCard(o, queueNum) {
           onclick="rejectOrder('${o.ref}')">✕ Reject</button>
         <button class="wa-btn" style="padding:6px 12px;font-size:10px"
           onclick="waReplyOrder('${o.ref}')">💬 WA Reply</button>
+        <button class="btn btn-ghost" style="font-size:10px"
+          onclick="generateOrderConfirmationPDF('${o.ref}')">📄 Confirmation PDF</button>
       ` : ''}
       ${isReserved ? `
         <button class="btn btn-primary" style="font-size:10px"
@@ -23292,6 +23307,8 @@ function buildOrderCard(o, queueNum) {
           onclick="openSpecialCircumstanceModal('${o.ref}')">🏳️ Special Circumstance</button>
         <button class="wa-btn" style="padding:6px 12px;font-size:10px"
           onclick="waReplyOrder('${o.ref}')">💬 WA Reply</button>
+        <button class="btn btn-ghost" style="font-size:10px"
+          onclick="generateOrderConfirmationPDF('${o.ref}')">📄 Confirmation PDF</button>
       ` : ''}
       ${isConfirmed ? `
         <button class="btn btn-primary" style="font-size:10px${!o.agreedPaymentTerms ? ';opacity:0.4;cursor:not-allowed' : ''}"
@@ -24961,6 +24978,31 @@ function pdfSignatureLines(doc, y, leftLabel, rightLabel) {
   return y + 15;
 }
 
+// Sep 23 2026 — faint, low-opacity logo behind the page content, for
+// document authenticity (so a customer can tell a genuine EggScore
+// document from a forged one at a glance). Deliberately separate from
+// pdfDocHeader()'s crisp, full-opacity logo — this one is large,
+// centered, and drawn first so every later element sits on top of it.
+// Call this as the very FIRST thing in a document, before
+// pdfDocHeader() — jsPDF draws in call order, so anything drawn after
+// this naturally layers over it. Uses this build's real GState support
+// (confirmed present — doc.GState/doc.setGState are part of the
+// vendored jsPDF, same as every other doc.* call here) rather than a
+// second, transparent image asset. Scoped deliberately to customer-
+// facing money documents (Sales Invoice, Payment Receipt, Credit Note,
+// Customer Statement, Settlement Receipt) — NOT wired into
+// pdfDocHeader() itself, so the purely internal Document Centre PDFs
+// (VAT Worksheet, Bank Reconciliation, Fixed Asset Register, etc.)
+// stay exactly as they were.
+function pdfWatermark(doc) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const wmW = pageW * 0.7, wmH = wmW * (382/1200);
+  doc.setGState(new doc.GState({ opacity: 0.06 }));
+  doc.addImage(EGGSCORE_LOGO_BASE64, 'JPEG', (pageW-wmW)/2, (pageH-wmH)/2, wmW, wmH);
+  doc.setGState(new doc.GState({ opacity: 1 })); // reset immediately — everything drawn after this must be fully opaque
+}
+
 /* ── 1. LETTERHEAD — blank branded page for ad-hoc correspondence ── */
 /* ── AUDIT PREP: FIXED ASSET REGISTER ── */
 function generateFixedAssetRegisterPDF() {
@@ -25679,6 +25721,7 @@ function generateSalesInvoicePDF() {
   const isSettled = s.settledAt || s.payment==='cash' || remaining<=0;
 
   const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
+  pdfWatermark(doc);
   let y = pdfDocHeader(doc, 'SALES INVOICE', s.inv||s.id);
   y = pdfKeyValueBlock(doc, 18, y, [
     ['Date:', s.date],
@@ -25906,6 +25949,7 @@ function generateCustomerStatementPDF() {
   const custRecord = STATE.customers.find(c => c.name === name);
 
   const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
+  pdfWatermark(doc);
   let y = pdfDocHeader(doc, 'CUSTOMER STATEMENT OF ACCOUNT', docRefNumber('CSA'));
   y = pdfKeyValueBlock(doc, 18, y, [
     ['Customer:', name],
@@ -25977,6 +26021,7 @@ function generatePaymentReceiptPDF() {
   const amount = s.settledAmount || (s.gross+(s.deliveryTotal||0));
 
   const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
+  pdfWatermark(doc);
   let y = pdfDocHeader(doc, 'PAYMENT RECEIPT', docRef);
   y = pdfKeyValueBlock(doc, 18, y, [
     ['Date:', s.settledAt ? new Date(s.settledAt).toLocaleDateString('en-GB') : s.date],
@@ -25994,6 +26039,50 @@ function generatePaymentReceiptPDF() {
   doc.save(`Payment-Receipt-${docRef}.pdf`);
   closeModal('modal-payment-receipt');
   showToast('✓ Payment Receipt downloaded.');
+}
+
+// Context 3 (Sep 23 2026) — a customer closing off part or all of a
+// financed/credit balance (Credit & Debit Register's Quick Settle)
+// needs a receipt for THAT settlement, not a general sale payment
+// receipt. Built straight off the real settlementLog entry (same
+// object already shown in the Settlement Audit Log), so it covers
+// PARTIAL payments correctly — generatePaymentReceiptPDF above only
+// ever reads a sale's one-shot settledAmount, which a partial payment
+// never sets (it sets partPaidAmount instead), so it would have shown
+// the wrong figure or nothing at all for anything but a full
+// settlement. Callable two ways: automatically right after
+// confirmSettlement() (see there), or manually from the Settlement
+// Audit Log's own "🧾 Receipt" button for any past entry.
+function generateSettlementReceiptPDF(entryId) {
+  const entry = (STATE.settlementLog||[]).find(l => l.entryId === entryId);
+  if(!entry) { showToast('⚠ Settlement record not found.'); return; }
+  if(entry.action === 'reversed' || entry.reversedAt) { showToast('⚠ This settlement was reversed — no receipt to issue.'); return; }
+
+  const docRef = docRefNumber('SR');
+  const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
+  pdfWatermark(doc);
+  let y = pdfDocHeader(doc, 'SETTLEMENT RECEIPT', docRef);
+  y = pdfKeyValueBlock(doc, 18, y, [
+    ['Date:', entry.at ? new Date(entry.at).toLocaleDateString('en-GB') : '—'],
+    ['Received From:', entry.customer],
+    ['Amount Received:', '₦'+Math.round(entry.amount).toLocaleString()],
+    ['Method:', entry.method || '—'],
+    ['Against Invoice:', entry.saleRef || '—'],
+    ['Balance Before:', '₦'+Math.round(entry.balanceBefore||0).toLocaleString()],
+    ['Balance After:', entry.balanceAfter > 0 ? '₦'+Math.round(entry.balanceAfter).toLocaleString()+' still outstanding' : '₦0 — fully settled'],
+  ], 55);
+  y += 10;
+  doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(80);
+  const closingLine = entry.balanceAfter > 0
+    ? `Partial payment received with thanks — ₦${Math.round(entry.balanceAfter).toLocaleString()} remains outstanding on this account.`
+    : 'Received with thanks — this balance is now fully settled.';
+  const closingLines = doc.splitTextToSize(closingLine, doc.internal.pageSize.getWidth()-36);
+  doc.text(closingLines, 18, y); y += closingLines.length*5 + 10;
+  y = pdfSignatureLines(doc, y, 'Received By (BMF EggScore Limited)', 'Date');
+
+  pdfDocFooter(doc);
+  doc.save(`Settlement-Receipt-${docRef}.pdf`);
+  showToast('✓ Settlement Receipt downloaded — ' + entry.customer);
 }
 
 /* ── 14. CREDIT NOTE (addition — ties directly into the Full
@@ -26014,6 +26103,7 @@ function generateCreditNotePDF() {
   const docRef = docRefNumber('CN');
 
   const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
+  pdfWatermark(doc);
   let y = pdfDocHeader(doc, 'CREDIT NOTE', docRef);
   y = pdfKeyValueBlock(doc, 18, y, [
     ['Date Issued:', new Date(s.reversedAt).toLocaleDateString('en-GB')],
@@ -26893,11 +26983,67 @@ function waReplyOrder(ref, type) {
   if(!o) return;
   const phone=sanitisePhone(o.phone);
   if(!phone){ showToast('⚠ No valid phone for this order.'); return; }
-  const val=fmt(o.crates*(o.pricePerCrate||5700));
+  const perCrate = o.pricePerCrate||5700;
+  const val=fmt(o.crates*perCrate);
+  // Sep 23 2026 — Context 2: the "just received, reviewing" message
+  // used to show only the crate count, no price at all, while the
+  // 'confirm' message right above it already showed a full total —
+  // Bob's report that the crate figure was "just itemized" with
+  // nothing to actually total against. Added the same per-crate ×
+  // total breakdown here, clearly labelled ESTIMATED since price and
+  // availability aren't locked until the order is actually confirmed.
+  // Note: wa.me can only pre-fill TEXT — there is no file-attachment
+  // parameter in the WhatsApp deep-link scheme, so a real PDF can
+  // never auto-attach here regardless of what this message says. A
+  // downloadable, watermarked PDF version of this same quote is built
+  // separately (generateOrderConfirmationPDF()) for a rep to attach
+  // by hand in WhatsApp if a formal document is wanted.
   const msg = type==='confirm'
     ? `Hello ${o.customerName} 👋,\n\nYour order has been *confirmed* ✅\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💰 *Total:* ${val}\n\n*Payment:*\n🏦 First Bank Nigeria\n👤 BMF EggScore Limited\n🔢 Acc: 3012345678\n📝 Narration: ${o.ref}\n\nDispatch follows payment confirmation.\n\n*BMF EggScore Limited* 🥚`
-    : `Hello ${o.customerName},\n\nThank you for your order with *BMF EggScore Limited*.\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n\nWe are reviewing your order and will confirm shortly.\n\n*BMF EggScore Limited* 🥚🇳🇬`;
+    : `Hello ${o.customerName},\n\nThank you for your order with *BMF EggScore Limited*.\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💵 *Price:* ₦${perCrate.toLocaleString()}/crate\n💰 *Estimated Total:* ${val}\n\nWe are reviewing your order and will confirm shortly — price and availability are confirmed at that point.\n\n*BMF EggScore Limited* 🥚🇳🇬`;
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`,'_blank');
+}
+
+// Context 2 (Sep 23 2026) — a real, downloadable, watermarked PDF quote
+// at the moment an order is first received, matching what Bob asked
+// for ("PDF-invoice as part of confirmation notice"). Deliberately
+// labelled a QUOTE / ORDER CONFIRMATION, not an invoice — nothing is
+// owed yet, price and availability aren't locked until the order is
+// actually confirmed (same reasoning as the enriched WA message right
+// above). wa.me cannot attach a file to the pre-filled WhatsApp
+// message — that's a hard limit of the deep-link scheme this app
+// uses, not something any code change here can work around — so this
+// downloads locally; a rep attaches it by hand in WhatsApp if the
+// customer needs the formal document rather than just the text.
+function generateOrderConfirmationPDF(ref) {
+  const orders = loadOrders();
+  const o = orders.find(x => x.ref === ref);
+  if(!o) { showToast('⚠ Order not found.'); return; }
+  const perCrate = o.pricePerCrate || 5700;
+  const total = o.crates * perCrate;
+  const docRef = docRefNumber('OC');
+
+  const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
+  pdfWatermark(doc);
+  let y = pdfDocHeader(doc, 'ORDER CONFIRMATION', docRef);
+  y = pdfKeyValueBlock(doc, 18, y, [
+    ['Date:', new Date().toLocaleDateString('en-GB')],
+    ['Customer:', o.customerName],
+    ['Order Ref:', o.ref],
+    ['Crates:', String(o.crates)],
+    ['Price per Crate (estimated):', '₦'+perCrate.toLocaleString()],
+    ['Estimated Total:', '₦'+total.toLocaleString()],
+    ['Status:', (o.status||'pending').toUpperCase()],
+  ], 65);
+  y += 10;
+  doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(80);
+  const note = 'This confirms we have received your order and are reviewing it. Price and availability are estimates until the order is formally confirmed — a final invoice follows at that point.';
+  const noteLines = doc.splitTextToSize(note, doc.internal.pageSize.getWidth()-36);
+  doc.text(noteLines, 18, y); y += noteLines.length*5 + 10;
+
+  pdfDocFooter(doc);
+  doc.save(`Order-Confirmation-${o.ref}.pdf`);
+  showToast('✓ Order Confirmation PDF downloaded — attach it in WhatsApp if you want to send the document itself.');
 }
 
 /* ═══════════════════════════════════════════════════════
