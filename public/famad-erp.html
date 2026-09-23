@@ -5986,6 +5986,14 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="panel-body" id="pnl-cacltv-section"></div>
   </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Accounts Receivable Aging</div>
+      <div class="panel-tag">every figure below is real — same outstanding-credit source already used by the Dashboard and Credit Register</div>
+    </div>
+    <div class="panel-body" id="pnl-araging-section"></div>
+  </div>
 </div>
 
 <!-- ════ MODULE: RESERVATION INTELLIGENCE ═════════════════════════════ -->
@@ -17995,6 +18003,61 @@ function renderPnL() {
       </div>
       <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
         With only a handful of customers and one month of real data, this ratio will swing hard on a single new customer or a single large order — treat it with real skepticism until several months of real volume exist, same caution as the Wage Model's early numbers.
+      </div>
+    `;
+  }
+
+  // ── Accounts Receivable Aging (Sep 23 2026) — every figure here is
+  // real, no manual inputs at all. Buckets getOutstandingCreditSales()
+  // (the same single source of truth already used by the Dashboard's
+  // Outstanding Debt tile and the Credit Register) by real days-since-
+  // sale-date into the standard 0-30/31-60/61+ tiers, and flags if
+  // total receivables exceed 20% of monthly revenue, per Bob's original
+  // spec. ──
+  const arEl = document.getElementById('pnl-araging-section');
+  if(arEl) {
+    const outstanding = getOutstandingCreditSales();
+    const now = new Date();
+    const buckets = { b030: {count:0, total:0}, b3160: {count:0, total:0}, b61: {count:0, total:0} };
+    outstanding.forEach(s => {
+      const daysAging = Math.floor((now - new Date(s.date)) / 86400000);
+      const balance = getRemainingBalance(s);
+      const bucket = daysAging <= 30 ? 'b030' : (daysAging <= 60 ? 'b3160' : 'b61');
+      buckets[bucket].count += 1;
+      buckets[bucket].total = round2(buckets[bucket].total + balance);
+    });
+    const totalReceivables = round2(buckets.b030.total + buckets.b3160.total + buckets.b61.total);
+    const revMTD = getTotalRevMTD();
+    const receivablesPctOfRev = revMTD > 0 ? round2((totalReceivables / revMTD) * 100) : null;
+    const isFlagged = receivablesPctOfRev !== null && receivablesPctOfRev > 20;
+
+    arEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+        <div style="padding:12px 14px;background:var(--raised);border-radius:8px">
+          <div style="font-size:9px;color:var(--mist)">0–30 DAYS</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--teal)">₦${buckets.b030.total.toLocaleString()}</div>
+          <div style="font-size:9px;color:var(--mist)">${buckets.b030.count} sale${buckets.b030.count===1?'':'s'}</div>
+        </div>
+        <div style="padding:12px 14px;background:var(--raised);border-radius:8px">
+          <div style="font-size:9px;color:var(--mist)">31–60 DAYS</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--sun)">₦${buckets.b3160.total.toLocaleString()}</div>
+          <div style="font-size:9px;color:var(--mist)">${buckets.b3160.count} sale${buckets.b3160.count===1?'':'s'}</div>
+        </div>
+        <div style="padding:12px 14px;background:var(--raised);border-radius:8px">
+          <div style="font-size:9px;color:var(--mist)">61+ DAYS</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--red)">₦${buckets.b61.total.toLocaleString()}</div>
+          <div style="font-size:9px;color:var(--mist)">${buckets.b61.count} sale${buckets.b61.count===1?'':'s'}</div>
+        </div>
+      </div>
+      <div style="padding:10px 16px;background:${isFlagged?'rgba(224,72,72,0.12)':'var(--raised)'};border:1px solid ${isFlagged?'var(--red)':'transparent'};border-radius:8px">
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:18px;color:${isFlagged?'var(--red)':'var(--teal)'}">₦${totalReceivables.toLocaleString()}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-left:8px">
+          total outstanding${receivablesPctOfRev!==null ? ` — ${receivablesPctOfRev}% of this month's revenue (₦${revMTD.toLocaleString()})` : ' — no revenue yet this month to compare against'}
+        </span>
+        ${isFlagged ? `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--red);margin-top:4px">⚠ Above the 20% threshold — a large share of this month's revenue is still uncollected.</div>` : ''}
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);margin-top:8px">
+        Same real outstanding-credit sales already tracked in the Credit Register and Dashboard's Outstanding Debt tile — this total should always match those exactly. Aging is measured from each sale's own date to today, not from when a customer's credit term technically expired.
       </div>
     `;
   }
