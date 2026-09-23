@@ -835,19 +835,31 @@ input[type=number]{-moz-appearance:textfield;}
      later phase, not this one.
 ═══════════════════════════════════════════════════════ -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<!-- Sep 23 2026, Geolocation Phase 1 — Maps JavaScript API, loaded
-     async/deferred so it never blocks the rest of the page. The key
-     below is domain-restricted (Website restrictions → this Railway
-     URL only) and API-restricted (Maps JavaScript API only) in Google
-     Cloud — it's meant to sit here in plain view, the same way the
-     Supabase anon key above is; nothing costs money or does anything
-     risky if someone else copies it, since it only works from this
-     domain. initEggScoreMaps() (defined below, in the main script
-     block) is Google's own callback pattern — it fires once the API
-     has actually finished loading, which may be before or after the
-     Logistics module is ever opened, so renderDestinationMap() checks
-     for readiness rather than assuming it. -->
-<script async defer
+<!-- Sep 23 2026, Geolocation Phase 1 — Maps JavaScript API.
+     Sep 23 2026 (same-day fix) — this tag originally had BOTH async
+     and defer, which is a contradiction: when a script has a src and
+     both attributes are set, browsers treat it as async, meaning it
+     can execute (and fire its ?callback=) as soon as it finishes
+     downloading — possibly BEFORE the huge inline script block
+     further down the page (which defines initEggScoreMaps and
+     everything it depends on) has run at all. Google's script arrives
+     from a fast CDN and can easily win that race, calling a function
+     that doesn't exist yet — which fails silently and never retries,
+     leaving the map stuck on "Loading map…" forever (confirmed: this
+     is exactly what happened on the live site). defer ALONE fixes it:
+     a deferred script is guaranteed to run only after the ENTIRE
+     document has finished parsing, which is always after every plain
+     inline script on the page has already executed — no race
+     possible. loading=async in the URL is a separate, unrelated
+     Google-recommended flag (their own internal async bootstrap
+     pattern) and stays either way.
+     The key below is domain-restricted (Website restrictions → this
+     Railway URL only) and API-restricted (Maps JavaScript API only)
+     in Google Cloud — it's meant to sit here in plain view, the same
+     way the Supabase anon key above is; nothing costs money or does
+     anything risky if someone else copies it, since it only works
+     from this domain. -->
+<script defer
   src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCz-R0fq7giNk0nMYwZBsWimwzGZBKCEb4&callback=initEggScoreMaps&loading=async">
 </script>
 <div id="erp-login-overlay" style="position:fixed;inset:0;z-index:99999;background:#0a0e17;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;">
@@ -24473,6 +24485,21 @@ function renderLogistics() {
 let googleMapsReady = false;
 let eggscoreDestMap = null;
 let eggscoreDestMarkers = [];
+
+// Same-day fix (Sep 23 2026) — belt-and-suspenders for a scenario
+// that ISN'T the async/defer bug just fixed above: an ad blocker or
+// browser extension blocking maps.googleapis.com outright, a genuine
+// network problem, or (if the domain this is served from ever
+// changes) the browser key's referrer restriction no longer matching.
+// Any of those leave googleMapsReady false forever with no console
+// error a non-technical user would ever see — so after a generous
+// wait, say so in the placeholder itself instead of spinning "Loading
+// map…" indefinitely with no explanation.
+setTimeout(() => {
+  if(googleMapsReady) return;
+  const el = document.getElementById('lg-destination-map');
+  if(el) el.innerHTML = '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber);text-align:center;padding:0 20px">⚠ Map didn\'t load. Try refreshing the page — if it still doesn\'t appear, an ad blocker/browser extension may be blocking Google Maps, or there may be a network issue.</span>';
+}, 8000);
 
 function initEggScoreMaps() {
   googleMapsReady = true;
