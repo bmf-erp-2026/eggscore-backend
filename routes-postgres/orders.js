@@ -1,6 +1,7 @@
 const express = require('express');
 const { db } = require('../db.postgres');
 const { requireAuth, requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
+const { geocodeAddress } = require('../lib/geocode');
 
 const router = express.Router();
 
@@ -118,6 +119,41 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
     ? await db.prepare('SELECT * FROM orders WHERE status = ? ORDER BY created_at ASC').all(status)
     : await db.prepare('SELECT * FROM orders ORDER BY created_at ASC').all();
   res.json(rows);
+});
+
+// Phase 2, Advisory route grouping (Sep 24 2026) — on-demand geocoding
+// for the "Group Nearby Orders" button in Logistics' Ready for Waybill
+// panel. Deliberately scoped to status IN ('pending','confirmed') —
+// the same set that panel already shows — rather than every order
+// ever placed: an already-delivered or cancelled order has no reason
+// to burn a geocoding call, and this keeps the list short (tens, not
+// thousands) each time it runs. latitude IS NULL further limits it to
+// orders that haven't been located yet, so repeat clicks only ever
+// pay for genuinely new addresses, same caching discipline as
+// destinations' geocode-missing route. customers.latitude/longitude
+// (added in the very first Phase 1 migration but never wired up until
+// now) stay out of scope here on purpose — an order's own delivery
+// address is what a driver actually needs, and may differ from
+// wherever that customer's account address is on file.
+router.post('/geocode-pending', requireSupabaseAuth(), async (req, res) => {
+  const missing = await db.prepare(`
+    SELECT * FROM orders
+    WHERE status IN ('pending', 'confirmed') AND latitude IS NULL AND location IS NOT NULL
+    ORDER BY created_at ASC
+  `).all();
+  let geocoded = 0, failed = 0;
+  for(const order of missing) {
+    const geo = await geocodeAddress(order.location);
+    if(geo) {
+      await db.prepare(`
+        UPDATE orders SET latitude = ?, longitude = ? WHERE id = ?
+      `).run(geo.latitude, geo.longitude, order.id);
+      geocoded++;
+    } else {
+      failed++;
+    }
+  }
+  res.json({ attempted: missing.length, geocoded, failed });
 });
 
 router.get('/:ref', requireEitherAuth(), async (req, res) => {
