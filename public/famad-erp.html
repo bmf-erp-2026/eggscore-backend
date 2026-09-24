@@ -27421,25 +27421,29 @@ function waReplyOrder(ref, type) {
   const phone=sanitisePhone(o.phone);
   if(!phone){ showToast('⚠ No valid phone for this order.'); return; }
   const perCrate = o.pricePerCrate||5700;
-  // Sep 24 2026 — Context 1 fix: o.pricePerCrate is the EGG price only
-  // (the figure locked at order creation); the ₦/crate delivery fee is
-  // tracked separately (o.deliveryTotal, populated by
-  // syncOrdersFromBackend from delivery_per_crate × crates) and was
-  // previously only ever added downstream at Sales Log/Record Sale.
-  // That's fine internally, but this WA message and the Confirmation
-  // PDF are the customer's own copy of the price — sending them a
-  // total that's short by the whole delivery fee is a real invoice
-  // error from the customer's side, not just an internal bookkeeping
-  // detail. Falls back to 0 delivery only for the rare pre-sync order
-  // that has no deliveryTotal yet, so this never throws on odd data.
+  // Sep 24 2026 — Context 1 fix, then Sep 24 2026 revision: o.pricePerCrate
+  // is the EGG price only (the figure locked at order creation); the
+  // ₦/crate delivery fee is tracked separately (o.deliveryTotal,
+  // populated by syncOrdersFromBackend from delivery_per_crate ×
+  // crates) and was previously only ever added downstream at Sales
+  // Log/Record Sale. That's fine internally, but this WA message and
+  // the Confirmation PDF are the customer's own copy of the price —
+  // sending them a total that's short by the whole delivery fee is a
+  // real invoice error from the customer's side, not just an internal
+  // bookkeeping detail. First fix broke egg and delivery out as two
+  // visible components; Bob's call afterward was that the customer
+  // never needs that breakdown — one blended per-crate figure, same
+  // as the portal itself already shows — so egg + delivery are now
+  // folded into a single priceLine, not itemized. Falls back to 0
+  // delivery only for the rare pre-sync order that has no
+  // deliveryTotal yet, so this never throws on odd data.
   const deliveryTotal = o.deliveryTotal || 0;
   const eggSubtotal   = o.eggSubtotal != null ? o.eggSubtotal : o.crates*perCrate;
   const grandTotal     = o.grandTotal != null ? o.grandTotal : eggSubtotal + deliveryTotal;
   const deliveryPerCrateVal = (deliveryTotal && o.crates) ? Math.round(deliveryTotal/o.crates) : 0;
   const val = fmt(grandTotal);
-  const priceLine = deliveryPerCrateVal
-    ? `₦${perCrate.toLocaleString()}/crate + ₦${deliveryPerCrateVal.toLocaleString()}/crate delivery`
-    : `₦${perCrate.toLocaleString()}/crate`;
+  const blendedPerCrate = perCrate + deliveryPerCrateVal;
+  const priceLine = `₦${blendedPerCrate.toLocaleString()}/crate`;
   // Sep 23 2026 — Context 2: the "just received, reviewing" message
   // used to show only the crate count, no price at all, while the
   // 'confirm' message right above it already showed a full total —
@@ -27454,7 +27458,7 @@ function waReplyOrder(ref, type) {
   // separately (generateOrderConfirmationPDF()) for a rep to attach
   // by hand in WhatsApp if a formal document is wanted.
   const msg = type==='confirm'
-    ? `Hello ${o.customerName} 👋,\n\nYour order has been *confirmed* ✅\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💰 *Total (egg + delivery):* ${val}\n\n*Payment:*\n🏦 First Bank Nigeria\n👤 BMF EggScore Limited\n🔢 Acc: 3012345678\n📝 Narration: ${o.ref}\n\nDispatch follows payment confirmation.\n\n*BMF EggScore Limited* 🥚`
+    ? `Hello ${o.customerName} 👋,\n\nYour order has been *confirmed* ✅\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💵 *Price:* ${priceLine}\n💰 *Total:* ${val}\n\n*Payment:*\n🏦 First Bank Nigeria\n👤 BMF EggScore Limited\n🔢 Acc: 3012345678\n📝 Narration: ${o.ref}\n\nDispatch follows payment confirmation.\n\n*BMF EggScore Limited* 🥚`
     : `Hello ${o.customerName},\n\nThank you for your order with *BMF EggScore Limited*.\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💵 *Price:* ${priceLine}\n💰 *Estimated Total:* ${val}\n\nWe are reviewing your order and will confirm shortly — price and availability are confirmed at that point.\n\n*BMF EggScore Limited* 🥚🇳🇬`;
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`,'_blank');
 }
@@ -27475,16 +27479,19 @@ function generateOrderConfirmationPDF(ref) {
   const o = orders.find(x => x.ref === ref);
   if(!o) { showToast('⚠ Order not found.'); return; }
   const perCrate = o.pricePerCrate || 5700;
-  // Sep 24 2026 — Context 1 fix: same gap as waReplyOrder() above — this
-  // used to total the egg price alone (o.crates*perCrate) and hand the
-  // customer a PDF short by the whole delivery fee. Delivery is now
-  // broken out as its own line, same shape as the internal Pending
-  // Order card, so the document a customer actually keeps matches what
-  // they're really being asked to pay.
+  // Sep 24 2026 — Context 1 fix, then Sep 24 2026 revision: same gap as
+  // waReplyOrder() above, and the same follow-up call from Bob — the
+  // fix first broke egg price and delivery out as two visible rows
+  // ("Price per Crate" + "Delivery per Crate"), then Bob asked for one
+  // blended per-crate figure instead, no itemization, matching what
+  // the WA message now shows. Total still equals the same real
+  // egg+delivery amount the customer is actually asked to pay — only
+  // the presentation folds the two components into a single line.
   const deliveryTotal = o.deliveryTotal || 0;
   const eggSubtotal   = o.eggSubtotal != null ? o.eggSubtotal : o.crates*perCrate;
   const total          = o.grandTotal != null ? o.grandTotal : eggSubtotal + deliveryTotal;
   const deliveryPerCrateVal = (deliveryTotal && o.crates) ? Math.round(deliveryTotal/o.crates) : 0;
+  const blendedPerCrate = perCrate + deliveryPerCrateVal;
   const docRef = docRefNumber('OC');
 
   const doc = new jspdf.jsPDF({ unit:'mm', format:'a4' });
@@ -27495,11 +27502,10 @@ function generateOrderConfirmationPDF(ref) {
     ['Customer:', o.customerName],
     ['Order Ref:', o.ref],
     ['Crates:', String(o.crates)],
-    ['Price per Crate (estimated):', '₦'+perCrate.toLocaleString()],
+    ['Price per Crate (estimated):', '₦'+blendedPerCrate.toLocaleString()],
+    ['Estimated Total:', '₦'+total.toLocaleString()],
+    ['Status:', (o.status||'pending').toUpperCase()],
   ];
-  if(deliveryPerCrateVal) rows.push(['Delivery per Crate:', '₦'+deliveryPerCrateVal.toLocaleString()]);
-  rows.push(['Estimated Total (egg + delivery):', '₦'+total.toLocaleString()]);
-  rows.push(['Status:', (o.status||'pending').toUpperCase()]);
   y = pdfKeyValueBlock(doc, 18, y, rows, 65);
   y += 10;
   doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(80);
