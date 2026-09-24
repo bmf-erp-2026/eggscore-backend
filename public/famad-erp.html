@@ -1130,7 +1130,17 @@ input[type=number]{-moz-appearance:textfield;}
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       erpSupabase.auth.getSession().then(({ data: { session } }) => {
-        if(session) erpLogout(); // no-op if nobody was logged in anyway
+        if(!session) return; // no-op if nobody was logged in anyway
+        // Sep 24 2026 — reload alongside the sign-out, not sign-out
+        // alone. Signing out inside this SAME already-loaded tab never
+        // asks the browser to fetch anything from the server — it just
+        // clears the login state within whatever copy of this page
+        // happened to load, possibly hours ago. "Logged back in" was
+        // silently still "running a possibly-stale build" until this;
+        // a real reload guarantees idle auto-lock also means a fresh
+        // page, catching exactly the kind of stale-cache confusion
+        // that prompted this fix in the first place.
+        erpSupabase.auth.signOut().then(() => location.reload());
       });
     }, IDLE_TIMEOUT_MS);
   }
