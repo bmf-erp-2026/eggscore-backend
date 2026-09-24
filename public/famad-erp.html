@@ -24865,14 +24865,43 @@ function clusterOrdersByProximity(orders, radiusKm) {
 // when they tap it, which is always more useful than a hardcoded farm
 // address for someone already out on the road. No API key involved
 // and nothing billed — this is a plain navigable URL, not an API call.
+// Sep 24 2026 — Bob's live test caught this: `waypoints=optimize:true|...`
+// looked right (it's how the server-side Directions API and the JS
+// DirectionsService both request stop-order optimization) but that
+// flag was never valid on THIS url scheme — Google's own docs for the
+// consumer "maps/dir/?api=1" deep link list origin, destination,
+// waypoints, travelmode and dir_action, nothing else. With nowhere to
+// send it, Maps just read "optimize:true" as the literal text of the
+// first waypoint and failed to geocode it — not a degraded feature,
+// a broken one, since it interrupted every multi-stop link before the
+// driver could even start. Since this URL scheme can't ask Google to
+// order the stops for us, orderPointsGreedily() does it ourselves
+// before building the link: same nearest-neighbor logic already used
+// elsewhere in this file (clusterOrdersByProximity), simple enough to
+// explain, not a claim of the mathematically shortest route.
+function orderPointsGreedily(pts) {
+  if(pts.length <= 2) return pts;
+  const remaining = pts.slice();
+  const ordered = [remaining.shift()];
+  while(remaining.length) {
+    const last = ordered[ordered.length - 1];
+    let nearestIdx = 0, nearestDist = Infinity;
+    remaining.forEach((p, i) => {
+      const d = haversineKm(last, p);
+      if(d < nearestDist) { nearestDist = d; nearestIdx = i; }
+    });
+    ordered.push(remaining.splice(nearestIdx, 1)[0]);
+  }
+  return ordered;
+}
 function buildOrdersNavUrl(orders) {
   const pts = orders.filter(o => o.latitude != null && o.longitude != null);
   if(!pts.length) return null;
   const destination = pts[pts.length - 1];
-  const waypoints = pts.slice(0, -1);
+  const waypoints = orderPointsGreedily(pts.slice(0, -1));
   let url = `https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
   if(waypoints.length) {
-    url += `&waypoints=optimize:true|${waypoints.map(p => `${p.latitude},${p.longitude}`).join('|')}`;
+    url += `&waypoints=${waypoints.map(p => `${p.latitude},${p.longitude}`).join('|')}`;
   }
   return url;
 }
