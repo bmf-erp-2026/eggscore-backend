@@ -563,6 +563,14 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
             <span data-i18n="s2.min_hint">Min: 1 crate · type a number directly for large orders</span>
             <span id="max-display">Max: — crates available</span>
           </div>
+          <!-- "Choose your discount" (Sep 24 2026) — makes the volume curve
+               visible right where the customer is deciding the quantity,
+               instead of only as the passive banner above. See
+               updateOrderCalc() for the calculation. -->
+          <div id="choose-discount-nudge" style="display:none;font-family:'DM Mono',monospace;
+            font-size:10.5px;color:var(--blue);background:rgba(74,158,255,0.07);
+            border:1px solid rgba(74,158,255,0.25);border-radius:7px;padding:7px 11px;
+            margin-top:8px;line-height:1.5"></div>
           <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px" id="cs-jump-row">
             <div class="cs-jump-btn" onclick="setCratesValue(50)">50</div>
             <div class="cs-jump-btn" onclick="setCratesValue(100)">100</div>
@@ -2833,6 +2841,35 @@ function updateOrderCalc() {
         nudgeEl.style.display = 'block';
         nudgeEl.innerHTML = `🎯 Add 1 more crate — we'll take 10% off the ₦${nudgeShortfall.toLocaleString()} gap,
             so it only costs you ₦${Math.round(nudgeShortfall * 0.9).toLocaleString()} more.`;
+      }
+    }
+  }
+
+  // ── "Choose your discount" (Sep 24 2026) — turns the passive volume-
+  // discount banner into something true at the exact moment a customer
+  // is deciding how much to order. Deliberately separate from the
+  // wallet nudge above: that one is a single +1-crate gap-filler that
+  // only ever shows for a matched customer with a wallet balance; this
+  // is the general volume curve itself, always on, for every visitor.
+  // Compares the curve against itself at crates vs crates+STEP with
+  // promo left out of BOTH sides on purpose — the promo already has
+  // its own badge, and mixing it in here would make "10 more crates"
+  // sometimes mean "10 more crates AND you crossed a promo line",
+  // which isn't a claim about the volume curve anymore. Same ₦50
+  // credibility floor as the Savings row above, and never suggests a
+  // quantity past what's actually in stock. ──
+  const CHOOSE_DISCOUNT_STEP = 10;
+  const cdEl = document.getElementById('choose-discount-nudge');
+  if(cdEl) {
+    cdEl.style.display = 'none';
+    const cdTarget = crates + CHOOSE_DISCOUNT_STEP;
+    if(crates > 0 && cdTarget <= available) {
+      const cdCurrentPrice = progressivePrice + deliveryPerCrate;
+      const cdNewPrice     = getProgressivePricePerCrate(erp, cdTarget) + deliveryPerCrate;
+      const cdSavings      = Math.round((cdCurrentPrice - cdNewPrice) * cdTarget);
+      if(cdNewPrice < cdCurrentPrice && cdSavings >= 50) {
+        cdEl.style.display = 'block';
+        cdEl.innerHTML = `📉 <strong>${CHOOSE_DISCOUNT_STEP} more crates unlocks ₦${cdNewPrice.toLocaleString()}/crate</strong> — save ₦${cdSavings.toLocaleString()} on the order.`;
       }
     }
   }
