@@ -1219,6 +1219,12 @@ input[type=number]{-moz-appearance:textfield;}
         existing.grandTotal    = eggSubtotal + deliveryTotal;
         if(!existing.date) existing.date = new Date(row.created_at).toISOString().split('T')[0];
         existing.notes         = row.notes;
+        // Phase 2 (Sep 24 2026) — carried the same way destinations'
+        // coordinates already are: null/undefined until an order is
+        // deliberately geocoded (via "Group Nearby Orders"), never
+        // required, never blocking anything else on the order.
+        existing.latitude      = row.latitude;
+        existing.longitude     = row.longitude;
         // row.payment_method is the real source of truth once an order
         // has it; if it's missing (an order placed before this column
         // existed) keep whatever's already here, and failing that
@@ -1268,6 +1274,8 @@ input[type=number]{-moz-appearance:textfield;}
           customerName: row.customer_name,
           phone: row.phone,
           location: row.location,
+          latitude: row.latitude,
+          longitude: row.longitude,
           crates: row.crates,
           pricePerCrate: row.egg_price_per_crate,
           eggSubtotal, deliveryTotal,
@@ -6346,8 +6354,19 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">📤 Ready for Waybill</div>
-      <div class="panel-tag">confirmed orders without one yet — the actual "generate" step lives here</div>
+      <div class="panel-hdr-actions">
+        <button class="btn btn-ghost" style="font-size:9px;padding:4px 10px" onclick="groupNearbyOrders()" title="Geocode these orders' delivery addresses and flag which ones are close enough together to share one driver trip">📍 Group Nearby Orders</button>
+        <div class="panel-tag">confirmed orders without one yet — the actual "generate" step lives here</div>
+      </div>
     </div>
+    <!-- Phase 2 (Sep 24 2026) — Advisory grouping. Deliberately NOT a
+         new waybill/trip data model: waybills stay exactly the
+         one-order-at-a-time thing they've always been. This panel is
+         purely informational — "these orders are close enough to send
+         the same driver" — with a shared navigation link Bob can hand
+         over even though he still generates one waybill per order as
+         usual. See renderNearbyGroups(). -->
+    <div id="nearby-groups-panel"></div>
     <div class="panel-body panel-scroll" id="ready-for-waybill-panel"></div>
   </div>
 
@@ -24379,7 +24398,7 @@ function generateWaybill(orderRef, opts) {
   logOk('orders', `Waybill generated — ${o.waybill.waybillNumber}`,
     `${o.customerName} · ${o.crates} crates · ${opts.distanceKm || 0}km · est. cost ₦${costs.total.toLocaleString()}`);
   renderOrders();
-  renderReadyForWaybill(); renderInTransitPanel(); renderWaybillLog();
+  renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog();
   showToast(`✓ Waybill ${o.waybill.waybillNumber} generated — order now in transit.`);
 }
 
@@ -24490,6 +24509,7 @@ function renderLogistics() {
   renderDestinationMap(dests);
 
   renderReadyForWaybill();
+  renderNearbyGroups();
   renderInTransitPanel();
   renderWaybillLog();
 
@@ -24777,6 +24797,10 @@ function renderReadyForWaybill() {
     const payTag = o.paymentVerified
       ? `<span style="color:var(--lime)">✓ payment verified</span>`
       : `<span style="color:var(--mist)">payment not yet verified</span>`;
+    // Phase 2 (Sep 24 2026) — a quick single-stop navigate link,
+    // independent of grouping: every geocoded order gets one, whether
+    // or not it clustered with anything else this run.
+    const navUrl = (o.latitude != null && o.longitude != null) ? buildOrdersNavUrl([o]) : null;
     return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;
       background:var(--raised);border-radius:8px;margin-bottom:7px">
@@ -24785,9 +24809,126 @@ function renderReadyForWaybill() {
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${o.ref} · ${o.crates} crates${o.location ? ' → '+escapeHtml(o.location) : ''}</span>
         <div style="font-family:'DM Mono',monospace;font-size:8.5px;margin-top:2px">${payTag}</div>
       </div>
-      <button class="btn btn-primary" style="font-size:10px" onclick="openGenerateWaybillModal('${o.ref}')">🚚 Generate Waybill</button>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${navUrl ? `<a href="${navUrl}" target="_blank" class="btn btn-ghost" style="font-size:9px;padding:4px 8px;text-decoration:none" title="Open turn-by-turn directions to this order">🧭</a>` : ''}
+        <button class="btn btn-primary" style="font-size:10px" onclick="openGenerateWaybillModal('${o.ref}')">🚚 Generate Waybill</button>
+      </div>
     </div>`;
   }).join('');
+}
+
+// ── Phase 2 (Sep 24 2026) — Advisory route grouping ──
+//
+// Groups PENDING/CONFIRMED orders (not yet waybilled) by straight-line
+// proximity, once their delivery addresses have been geocoded on
+// demand via "Group Nearby Orders". Deliberately does not attempt to
+// compute the optimal visiting order itself — Google Maps' own
+// waypoints=optimize:true does that for free, more reliably, the
+// moment the driver opens the link, so there's no route-optimization
+// algorithm to get subtly wrong here. Grouping alone (which orders
+// belong in the same trip) is the only real decision this code makes.
+const NEARBY_GROUP_RADIUS_KM = 10; // change this one line for a tighter/looser grouping radius
+
+function haversineKm(a, b) {
+  const R = 6371;
+  const dLat = (b.latitude - a.latitude) * Math.PI / 180;
+  const dLng = (b.longitude - a.longitude) * Math.PI / 180;
+  const lat1 = a.latitude * Math.PI / 180, lat2 = b.latitude * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Greedy, not exhaustive: each group forms around a "seed" order and
+// pulls in everything within radiusKm of THAT seed (not of each other
+// transitively). Simple enough to explain in one sentence to Bob —
+// "these are all within 10km of the first stop in the group" — rather
+// than a fancier clustering method whose exact boundary he'd have no
+// way to predict or sanity-check by eye on the map.
+function clusterOrdersByProximity(orders, radiusKm) {
+  const unclustered = orders.filter(o => o.latitude != null && o.longitude != null).slice();
+  const groups = [];
+  while(unclustered.length) {
+    const seed = unclustered.shift();
+    const group = [seed];
+    for(let i = unclustered.length - 1; i >= 0; i--) {
+      if(haversineKm(seed, unclustered[i]) <= radiusKm) group.push(unclustered.splice(i, 1)[0]);
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+// Google's documented cross-platform directions link: opening it on a
+// phone with the Maps app installed jumps straight into turn-by-turn;
+// on desktop it opens Maps in the browser. Deliberately no `origin` —
+// leaving it out makes Google Maps use wherever the driver actually is
+// when they tap it, which is always more useful than a hardcoded farm
+// address for someone already out on the road. No API key involved
+// and nothing billed — this is a plain navigable URL, not an API call.
+function buildOrdersNavUrl(orders) {
+  const pts = orders.filter(o => o.latitude != null && o.longitude != null);
+  if(!pts.length) return null;
+  const destination = pts[pts.length - 1];
+  const waypoints = pts.slice(0, -1);
+  let url = `https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
+  if(waypoints.length) {
+    url += `&waypoints=optimize:true|${waypoints.map(p => `${p.latitude},${p.longitude}`).join('|')}`;
+  }
+  return url;
+}
+
+function renderNearbyGroups() {
+  const el = document.getElementById('nearby-groups-panel');
+  if(!el) return;
+  const orders = loadOrders().filter(o => (o.status === 'confirmed' || o.status === 'pending') && !o.waybill);
+  if(!orders.length) { el.innerHTML = ''; return; }
+  const geocoded = orders.filter(o => o.latitude != null && o.longitude != null);
+  if(!geocoded.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);padding:2px 2px 10px 2px">📍 Tap "Group Nearby Orders" above to see which of these can share one driver trip.</div>`;
+    return;
+  }
+  const groups = clusterOrdersByProximity(geocoded, NEARBY_GROUP_RADIUS_KM).filter(g => g.length > 1);
+  if(!groups.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);padding:2px 2px 10px 2px">No two pending orders are within ${NEARBY_GROUP_RADIUS_KM}km of each other yet.</div>`;
+    return;
+  }
+  el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin:2px 2px 6px 2px">📦 Suggested groupings — within ${NEARBY_GROUP_RADIUS_KM}km of each other:</div>` +
+    groups.map((g, i) => {
+      const names = g.map(o => escapeHtml(o.customerName)).join(', ');
+      const totalCrates = g.reduce((sum, o) => sum + (o.crates || 0), 0);
+      const navUrl = buildOrdersNavUrl(g);
+      return `
+      <div style="padding:8px 10px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:8px;margin-bottom:6px">
+        <div style="font-family:'Syne',sans-serif;font-size:11px;color:var(--cream)">Group ${i + 1} — ${g.length} stops, ${totalCrates} crates</div>
+        <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin:3px 0 6px 0">${names}</div>
+        ${navUrl ? `<a href="${navUrl}" target="_blank" class="btn btn-primary" style="font-size:9px;padding:4px 10px;text-decoration:none;display:inline-block">🧭 Navigate all ${g.length} stops</a>` : ''}
+      </div>`;
+    }).join('');
+}
+
+async function postGeocodePendingOrders() {
+  const token = await erpGetAuthToken();
+  if(!token) return null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/orders/geocode-pending`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if(!resp.ok) return null;
+    return await resp.json();
+  } catch(networkErr) {
+    return null;
+  }
+}
+
+async function groupNearbyOrders() {
+  showToast('⏳ Locating pending orders…');
+  const result = await postGeocodePendingOrders();
+  if(!result) { showToast('⚠ Could not reach the geocoding service — check your connection and try again.'); return; }
+  await syncOrdersFromBackend();
+  renderLogistics();
+  showToast(result.attempted === 0
+    ? '✓ Every pending order already has a location.'
+    : `✓ ${result.geocoded}/${result.attempted} located` + (result.failed > 0 ? ` — ${result.failed} couldn't be matched (check the address on the order).` : '.'));
 }
 
 function renderInTransitPanel() {
