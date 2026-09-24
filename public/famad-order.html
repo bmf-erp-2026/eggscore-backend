@@ -85,6 +85,16 @@ input[type=number]{-moz-appearance:textfield;}
 @keyframes progGlow{0%,100%{box-shadow:0 0 10px rgba(61,214,192,0.2);}50%{box-shadow:0 0 20px rgba(61,214,192,0.45);}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
+/* Customer Portal Map (Sep 24 2026) — same "look at this" language as
+   .ph-progressive-banner above, so the collapsed map card doesn't read
+   as an inert, easy-to-miss row of text. Settles once opened via the
+   .expanded class (see toggleCoverageMap()) — the glow's job is
+   getting a first-time visitor to tap it once, not to keep nagging
+   after they already have. */
+@keyframes mapGlow{0%,100%{box-shadow:0 0 10px rgba(74,158,255,0.18);}50%{box-shadow:0 0 22px rgba(74,158,255,0.4);}}
+.coverage-map-card{border:1px solid rgba(74,158,255,0.4);animation:mapGlow 2.6s ease-in-out infinite;}
+.coverage-map-card.expanded{animation:none;box-shadow:none;border-color:var(--border);}
+
 /* ── STOCK TICKER ── */
 .stock-ticker{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:20px;display:grid;grid-template-columns:minmax(100px,auto) 1fr minmax(120px,auto);align-items:start;gap:12px;}
 .st-left{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);}
@@ -398,10 +408,16 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
        here, after the header/WhatsApp option but before the order form
        itself, so it's visible without adding scroll before anyone who
        just wants to order reaches the form. -->
-  <div class="panel" style="max-width:560px;margin:14px auto 0 auto;padding:12px 14px">
+  <div class="panel coverage-map-card" id="coverage-map-card" style="max-width:560px;margin:14px auto 0 auto;padding:12px 14px">
     <div onclick="toggleCoverageMap()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--cream)">
-      <span>📍 Where We Deliver</span>
-      <span id="coverage-map-toggle-icon" style="color:var(--mist);font-size:11px">▾</span>
+      <span style="display:inline-flex;align-items:center;gap:7px">
+        <span id="coverage-map-dot" class="ph-badge-dot" style="background:var(--blue)"></span>
+        📍 Where We Deliver
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:5px">
+        <span id="coverage-map-toggle-label" style="color:var(--blue);font-family:'DM Mono',monospace;font-size:9.5px;font-weight:700">Tap to view map</span>
+        <span id="coverage-map-toggle-icon" style="color:var(--mist);font-size:11px">▾</span>
+      </span>
     </div>
     <div id="coverage-map-body" style="display:none;margin-top:10px">
       <div id="portal-coverage-map" style="height:220px;border-radius:10px;overflow:hidden;background:var(--raised);display:flex;align-items:center;justify-content:center">
@@ -1304,10 +1320,16 @@ let coverageMapInstance = null;
 
 function toggleCoverageMap() {
   coverageMapExpanded = !coverageMapExpanded;
+  const card = document.getElementById('coverage-map-card');
   const body = document.getElementById('coverage-map-body');
   const icon = document.getElementById('coverage-map-toggle-icon');
+  const dot = document.getElementById('coverage-map-dot');
+  const label = document.getElementById('coverage-map-toggle-label');
+  if(card) card.classList.toggle('expanded', coverageMapExpanded);
   if(body) body.style.display = coverageMapExpanded ? 'block' : 'none';
   if(icon) icon.textContent = coverageMapExpanded ? '▴' : '▾';
+  if(dot) dot.style.visibility = coverageMapExpanded ? 'hidden' : 'visible';
+  if(label) label.textContent = coverageMapExpanded ? 'Hide map' : 'Tap to view map';
   if(coverageMapExpanded && !coverageMapScriptRequested) {
     coverageMapScriptRequested = true;
     loadCoverageMapPins();
