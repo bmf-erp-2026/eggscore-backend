@@ -2198,10 +2198,12 @@ input[type=number]{-moz-appearance:textfield;}
       if(existing) {
         existing.name = row.name; existing.distanceKm = row.distance_km; existing.backendId = row.id;
         existing.latitude = row.latitude; existing.longitude = row.longitude; existing.formattedAddress = row.formatted_address;
+        existing.showOnCustomerMap = !!row.show_on_customer_map;
       } else {
         STATE.destinationReference.push({
           id: 'sync-' + row.id, name: row.name, distanceKm: row.distance_km, backendId: row.id,
           latitude: row.latitude, longitude: row.longitude, formattedAddress: row.formatted_address,
+          showOnCustomerMap: !!row.show_on_customer_map,
         });
       }
     });
@@ -24450,13 +24452,28 @@ function renderLogistics() {
         // coordinates versus which are still waiting (no map key
         // configured yet, or that address didn't resolve) without
         // opening the map itself.
-        const pinStatus = (d.latitude != null && d.longitude != null)
+        const isPinned = (d.latitude != null && d.longitude != null);
+        const pinStatus = isPinned
           ? `<span style="color:var(--lime)" title="${escapeHtml(d.formattedAddress || '')}">📍 pinned</span>`
           : `<span style="color:var(--mist)">⏳ not yet mapped</span>`;
+        // Customer Portal Map (Sep 24 2026) — curation checkbox. Only
+        // meaningful once a destination is pinned (nothing to show
+        // otherwise), so it's disabled with an explanatory title until
+        // then rather than hidden outright — Bob should be able to see
+        // this control exists even before he's clicked "Geocode All".
+        const customerMapToggle = isPinned
+          ? `<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-family:'DM Mono',monospace;font-size:9px;color:${d.showOnCustomerMap ? 'var(--blue)' : 'var(--mist)'}" title="Show this pin on the customer-facing coverage map at order.eggscore.com.ng">
+              <input type="checkbox" ${d.showOnCustomerMap ? 'checked' : ''} onchange="toggleDestinationCustomerVisibility('${d.id}', this.checked)" style="cursor:pointer;margin:0">
+              👁 Customer map
+            </label>`
+          : `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);opacity:0.5" title="Pin this destination first (Geocode All) to make it eligible for the customer map">👁 Customer map</span>`;
         return `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px;gap:8px;flex-wrap:wrap">
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(d.name)} — ${d.distanceKm}km &nbsp;·&nbsp; ${pinStatus}</span>
-          <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDestination('${d.id}')">Remove</button>
+          <span style="display:flex;align-items:center;gap:10px">
+            ${customerMapToggle}
+            <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDestination('${d.id}')">Remove</button>
+          </span>
         </div>`;
       }).join('');
   }
@@ -24638,7 +24655,7 @@ function addDestination() {
   const name = document.getElementById('lg-dest-name').value.trim();
   const km   = parseFloat(document.getElementById('lg-dest-km').value);
   if(!name || isNaN(km) || km <= 0) { showToast('⚠ Enter a destination name and a real distance.'); return; }
-  const newDest = { id: 'dst' + Date.now(), name, distanceKm: km };
+  const newDest = { id: 'dst' + Date.now(), name, distanceKm: km, showOnCustomerMap: false };
   ensureDestinationReference().push(newDest);
   // Sep 23 2026, Geolocation Phase 1 — the POST now geocodes server-side
   // before the row even comes back, so the same response that used to
@@ -24649,6 +24666,11 @@ function addDestination() {
     if(row) {
       newDest.backendId = row.id;
       newDest.latitude = row.latitude; newDest.longitude = row.longitude; newDest.formattedAddress = row.formatted_address;
+      // Customer Portal Map (Sep 24 2026) — new destinations start
+      // hidden from the customer map (see schema default); carried
+      // through explicitly here so this stays true even if that
+      // default is ever revisited server-side.
+      newDest.showOnCustomerMap = !!row.show_on_customer_map;
     }
     saveState();
     renderLogistics();
@@ -24676,6 +24698,33 @@ function removeDestination(id) {
   if(d?.backendId) deleteDestinationFromBackend(d.backendId);
   STATE.destinationReference = STATE.destinationReference.filter(d => d.id !== id);
   saveState(); renderLogistics();
+}
+
+// Customer Portal Map (Sep 24 2026) — flips the curation checkbox for
+// one destination. Updates the checkbox's own row optimistically (it's
+// already reflecting the click before this even runs) but re-renders
+// from the confirmed backend state on both success and failure, so a
+// rejected/failed request never leaves the checkbox showing something
+// that isn't actually true server-side.
+async function toggleDestinationCustomerVisibility(id, checked) {
+  const d = STATE.destinationReference.find(x => x.id === id);
+  if(!d?.backendId) { showToast('⚠ This destination hasn\'t synced to the server yet — try again in a moment.'); renderLogistics(); return; }
+  const token = await erpGetAuthToken();
+  if(!token) { showToast('⚠ Not logged in.'); renderLogistics(); return; }
+  try {
+    const resp = await fetch(`${BACKEND_URL}/destinations/${d.backendId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ showOnCustomerMap: checked }),
+    });
+    if(!resp.ok) { showToast('⚠ Could not update — try again.'); renderLogistics(); return; }
+    d.showOnCustomerMap = checked;
+    saveState();
+    showToast(checked ? `✓ "${d.name}" now shown on the customer map.` : `✓ "${d.name}" hidden from the customer map.`);
+  } catch(networkErr) {
+    showToast('⚠ Network error — try again.');
+  }
+  renderLogistics();
 }
 
 function saveLogisticsSettings() {
