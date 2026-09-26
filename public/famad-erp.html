@@ -2295,6 +2295,55 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof renderLogistics === 'function') renderLogistics();
   }
 
+  // Delivery Fulfilment Board, Phase 1 (Sep 26 2026) — backend helpers for
+  // tagging an order with a zone + time window. Deliberately NOT
+  // optimistic like the destinations/service-areas helpers above: each
+  // call waits for the backend to confirm before touching STATE, so the
+  // ERP can never show a zone assignment that didn't actually save (the
+  // same class of bug that briefly hit the portal's coverage-area fetch).
+  async function postDeliveryBatch(orderRef, zone, timeWindow) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/delivery-batches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ orderRef, zone, timeWindow }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) { return null; }
+  }
+  async function deleteDeliveryBatchFromBackend(orderRef) {
+    const token = await erpGetAuthToken();
+    if(!token) return false;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/delivery-batches/${encodeURIComponent(orderRef)}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+      return resp.ok;
+    } catch(networkErr) { return false; }
+  }
+  async function syncDeliveryBatchesFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let rows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/delivery-batches`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      rows = await resp.json();
+    } catch(networkErr) { return; }
+
+    // Backend is the sole source of truth for this one (nothing here is
+    // ever created locally-only first, unlike orders/destinations), so a
+    // full replace on every sync is simplest and can't drift.
+    const batches = ensureDeliveryBatches();
+    Object.keys(batches).forEach(k => delete batches[k]);
+    rows.forEach(row => { batches[row.order_ref] = { zone: row.zone, timeWindow: row.time_window, backendId: row.id }; });
+    saveState();
+    if(typeof renderLogistics === 'function') renderLogistics();
+  }
+
   // Sep 23 2026, Geolocation Phase 1 — backfills coordinates for every
   // destination that predates GOOGLE_MAPS_SERVER_KEY being configured
   // (or was added before this feature existed at all), so Bob never
@@ -24379,6 +24428,10 @@ function saveVehicleDocuments() {
 function ensureShipperDetails() { if(!STATE.shipperDetails) STATE.shipperDetails = { farmName: '', address: '', contact: '' }; return STATE.shipperDetails; }
 function ensureDestinationReference() { if(!STATE.destinationReference) STATE.destinationReference = []; return STATE.destinationReference; }
 function ensureServiceAreas() { if(!STATE.serviceAreas) STATE.serviceAreas = []; return STATE.serviceAreas; }
+// Delivery Fulfilment Board, Phase 1 — keyed by order ref (not an array)
+// since it's always looked up by ref, one order at a time, when rendering
+// the Ready for Waybill list.
+function ensureDeliveryBatches() { if(!STATE.deliveryBatches) STATE.deliveryBatches = {}; return STATE.deliveryBatches; }
 
 function generateWaybillNumber(orderRef) {
   const numericPortion = orderRef.replace(/^(BEL|EGS|FEDS)-ORD-/, '');
@@ -24932,6 +24985,11 @@ function renderReadyForWaybill() {
     el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">No orders waiting on a waybill right now.</div>`;
     return;
   }
+  // Delivery Fulfilment Board, Phase 1 — zone options come from Coverage
+  // Areas' own active list, so the two features stay in lockstep with no
+  // separate place to maintain zone names.
+  const batches = ensureDeliveryBatches();
+  const zoneOptions = ensureServiceAreas().filter(a => a.active).map(a => a.name);
   el.innerHTML = orders.map(o => {
     const payTag = o.paymentVerified
       ? `<span style="color:var(--lime)">✓ payment verified</span>`
@@ -24940,13 +24998,28 @@ function renderReadyForWaybill() {
     // independent of grouping: every geocoded order gets one, whether
     // or not it clustered with anything else this run.
     const navUrl = (o.latitude != null && o.longitude != null) ? buildOrdersNavUrl([o]) : null;
+    const batch = batches[o.ref];
+    const batchUI = batch
+      ? `<div style="font-family:'DM Mono',monospace;font-size:9px;margin-top:4px;color:var(--blue)">
+          🗺 ${escapeHtml(batch.zone)} · ${escapeHtml(batch.timeWindow)}
+          <a href="#" onclick="unassignDeliveryZone('${o.ref}');return false;" style="color:var(--mist);margin-left:6px;text-decoration:underline;cursor:pointer">change</a>
+        </div>`
+      : `<div style="display:flex;gap:4px;align-items:center;margin-top:5px;flex-wrap:wrap">
+          <select id="db-zone-${o.ref}" class="form-input" style="font-size:9px;padding:3px 6px;height:auto;width:auto">
+            <option value="">Zone…</option>
+            ${zoneOptions.map(z => `<option value="${escapeHtml(z)}">${escapeHtml(z)}</option>`).join('')}
+          </select>
+          <input id="db-window-${o.ref}" class="form-input" style="font-size:9px;padding:3px 6px;height:auto;width:120px" placeholder="e.g. Tue 9am-12pm"/>
+          <button class="btn btn-ghost" style="font-size:8px;padding:3px 8px" onclick="assignDeliveryZone('${o.ref}')">🗺 Assign</button>
+        </div>`;
     return `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;
-      background:var(--raised);border-radius:8px;margin-bottom:7px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 12px;
+      background:var(--raised);border-radius:8px;margin-bottom:7px;flex-wrap:wrap;gap:8px">
       <div>
         <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${escapeHtml(o.customerName)}</strong>
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${o.ref} · ${o.crates} crates${o.location ? ' → '+escapeHtml(o.location) : ''}</span>
         <div style="font-family:'DM Mono',monospace;font-size:8.5px;margin-top:2px">${payTag}</div>
+        ${batchUI}
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         ${navUrl ? `<a href="${navUrl}" target="_blank" class="btn btn-ghost" style="font-size:9px;padding:4px 8px;text-decoration:none" title="Open turn-by-turn directions to this order">🧭</a>` : ''}
@@ -24954,6 +25027,37 @@ function renderReadyForWaybill() {
       </div>
     </div>`;
   }).join('');
+}
+
+// Delivery Fulfilment Board, Phase 1 (Sep 26 2026) — assign/unassign a
+// zone + time window for one order. Waits for the backend to confirm
+// before touching STATE (see postDeliveryBatch's comment above) so the
+// list on screen never claims a save that didn't happen.
+function assignDeliveryZone(orderRef) {
+  const zoneSel = document.getElementById(`db-zone-${orderRef}`);
+  const winInput = document.getElementById(`db-window-${orderRef}`);
+  const zone = zoneSel ? zoneSel.value : '';
+  const timeWindow = winInput ? winInput.value.trim() : '';
+  if(!zone) { showToast('⚠ Pick a zone first — add one in Coverage Areas if the list is empty.'); return; }
+  if(!timeWindow) { showToast('⚠ Enter a delivery time window, e.g. "Tue 9am-12pm".'); return; }
+  postDeliveryBatch(orderRef, zone, timeWindow).then(row => {
+    if(row) {
+      ensureDeliveryBatches()[orderRef] = { zone: row.zone, timeWindow: row.time_window, backendId: row.id };
+      saveState();
+      renderLogistics();
+      showToast(`✓ ${orderRef} assigned to ${zone}.`);
+    } else {
+      showToast('⚠ Could not save the zone assignment — check your connection and try again.');
+    }
+  });
+}
+function unassignDeliveryZone(orderRef) {
+  deleteDeliveryBatchFromBackend(orderRef).then(ok => {
+    if(!ok) { showToast('⚠ Could not clear the assignment — check your connection and try again.'); return; }
+    delete ensureDeliveryBatches()[orderRef];
+    saveState();
+    renderLogistics();
+  });
 }
 
 // ── Phase 2 (Sep 24 2026) — Advisory route grouping ──
@@ -30624,6 +30728,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncDriversFromBackend();
   syncDestinationsFromBackend();
   syncServiceAreasFromBackend();
+  syncDeliveryBatchesFromBackend();
 
   // Aug 28 fix — the 3 previously local-only-forever logs now sync too.
   syncCommissionPayoutsFromBackend();
