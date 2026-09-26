@@ -37,6 +37,7 @@ app.use('/promotions', require('./routes-postgres/promotions'));
 app.use('/vehicles', require('./routes-postgres/vehicles'));
 app.use('/drivers', require('./routes-postgres/drivers'));
 app.use('/destinations', require('./routes-postgres/destinations'));
+app.use('/service-areas', require('./routes-postgres/service-areas'));
 app.use('/settings', require('./routes-postgres/settings'));
 app.use('/wallet', require('./routes-postgres/wallet'));
 app.use('/respect', require('./routes-postgres/respect'));
