@@ -849,6 +849,23 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div class="ss-sub" data-i18n="ss.submitted_to">Your order has been submitted to<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong></div>
     <div class="ref-badge" id="success-ref">BEL-ORD-——</div>
     <div class="ss-sub" data-i18n="ss.screenshot_ref">Screenshot this reference. BMF EggScore Limited will confirm via WhatsApp shortly.</div>
+
+    <!-- DELIVERY LOCATION CONFIRMATION — Sep 26 2026. Shows the customer's
+         own delivery location straight back to them on their own
+         confirmation screen, right after they typed it, so a screenshot of
+         this page doubles as both parties' record of where delivery was
+         agreed to happen, before any payment changes hands. This is safe
+         in a way a shared coverage/zone display isn't: it's the submitting
+         customer's own data, shown only to that customer, only in their
+         own browser, immediately after they entered it — nothing here is
+         ever fetched, stored for later public display, or shown to anyone
+         else. Filled in per-order by showSuccess(), not by
+         renderTrustFooter() below, since it needs that specific order's
+         data, not just static brand text. -->
+    <div id="success-delivery-location" style="max-width:420px;margin:10px auto 0 auto;padding:10px 14px;
+      border-radius:8px;background:rgba(91,168,240,0.08);border:1px solid rgba(91,168,240,0.25);
+      font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);text-align:left"></div>
+
     <div class="ss-sub" id="success-trust-line" style="font-size:10.5px;color:var(--mist);margin-top:2px"></div>
 
     <!-- ENROLLMENT CARD — stop 7 on the metro map ("You're In"). Filled
@@ -3540,6 +3557,16 @@ function showSuccess(order, paid) {
   markWizardStopReached(7); // reached regardless of the "remember me" tap itself
   document.getElementById('success-ref').textContent = order.ref;
   document.getElementById('bank-narration').textContent = order.ref;
+
+  // Delivery location confirmation (Sep 26 2026) — see the HTML comment
+  // above #success-delivery-location for why this is safe to show here.
+  const deliveryLocEl = document.getElementById('success-delivery-location');
+  if(deliveryLocEl) {
+    deliveryLocEl.innerHTML =
+      `📍 Delivery to: <strong style="color:var(--cream)">${escapeHtmlPortal(order.location || '—')}</strong><br>` +
+      `<span style="color:var(--mist);font-size:9.5px">Please confirm this is correct before you pay — ` +
+      `message us on WhatsApp right away if it needs to change.</span>`;
+  }
 
   const total   = '₦' + (order.grandTotal || order.crates * order.pricePerCrate).toLocaleString();
 
