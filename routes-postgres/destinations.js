@@ -1,6 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth, requireAuth } = require('../auth.postgres');
+const { requireSupabaseAuth } = require('../auth.postgres');
 const { geocodeAddress } = require('../lib/geocode');
 
 const router = express.Router();
@@ -34,44 +34,23 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
   res.json(await db.prepare('SELECT * FROM destinations ORDER BY id ASC').all());
 });
 
-// Customer Portal Map (Sep 24 2026) — the ONLY destinations route the
-// portal (famad-order.html) ever calls, and deliberately the narrowest
-// one in this file: no internal id, no distance_km (Bob's own
-// fuel-cost input, not a customer's business), only what a trust map
-// needs to draw a pin. Gated the same way every other portal endpoint
-// already is (the shared x-api-key baked into famad-order.html, same
-// key visible in that page's own source — not a stronger secret than
-// the rest of the portal, just consistent with it), NOT open to the
-// whole internet. show_on_customer_map defaults to false on every
-// row, so a fresh destination — including the many mock/test ones
-// from building Phase 1 — never appears here until Bob deliberately
-// opts it in from the Logistics panel. Placed above the /:id routes
-// so "public" is never mistaken for an :id parameter.
-router.get('/public', requireAuth('portal', 'erp'), async (req, res) => {
-  const rows = await db.prepare(`
-    SELECT name, latitude, longitude, formatted_address
-    FROM destinations
-    WHERE show_on_customer_map = true AND latitude IS NOT NULL
-    ORDER BY id ASC
-  `).all();
-  res.json(rows);
-});
-
-// Same curation flag's write side — staff-only, since deciding what a
-// real customer sees is Bob's call, never automatic. Separate from the
-// geocode-missing backfill above: toggling this never re-geocodes or
-// touches coordinates, it only flips visibility on a pin that's
-// already there.
-router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
-  const existing = await db.prepare('SELECT * FROM destinations WHERE id = ?').get(req.params.id);
-  if(!existing) return res.status(404).json({ error: 'Destination not found.' });
-  const { showOnCustomerMap } = req.body;
-  if(typeof showOnCustomerMap !== 'boolean') {
-    return res.status(400).json({ error: 'showOnCustomerMap must be true or false.' });
-  }
-  await db.prepare('UPDATE destinations SET show_on_customer_map = ? WHERE id = ?').run(showOnCustomerMap, req.params.id);
-  res.json(await db.prepare('SELECT * FROM destinations WHERE id = ?').get(req.params.id));
-});
+// REMOVED — Delivery Location Privacy & Safety Policy (Sep 26 2026), Policy
+// §1 & §3. This used to be "GET /public": the only destinations route the
+// customer portal (famad-order.html) called, gated by the same x-api-key
+// that sits in that page's own view-source. That gate was never a real
+// login wall — anyone who opened the page's source had the key — and
+// testing found a Destination Reference row that was really a specific
+// customer's delivery address, with show_on_customer_map left true,
+// returning its exact coordinates and name to that unauthenticated route.
+// famad-order.html no longer calls anything named "public" here; deleting
+// the route outright (rather than just having the client stop calling it)
+// is what actually closes this off — a client-side change alone would
+// have left the same data reachable by anyone who hit this URL directly.
+// A "showOnCustomerMap" PATCH toggle used to sit here too, for exactly the
+// same feature — removed alongside it, so there is no route left, staff or
+// public, that can ever flag a Destination Reference for outside viewing
+// again. See migration-retire-customer-map-flag.sql for neutralizing the
+// column on existing rows.
 
 router.delete('/:id', requireSupabaseAuth(), async (req, res) => {
   const existing = await db.prepare('SELECT * FROM destinations WHERE id = ?').get(req.params.id);
