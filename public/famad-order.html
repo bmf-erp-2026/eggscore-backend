@@ -470,7 +470,16 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
            address, a named customer, or anything traceable to a specific
            delivery point. -->
       <div id="coverage-area-text" style="padding:14px 16px;border-radius:10px;font-family:'DM Mono',monospace;font-size:11px;line-height:1.7;color:var(--dust)">
-        We currently deliver across the <strong style="color:var(--cream)">Rumuogba – Woji – Elelenwa corridor</strong> and nearby areas. Not sure if we reach you? Message us on WhatsApp and we'll confirm before you order.
+        <!-- Sep 26 2026 — this opening line used to be hand-typed, fixed
+             text ("Rumuogba – Woji – Elelenwa corridor"), separate from the
+             tags below it, so it silently went stale the moment Bob
+             changed the actual coverage list in the ERP. #coverage-area-sentence
+             is now filled in by paintServiceAreas() from the same
+             SERVICE_AREAS array as the tags and side-rails, so there is
+             only one list to ever update again — not this sentence plus
+             the tags plus the side-rails. -->
+        <span id="coverage-area-sentence">We currently deliver across <strong style="color:var(--cream)">select areas</strong> and nearby areas.</span>
+        Not sure if we reach you? Message us on WhatsApp and we'll confirm before you order.
         <div id="coverage-area-tags" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
     </div>
@@ -1411,6 +1420,11 @@ function paintServiceAreas() {
   // order) — these names get inserted as innerHTML, and now come from the
   // backend rather than a hand-typed array, so they're escaped same as
   // any other server-sourced text on this page.
+  const sentence = document.getElementById('coverage-area-sentence');
+  if(sentence) {
+    const areaList = SERVICE_AREAS.map(a => escapeHtmlPortal(a)).join(', ');
+    sentence.innerHTML = `We currently deliver across <strong style="color:var(--cream)">${areaList}</strong> and nearby areas.`;
+  }
   const tags = document.getElementById('coverage-area-tags');
   if(tags) tags.innerHTML = SERVICE_AREAS.map(a => `<span class="coverage-tag">${escapeHtmlPortal(a)}</span>`).join('');
   ['coverage-area-list-left', 'coverage-area-list-right'].forEach(id => {
