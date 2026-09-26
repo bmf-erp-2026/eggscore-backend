@@ -24,10 +24,15 @@ const router = express.Router();
 //     Sep 26 2026 policy note in destinations.js for why that one couldn't
 //     be salvaged and had to be removed outright instead.
 //
-// GET /public is the one anonymous route here — same requireSupabaseAuth()
-// gate (accepts the portal's x-api-key) the rest of this app's read
-// routes already use — and it returns nothing but an array of plain
-// strings for areas marked active. No id, no timestamp, no coordinate.
+// GET /public is the one genuinely open route here — no auth check at all,
+// Bearer token or x-api-key. Sep 26 2026 fix: it originally sat behind
+// requireSupabaseAuth(), which only recognizes a staff Supabase login —
+// the portal has no such login, only its own x-api-key, so every fetch
+// from famad-order.html was silently failing and the card was stuck on
+// its hardcoded fallback list no matter what staff changed here. There's
+// no data to protect on this route to begin with (see above — plain
+// names, nothing identifying), so it doesn't need a gate; it just needs
+// to actually answer.
 
 router.post('/', requireSupabaseAuth(), async (req, res) => {
   const { name } = req.body;
@@ -63,10 +68,11 @@ router.delete('/:id', requireSupabaseAuth(), async (req, res) => {
   res.json({ ok: true });
 });
 
-// PUBLIC — reachable by the customer portal's x-api-key. Deliberately the
-// bare minimum: an array of plain name strings for areas staff have
-// switched on, in display order, nothing else attached.
-router.get('/public', requireSupabaseAuth(), async (req, res) => {
+// PUBLIC — no auth gate, reachable by anyone, same as any other static
+// asset on the portal. Deliberately the bare minimum: an array of plain
+// name strings for areas staff have switched on, in display order,
+// nothing else attached.
+router.get('/public', async (req, res) => {
   const rows = await db.prepare('SELECT name FROM service_areas WHERE active = true ORDER BY id ASC').all();
   res.json(rows.map(r => r.name));
 });
