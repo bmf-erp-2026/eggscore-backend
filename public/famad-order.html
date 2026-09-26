@@ -400,14 +400,20 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     </a>
   </div>
 
-  <!-- CUSTOMER PORTAL MAP (Sep 24 2026) — "Where We Deliver". Collapsed
+  <!-- CUSTOMER PORTAL COVERAGE CARD — "Where We Deliver". Collapsed
        trust panel, sits in the normal single-column flow rather than
        pinned to side margins (this page is max-width:580px, centered —
        those margins are empty space on a wide desktop window and don't
        exist at all on a phone, so nothing can anchor to them). Placed
        here, after the header/WhatsApp option but before the order form
        itself, so it's visible without adding scroll before anyone who
-       just wants to order reaches the form. -->
+       just wants to order reaches the form.
+
+       Rebuilt per the Delivery Location Privacy & Safety Policy (Sep 26
+       2026), Policy §1, replacing the Sep 24 2026 live-pin map: this card
+       now shows only a hand-maintained, plain-text description of the
+       service area, with no link back to any geocoded destination, order,
+       or customer record, and no coordinate plotted at any precision. -->
   <div class="panel coverage-map-card" id="coverage-map-card" style="max-width:560px;margin:14px auto 0 auto;padding:12px 14px">
     <div onclick="toggleCoverageMap()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--cream)">
       <span style="display:inline-flex;align-items:center;gap:7px">
@@ -415,15 +421,18 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         📍 Where We Deliver
       </span>
       <span style="display:inline-flex;align-items:center;gap:5px">
-        <span id="coverage-map-toggle-label" style="color:var(--blue);font-family:'DM Mono',monospace;font-size:9.5px;font-weight:700">Tap to view map</span>
+        <span id="coverage-map-toggle-label" style="color:var(--blue);font-family:'DM Mono',monospace;font-size:9.5px;font-weight:700">Tap to view</span>
         <span id="coverage-map-toggle-icon" style="color:var(--mist);font-size:11px">▾</span>
       </span>
     </div>
     <div id="coverage-map-body" style="display:none;margin-top:10px">
-      <div id="portal-coverage-map" style="height:220px;border-radius:10px;overflow:hidden;background:var(--raised);display:flex;align-items:center;justify-content:center">
-        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Loading map…</span>
+      <!-- EDIT ME — Bob/staff maintain this by hand. Describe the service
+           area only (corridors, general districts, LGAs); never a street
+           address, a named customer, or anything traceable to a specific
+           delivery point. -->
+      <div id="coverage-area-text" style="padding:14px 16px;border-radius:10px;background:var(--raised);font-family:'DM Mono',monospace;font-size:11px;line-height:1.7;color:var(--dust)">
+        We currently deliver across the <strong style="color:var(--cream)">Rumuogba – Woji – Elelenwa corridor</strong> and nearby areas. Not sure if we reach you? Message us on WhatsApp and we'll confirm before you order.
       </div>
-      <div id="coverage-map-caption" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:6px;text-align:center"></div>
     </div>
   </div>
 
@@ -1309,22 +1318,18 @@ function loadMyDetails() {
 const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
 const PORTAL_API_KEY = 'egs_f3f50dec2eb0893d5bc4ef108da8ddda772b26fda5ef92e6';
 
-// ── Customer Portal Map (Sep 24 2026) — "Where We Deliver" ──
+// ── Customer Portal Coverage Card — "Where We Deliver" ──
 //
-// Deliberately its own small map instance, not a reuse of the ERP's —
-// different page, different audience, different data (only the
-// destinations Bob has explicitly curated via show_on_customer_map,
-// never the internal fuel-cost-only ones). Collapsed by default and
-// the Google Maps script itself is only ever injected the first time
-// a visitor actually expands the card — most portal visits are here to
-// place an order, not browse a map, and Maps JS API usage is metered,
-// so a customer who never taps this never costs anything. Uses the
-// same browser key as the ERP map (already domain-restricted to
-// order.eggscore.com.ng, which serves this page too — no separate
-// Google Cloud setup needed for this).
+// Rebuilt per the Delivery Location Privacy & Safety Policy (Sep 26 2026),
+// Policy §1. The Sep 24 2026 version fetched live pins from
+// `${BACKEND_URL}/destinations/public` and plotted them with Google Maps —
+// testing found that endpoint could expose a literal, unredacted street
+// address to any anonymous visitor, no login or order required. That whole
+// mechanism is gone: no fetch, no API key use, no Google Maps script, no
+// coordinate of any kind reaches this page anymore. The card just reveals
+// the static text already sitting in the DOM (#coverage-area-text) — see
+// that element in the HTML above for the one place this copy is edited.
 let coverageMapExpanded = false;
-let coverageMapScriptRequested = false;
-let coverageMapInstance = null;
 
 function toggleCoverageMap() {
   coverageMapExpanded = !coverageMapExpanded;
@@ -1337,65 +1342,7 @@ function toggleCoverageMap() {
   if(body) body.style.display = coverageMapExpanded ? 'block' : 'none';
   if(icon) icon.textContent = coverageMapExpanded ? '▴' : '▾';
   if(dot) dot.style.visibility = coverageMapExpanded ? 'hidden' : 'visible';
-  if(label) label.textContent = coverageMapExpanded ? 'Hide map' : 'Tap to view map';
-  if(coverageMapExpanded && !coverageMapScriptRequested) {
-    coverageMapScriptRequested = true;
-    loadCoverageMapPins();
-  }
-}
-
-async function loadCoverageMapPins() {
-  const el = document.getElementById('portal-coverage-map');
-  if(!el) return;
-  let pins;
-  try {
-    const resp = await fetch(`${BACKEND_URL}/destinations/public`, { headers: { 'x-api-key': PORTAL_API_KEY } });
-    if(!resp.ok) throw new Error('bad response');
-    pins = await resp.json();
-  } catch(networkErr) {
-    el.innerHTML = `<div style="padding:30px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Could not load the coverage map right now — your order still works fine either way.</div>`;
-    return;
-  }
-  if(!pins.length) {
-    el.innerHTML = `<div style="padding:30px 16px;text-align:center;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Coverage map coming soon.</div>`;
-    return;
-  }
-  injectGoogleMapsScript(() => renderCoveragePins(pins));
-}
-
-function injectGoogleMapsScript(onReady) {
-  if(window.google && window.google.maps) { onReady(); return; }
-  window.__eggscorePortalMapReady = onReady;
-  const s = document.createElement('script');
-  s.defer = true; // never combine with async — see famad-erp.html's own comment on this exact bug
-  s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCz-R0fq7giNk0nMYwZBsWimwzGZBKCEb4&callback=__eggscorePortalMapCallback&loading=async';
-  document.head.appendChild(s);
-}
-function __eggscorePortalMapCallback() {
-  if(window.__eggscorePortalMapReady) window.__eggscorePortalMapReady();
-}
-
-function renderCoveragePins(pins) {
-  const el = document.getElementById('portal-coverage-map');
-  if(!el) return;
-  el.innerHTML = '';
-  coverageMapInstance = new google.maps.Map(el, {
-    center: { lat: 6.6, lng: 3.5 }, zoom: 9,
-    mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
-    gestureHandling: 'cooperative', // one-finger scroll keeps scrolling the page, not panning the map
-  });
-  const bounds = new google.maps.LatLngBounds();
-  pins.forEach(p => {
-    const position = { lat: p.latitude, lng: p.longitude };
-    new google.maps.Marker({ position, map: coverageMapInstance, title: p.name });
-    bounds.extend(position);
-  });
-  coverageMapInstance.fitBounds(bounds);
-  if(pins.length === 1) {
-    google.maps.event.addListenerOnce(coverageMapInstance, 'bounds_changed', () => coverageMapInstance.setZoom(Math.min(coverageMapInstance.getZoom(), 13)));
-  }
-  const caption = document.getElementById('coverage-map-caption');
-  if(caption) caption.textContent = `${pins.length} confirmed delivery area${pins.length === 1 ? '' : 's'} — and growing`;
+  if(label) label.textContent = coverageMapExpanded ? 'Hide' : 'Tap to view';
 }
 
 async function saveOrder(order) {

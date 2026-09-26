@@ -2213,15 +2213,19 @@ input[type=number]{-moz-appearance:textfield;}
       // were. latitude stays null/undefined until GOOGLE_MAPS_SERVER_KEY
       // is configured server-side or this particular address doesn't
       // resolve — that's a normal, expected state here, not an error.
+      // Delivery Location Privacy & Safety Policy (Sep 26 2026), Policy §3 —
+      // Destination References are internal logistics waypoints only, never
+      // eligible for public display again. show_on_customer_map is
+      // deliberately never read from the backend row here anymore, even if
+      // a stale true value still exists on some row server-side — this
+      // client no longer has any code path that can act on it.
       if(existing) {
         existing.name = row.name; existing.distanceKm = row.distance_km; existing.backendId = row.id;
         existing.latitude = row.latitude; existing.longitude = row.longitude; existing.formattedAddress = row.formatted_address;
-        existing.showOnCustomerMap = !!row.show_on_customer_map;
       } else {
         STATE.destinationReference.push({
           id: 'sync-' + row.id, name: row.name, distanceKm: row.distance_km, backendId: row.id,
           latitude: row.latitude, longitude: row.longitude, formattedAddress: row.formatted_address,
-          showOnCustomerMap: !!row.show_on_customer_map,
         });
       }
     });
@@ -23744,6 +23748,27 @@ function toWhatsAppNumber(phone) {
   return '234' + normalizePhone(phone);
 }
 
+// Delivery Location Privacy & Safety Policy (Sep 26 2026), Policy §4 —
+// driver-customer voice contact moves to WhatsApp calling on the numbers
+// already on the order record, at zero extra cost (data only, no per-minute
+// charge) — see the policy doc's "borrowed ride-hailing patterns" section
+// for why this replaces a masked/proxy-number scheme rather than adding one.
+// wa.me has no deep-link parameter that starts a CALL directly (that's a
+// WhatsApp platform limit, not something fixable here) — this opens the
+// chat with that contact, and whoever opens it taps WhatsApp's own call
+// icon, same one-tap-then-a-human-acts pattern already used everywhere
+// else in this file for wa.me links.
+// Returns '' (no link at all, falls back to reading the plain digits above
+// it and placing a normal GSM call) when the number doesn't even have a
+// real Nigerian mobile core (10 digits after normalizing) — this is the
+// <5% legacy dud-number accounts flagged in the policy doc, not something
+// a WhatsApp deep link can paper over.
+function buildWaybillCallLink(phone) {
+  const core = normalizePhone(phone);
+  if(core.length !== 10) return '';
+  return `<a href="https://wa.me/${toWhatsAppNumber(phone)}" target="_blank" style="color:var(--lime);text-decoration:none;font-weight:600" title="Opens WhatsApp — use the call icon there">💬 Call via WhatsApp</a>`;
+}
+
 function buildOutreachWaLink(o, hoursLeft) {
   const msg = `Hello ${o.customerName}, this is BMF EggScore Limited. ` +
     `Your reservation ${o.ref} (${o.crates} crates) is due to expire in about ${hoursLeft < 1 ? Math.round(hoursLeft*60)+' minutes' : hoursLeft.toFixed(1)+' hour(s)'}. ` +
@@ -24485,22 +24510,16 @@ function renderLogistics() {
         const pinStatus = isPinned
           ? `<span style="color:var(--lime)" title="${escapeHtml(d.formattedAddress || '')}">📍 pinned</span>`
           : `<span style="color:var(--mist)">⏳ not yet mapped</span>`;
-        // Customer Portal Map (Sep 24 2026) — curation checkbox. Only
-        // meaningful once a destination is pinned (nothing to show
-        // otherwise), so it's disabled with an explanatory title until
-        // then rather than hidden outright — Bob should be able to see
-        // this control exists even before he's clicked "Geocode All".
-        const customerMapToggle = isPinned
-          ? `<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-family:'DM Mono',monospace;font-size:9px;color:${d.showOnCustomerMap ? 'var(--blue)' : 'var(--mist)'}" title="Show this pin on the customer-facing coverage map at order.eggscore.com.ng">
-              <input type="checkbox" ${d.showOnCustomerMap ? 'checked' : ''} onchange="toggleDestinationCustomerVisibility('${d.id}', this.checked)" style="cursor:pointer;margin:0">
-              👁 Customer map
-            </label>`
-          : `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);opacity:0.5" title="Pin this destination first (Geocode All) to make it eligible for the customer map">👁 Customer map</span>`;
+        // Delivery Location Privacy & Safety Policy (Sep 26 2026), Policy §3 —
+        // the "Customer map" curation checkbox that used to live here is
+        // retired for good: no Destination Reference is ever eligible for
+        // public display again, regardless of pin status, so there is
+        // deliberately no control here to turn that back on. See
+        // toggleDestinationCustomerVisibility's removal note below.
         return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px;gap:8px;flex-wrap:wrap">
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(d.name)} — ${d.distanceKm}km &nbsp;·&nbsp; ${pinStatus}</span>
           <span style="display:flex;align-items:center;gap:10px">
-            ${customerMapToggle}
             <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDestination('${d.id}')">Remove</button>
           </span>
         </div>`;
@@ -24685,7 +24704,7 @@ function addDestination() {
   const name = document.getElementById('lg-dest-name').value.trim();
   const km   = parseFloat(document.getElementById('lg-dest-km').value);
   if(!name || isNaN(km) || km <= 0) { showToast('⚠ Enter a destination name and a real distance.'); return; }
-  const newDest = { id: 'dst' + Date.now(), name, distanceKm: km, showOnCustomerMap: false };
+  const newDest = { id: 'dst' + Date.now(), name, distanceKm: km };
   ensureDestinationReference().push(newDest);
   // Sep 23 2026, Geolocation Phase 1 — the POST now geocodes server-side
   // before the row even comes back, so the same response that used to
@@ -24696,11 +24715,6 @@ function addDestination() {
     if(row) {
       newDest.backendId = row.id;
       newDest.latitude = row.latitude; newDest.longitude = row.longitude; newDest.formattedAddress = row.formatted_address;
-      // Customer Portal Map (Sep 24 2026) — new destinations start
-      // hidden from the customer map (see schema default); carried
-      // through explicitly here so this stays true even if that
-      // default is ever revisited server-side.
-      newDest.showOnCustomerMap = !!row.show_on_customer_map;
     }
     saveState();
     renderLogistics();
@@ -24730,32 +24744,15 @@ function removeDestination(id) {
   saveState(); renderLogistics();
 }
 
-// Customer Portal Map (Sep 24 2026) — flips the curation checkbox for
-// one destination. Updates the checkbox's own row optimistically (it's
-// already reflecting the click before this even runs) but re-renders
-// from the confirmed backend state on both success and failure, so a
-// rejected/failed request never leaves the checkbox showing something
-// that isn't actually true server-side.
-async function toggleDestinationCustomerVisibility(id, checked) {
-  const d = STATE.destinationReference.find(x => x.id === id);
-  if(!d?.backendId) { showToast('⚠ This destination hasn\'t synced to the server yet — try again in a moment.'); renderLogistics(); return; }
-  const token = await erpGetAuthToken();
-  if(!token) { showToast('⚠ Not logged in.'); renderLogistics(); return; }
-  try {
-    const resp = await fetch(`${BACKEND_URL}/destinations/${d.backendId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ showOnCustomerMap: checked }),
-    });
-    if(!resp.ok) { showToast('⚠ Could not update — try again.'); renderLogistics(); return; }
-    d.showOnCustomerMap = checked;
-    saveState();
-    showToast(checked ? `✓ "${d.name}" now shown on the customer map.` : `✓ "${d.name}" hidden from the customer map.`);
-  } catch(networkErr) {
-    showToast('⚠ Network error — try again.');
-  }
-  renderLogistics();
-}
+// Delivery Location Privacy & Safety Policy (Sep 26 2026), Policy §1 & §3 —
+// toggleDestinationCustomerVisibility() removed outright, along with its
+// checkbox in renderLogistics() above and every showOnCustomerMap read/write
+// in this file. There is no code path left, anywhere in this app, that can
+// mark a Destination Reference for public display — the "Where We Deliver"
+// card in famad-order.html no longer even fetches /destinations/public (see
+// that file's own note). A show_on_customer_map column may still exist on
+// the backend and some rows may still carry a stale `true`; it is simply
+// never read or written from here again.
 
 function saveLogisticsSettings() {
   const s = ensureLogisticsSettings();
@@ -25152,7 +25149,7 @@ function viewWaybillDoc(orderRef) {
       </div>
       <div>
         <div style="color:var(--blue);font-weight:600;margin-bottom:4px">CONSIGNEE</div>
-        ${escapeHtml(wb.consignee.name)}<br>${escapeHtml(wb.consignee.address)}<br>${escapeHtml(wb.consignee.phone)}
+        ${escapeHtml(wb.consignee.name)}<br>${escapeHtml(wb.consignee.address)}<br>${escapeHtml(wb.consignee.phone)} ${buildWaybillCallLink(wb.consignee.phone)}
       </div>
     </div>
     <div style="margin-bottom:14px">
@@ -25163,7 +25160,7 @@ function viewWaybillDoc(orderRef) {
     <div style="margin-bottom:14px">
       <div style="color:var(--blue);font-weight:600;margin-bottom:4px">CARRIER</div>
       ${escapeHtml(wb.carrier.vehicleType)} — ${escapeHtml(wb.carrier.vehiclePlate)}<br>
-      Driver: ${escapeHtml(wb.carrier.driverName)} · ${escapeHtml(wb.carrier.driverPhone)}<br>
+      Driver: ${escapeHtml(wb.carrier.driverName)} · ${escapeHtml(wb.carrier.driverPhone)} ${buildWaybillCallLink(wb.carrier.driverPhone)}<br>
       <span style="color:var(--mist)">${escapeHtml(wb.dormant.gpsTracking)}</span>
     </div>
     <div style="margin-bottom:14px">
