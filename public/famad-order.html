@@ -92,8 +92,45 @@ input[type=number]{-moz-appearance:textfield;}
    getting a first-time visitor to tap it once, not to keep nagging
    after they already have. */
 @keyframes mapGlow{0%,100%{box-shadow:0 0 10px rgba(74,158,255,0.18);}50%{box-shadow:0 0 22px rgba(74,158,255,0.4);}}
-.coverage-map-card{border:1px solid rgba(74,158,255,0.4);animation:mapGlow 2.6s ease-in-out infinite;}
+.coverage-map-card{border:1px solid rgba(74,158,255,0.4);animation:mapGlow 2.6s ease-in-out infinite;position:relative;}
 .coverage-map-card.expanded{animation:none;box-shadow:none;border-color:var(--border);}
+
+/* Side-rail area lists — Sep 26 2026. Purely a wide-screen bonus: the
+   580px content column is centered, so these sit in the empty margin that
+   only exists once the viewport is wide enough to show it (roughly tablet/
+   desktop widths and up). On an actual phone screen there is no margin to
+   put them in, so they're display:none by default and only switched on
+   past the breakpoint below — nothing is lost on a phone, the full list
+   still lives inside the card itself via .coverage-tag below. Both rails
+   and the in-card tags render from the one SERVICE_AREAS array in the
+   script (search for that name) so there's a single place to edit, never
+   two copies of the same list to keep in sync by hand. */
+.coverage-side-list{display:none;position:absolute;top:2px;width:138px;list-style:none;margin:0;padding:0;font-family:'DM Mono',monospace;font-size:10.5px;line-height:1.9;color:var(--mist);}
+.coverage-side-list li{position:relative;padding-left:15px;}
+.coverage-side-list li::before{content:'📍';position:absolute;left:0;top:0;font-size:8.5px;}
+.coverage-side-list.left{right:calc(100% + 26px);text-align:right;}
+.coverage-side-list.left li{padding-left:0;padding-right:15px;}
+.coverage-side-list.left li::before{left:auto;right:0;}
+.coverage-side-list.right{left:calc(100% + 26px);}
+@media (min-width:1000px){.coverage-side-list{display:block;}}
+
+.coverage-tag{display:inline-block;padding:3px 10px;border-radius:20px;background:rgba(91,168,240,0.15);color:var(--blue);font-family:'DM Mono',monospace;font-size:9.5px;font-weight:700;}
+
+/* Static backdrop behind the "Where We Deliver" text — Sep 26 2026.
+   img/service-area.jpg is a flat, saved JPEG (Bob-provided) — never fetched
+   live, never built from real coordinates. Its pins are decorative map
+   styling, not bound to any data: it's a plain picture with no click/hover
+   target, so there's nothing behind a pin to query, unlike the removed
+   live map where a tooltip pulled a real address out of the database. If
+   this file is ever missing, background-image just fails to load and the
+   gradient layer below renders on its own — no broken-image icon, no
+   error, card still looks intact. */
+#coverage-area-text{
+  background-color:var(--raised);
+  background-image:linear-gradient(rgba(11,18,32,0.78),rgba(11,18,32,0.78)), url('img/service-area.jpg');
+  background-size:cover;
+  background-position:center;
+}
 
 /* ── STOCK TICKER ── */
 .stock-ticker{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:20px;display:grid;grid-template-columns:minmax(100px,auto) 1fr minmax(120px,auto);align-items:start;gap:12px;}
@@ -415,6 +452,8 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
        service area, with no link back to any geocoded destination, order,
        or customer record, and no coordinate plotted at any precision. -->
   <div class="panel coverage-map-card" id="coverage-map-card" style="max-width:560px;margin:14px auto 0 auto;padding:12px 14px">
+    <ul class="coverage-side-list left" id="coverage-area-list-left"></ul>
+    <ul class="coverage-side-list right" id="coverage-area-list-right"></ul>
     <div onclick="toggleCoverageMap()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--cream)">
       <span style="display:inline-flex;align-items:center;gap:7px">
         <span id="coverage-map-dot" class="ph-badge-dot" style="background:var(--blue)"></span>
@@ -430,8 +469,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
            area only (corridors, general districts, LGAs); never a street
            address, a named customer, or anything traceable to a specific
            delivery point. -->
-      <div id="coverage-area-text" style="padding:14px 16px;border-radius:10px;background:var(--raised);font-family:'DM Mono',monospace;font-size:11px;line-height:1.7;color:var(--dust)">
+      <div id="coverage-area-text" style="padding:14px 16px;border-radius:10px;font-family:'DM Mono',monospace;font-size:11px;line-height:1.7;color:var(--dust)">
         We currently deliver across the <strong style="color:var(--cream)">Rumuogba – Woji – Elelenwa corridor</strong> and nearby areas. Not sure if we reach you? Message us on WhatsApp and we'll confirm before you order.
+        <div id="coverage-area-tags" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
     </div>
   </div>
@@ -1329,6 +1369,52 @@ const PORTAL_API_KEY = 'egs_f3f50dec2eb0893d5bc4ef108da8ddda772b26fda5ef92e6';
 // coordinate of any kind reaches this page anymore. The card just reveals
 // the static text already sitting in the DOM (#coverage-area-text) — see
 // that element in the HTML above for the one place this copy is edited.
+
+// SERVICE_AREAS — the ONE place to edit the list of named areas (Sep 26
+// 2026). Plain area/corridor/district names only, per Policy §1 — never a
+// street address or a customer name. Everything that shows this list (the
+// small tag row inside the card, and the two side-rail bullet lists that
+// only appear on wide screens) renders from this single array.
+//
+// Sep 26 2026 — now fetched from the backend (GET /service-areas/public)
+// instead of hand-edited here, so Bob can add/rename/retire an area from
+// the ERP's Coverage Areas panel and have it show up here with no code
+// change. That route returns only plain name strings for areas staff have
+// switched on — same shape as this fallback array, same x-api-key gate as
+// every other portal read call (see PORTAL_API_KEY above). If the fetch
+// fails for any reason — offline, backend not yet migrated, first load
+// before the table exists — FALLBACK_SERVICE_AREAS keeps the card showing
+// something sensible instead of going blank.
+const FALLBACK_SERVICE_AREAS = ['Rumuogba', 'Woji', 'Elelenwa'];
+let SERVICE_AREAS = FALLBACK_SERVICE_AREAS;
+
+function paintServiceAreas() {
+  // escapeHtmlPortal() is defined further down in this same script block
+  // (function declarations hoist, so it's available here regardless of
+  // order) — these names get inserted as innerHTML, and now come from the
+  // backend rather than a hand-typed array, so they're escaped same as
+  // any other server-sourced text on this page.
+  const tags = document.getElementById('coverage-area-tags');
+  if(tags) tags.innerHTML = SERVICE_AREAS.map(a => `<span class="coverage-tag">${escapeHtmlPortal(a)}</span>`).join('');
+  ['coverage-area-list-left', 'coverage-area-list-right'].forEach(id => {
+    const list = document.getElementById(id);
+    if(list) list.innerHTML = SERVICE_AREAS.map(a => `<li>${escapeHtmlPortal(a)}</li>`).join('');
+  });
+}
+async function loadServiceAreas() {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/service-areas/public`, { headers: { 'x-api-key': PORTAL_API_KEY } });
+    if(resp.ok) {
+      const rows = await resp.json();
+      if(Array.isArray(rows) && rows.length > 0) SERVICE_AREAS = rows;
+    }
+  } catch(networkErr) {
+    // stays on FALLBACK_SERVICE_AREAS
+  }
+  paintServiceAreas();
+}
+document.addEventListener('DOMContentLoaded', loadServiceAreas);
+
 let coverageMapExpanded = false;
 
 function toggleCoverageMap() {

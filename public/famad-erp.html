@@ -2232,6 +2232,69 @@ input[type=number]{-moz-appearance:textfield;}
     saveState();
   }
 
+  // Coverage Areas backend helpers (Sep 26 2026) — same shape as the
+  // Destination Reference helpers just above, kept as a separate set of
+  // functions since it's a separate table/route with no address/coordinate
+  // fields at all. See routes-postgres/service-areas.js.
+  async function postServiceAreaToBackend(area) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/service-areas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ name: area.name }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) { return null; }
+  }
+  async function patchServiceAreaToBackend(backendId, patch) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/service-areas/${backendId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) { return null; }
+  }
+  async function deleteServiceAreaFromBackend(backendId) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/service-areas/${backendId}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch(networkErr) {}
+  }
+  async function syncServiceAreasFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let rows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/service-areas`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      rows = await resp.json();
+    } catch(networkErr) { return; }
+
+    if(!STATE.serviceAreas) STATE.serviceAreas = [];
+    const byBackendId = new Map(STATE.serviceAreas.filter(a => a.backendId).map(a => [a.backendId, a]));
+    rows.forEach(row => {
+      const existing = byBackendId.get(row.id);
+      if(existing) {
+        existing.name = row.name; existing.active = row.active; existing.backendId = row.id;
+      } else {
+        STATE.serviceAreas.push({ id: 'sync-' + row.id, name: row.name, active: row.active, backendId: row.id });
+      }
+    });
+    saveState();
+    if(typeof renderLogistics === 'function') renderLogistics();
+  }
+
   // Sep 23 2026, Geolocation Phase 1 — backfills coordinates for every
   // destination that predates GOOGLE_MAPS_SERVER_KEY being configured
   // (or was added before this feature existed at all), so Bob never
@@ -6320,6 +6383,33 @@ input[type=number]{-moz-appearance:textfield;}
         <button class="btn btn-primary" onclick="addDestination()">Add</button>
       </div>
     </div>
+  </div>
+
+  <!-- COVERAGE AREAS — Sep 26 2026. Not the same thing as Destination
+       Reference above: a coverage area is a plain place name (a corridor,
+       district, or LGA) with no address and no coordinate, and it feeds
+       the customer-facing "Where We Deliver" card in famad-order.html.
+       Flipping an area's toggle here only ever reveals a district name —
+       never a Destination Reference row, never a customer's address. See
+       routes-postgres/service-areas.js for the full reasoning on why this
+       is safe in a way the retired customer-map flag on Destination
+       Reference wasn't. -->
+  <div class="rep-hide-finance">
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">🗺 Coverage Areas</div>
+      <div class="panel-hdr-actions">
+        <div class="panel-tag">Plain area names only — this is what customers see on the portal, live goes public instantly</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="lg-servicearea-list" style="margin-bottom:10px"></div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end">
+        <div><label class="form-label">Area / corridor / LGA name</label><input class="form-input" id="lg-servicearea-name" placeholder="e.g. Woji" onkeydown="if(event.key==='Enter'){event.preventDefault();addServiceArea();}"/></div>
+        <button class="btn btn-primary" onclick="addServiceArea()">Add</button>
+      </div>
+    </div>
+  </div>
   </div>
 
   <div class="rep-hide-finance">
@@ -24288,6 +24378,7 @@ function saveVehicleDocuments() {
 }
 function ensureShipperDetails() { if(!STATE.shipperDetails) STATE.shipperDetails = { farmName: '', address: '', contact: '' }; return STATE.shipperDetails; }
 function ensureDestinationReference() { if(!STATE.destinationReference) STATE.destinationReference = []; return STATE.destinationReference; }
+function ensureServiceAreas() { if(!STATE.serviceAreas) STATE.serviceAreas = []; return STATE.serviceAreas; }
 
 function generateWaybillNumber(orderRef) {
   const numericPortion = orderRef.replace(/^(BEL|EGS|FEDS)-ORD-/, '');
@@ -24453,6 +24544,7 @@ function renderLogistics() {
   const fleet   = ensureFleet();
   const ls      = ensureLogisticsSettings();
   const dests   = ensureDestinationReference();
+  const areas   = ensureServiceAreas();
 
   renderVehicleDocumentAlerts();
 
@@ -24526,6 +24618,22 @@ function renderLogistics() {
       }).join('');
   }
   renderDestinationMap(dests);
+
+  const areaEl = document.getElementById('lg-servicearea-list');
+  if(areaEl) {
+    areaEl.innerHTML = areas.length === 0
+      ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">No coverage areas added yet — the portal card falls back to its built-in default list until at least one is added here.</div>`
+      : areas.map(a => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px;gap:8px;flex-wrap:wrap">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(a.name)}</span>
+          <span style="display:flex;align-items:center;gap:10px">
+            <label style="display:inline-flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:9px;color:${a.active ? 'var(--lime)' : 'var(--mist)'};cursor:pointer">
+              <input type="checkbox" ${a.active ? 'checked' : ''} onchange="toggleServiceAreaActive('${a.id}')"/> ${a.active ? 'Live on portal' : 'Hidden'}
+            </label>
+            <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeServiceArea('${a.id}')">Remove</button>
+          </span>
+        </div>`).join('');
+  }
 
   renderReadyForWaybill();
   renderNearbyGroups();
@@ -24741,6 +24849,40 @@ function removeDestination(id) {
   const d = STATE.destinationReference.find(x => x.id === id);
   if(d?.backendId) deleteDestinationFromBackend(d.backendId);
   STATE.destinationReference = STATE.destinationReference.filter(d => d.id !== id);
+  saveState(); renderLogistics();
+}
+
+// Coverage Areas (Sep 26 2026) — plain names only, feeds the portal's
+// "Where We Deliver" card via GET /service-areas/public. New areas start
+// active (visible on the portal immediately) since that matches what
+// typing a name and hitting Add looks like it should do; flip the
+// checkbox in the list to hide one without deleting it.
+function addServiceArea() {
+  const nameInput = document.getElementById('lg-servicearea-name');
+  const name = nameInput.value.trim();
+  if(!name) { showToast('⚠ Enter an area name first.'); return; }
+  const newArea = { id: 'svc' + Date.now(), name, active: true };
+  ensureServiceAreas().push(newArea);
+  postServiceAreaToBackend(newArea).then(row => {
+    if(row) { newArea.backendId = row.id; saveState(); renderLogistics(); }
+  });
+  saveState();
+  nameInput.value = '';
+  renderLogistics();
+  showToast('✓ Coverage area added — live on the portal now.');
+}
+function toggleServiceAreaActive(id) {
+  const a = STATE.serviceAreas.find(x => x.id === id);
+  if(!a) return;
+  a.active = !a.active;
+  if(a.backendId) patchServiceAreaToBackend(a.backendId, { active: a.active });
+  saveState(); renderLogistics();
+  showToast(a.active ? `✓ "${a.name}" is now live on the portal.` : `"${a.name}" hidden from the portal.`);
+}
+function removeServiceArea(id) {
+  const a = STATE.serviceAreas.find(x => x.id === id);
+  if(a?.backendId) deleteServiceAreaFromBackend(a.backendId);
+  STATE.serviceAreas = STATE.serviceAreas.filter(x => x.id !== id);
   saveState(); renderLogistics();
 }
 
@@ -30481,6 +30623,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncVehiclesFromBackend();
   syncDriversFromBackend();
   syncDestinationsFromBackend();
+  syncServiceAreasFromBackend();
 
   // Aug 28 fix — the 3 previously local-only-forever logs now sync too.
   syncCommissionPayoutsFromBackend();
