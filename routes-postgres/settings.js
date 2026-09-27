@@ -26,6 +26,34 @@ router.patch('/selling-price', requireSupabaseAuth(), requireRole('owner'), asyn
   res.json({ ok: true, price });
 });
 
+// Sep 27 2026 — the "small sync route" for the special-volume crate
+// threshold (Preferred Delivery Day feature). Exact same shape as
+// selling-price above: a single number the portal needs to read (to decide
+// whether an order qualifies for any-day delivery) and only the owner can
+// change. Before this route existed, the ERP's Logistics settings panel
+// saved this number locally only — famad-order.html carried its own,
+// separately-hardcoded copy (SPECIAL_VOLUME_THRESHOLD_CRATES = 250) that
+// had no way to learn about a change made in the ERP. Same class of bug as
+// the Time-Value rate/band mismatch just above; fixed the same way, by
+// giving the two sides one real source of truth to read from.
+router.get('/special-volume-threshold', requireEitherAuth(), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'special_volume_threshold_crates'").get();
+  if(!row) return res.json({ crates: null });
+  res.json({ crates: parseInt(row.value, 10), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+router.patch('/special-volume-threshold', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const { crates, updatedBy } = req.body;
+  if(!Number.isInteger(crates) || crates < 1) {
+    return res.status(400).json({ error: 'crates must be a whole number, 1 or more.' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('special_volume_threshold_crates', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(String(crates), updatedBy || null);
+  res.json({ ok: true, crates });
+});
+
 // Read is open to either auth, same reasoning and same pattern as
 // selling-price above — order policies are published content shown
 // directly to customers on the portal (each one adhered to earns bonus
@@ -343,6 +371,38 @@ router.patch('/branding-readiness-settings', requireSupabaseAuth(), requireRole(
   res.json({ ok: true, settings });
 });
 
+// Sep 27 2026 fix — real production bug. The rate PATCH below used to
+// hardcode "rate must be between 0.25 and 0.30" as a literal, left over
+// from before the Time-Value band became owner-editable in the ERP
+// (saveTimeValueRateBand() in famad-erp.html). That band change only ever
+// touched STATE.timeValueRateBand client-side — nothing told THIS route
+// the valid range had moved. Result: an owner could shrink the band to
+// 20%-25% in the ERP, set the rate to 23.5%, see it save and even show up
+// correctly in the on-screen Rate Change History (all of that is client-
+// side) — but postTimeValueRateToBackend()'s PATCH silently got rejected
+// by this now-stale 0.25-0.30 check, the backend's stored value never
+// moved, and the next page refresh (which pulls FROM the backend via
+// syncTimeValueRateFromBackend()) overwrote the correct 23.5% with the
+// old, now out-of-band 25%. Exactly the "two hardcoded copies of the same
+// number disagree" bug this whole Time-Value rework was meant to retire —
+// it just had a second copy here, in a file the ERP work never touched.
+//
+// Fix: the band itself now lives here too (time_value_rate_band, right
+// below) as the actual single source of truth, and this route reads it
+// instead of a literal. TIME_VALUE_RATE_DEFAULT_BAND is only the seed for
+// an install that predates this fix and has never synced a band yet —
+// once one is set, it's used from here on.
+const TIME_VALUE_RATE_DEFAULT_BAND = { min: 0.25, max: 0.30 };
+async function getTimeValueRateBandRow() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'time_value_rate_band'").get();
+  if(!row) return TIME_VALUE_RATE_DEFAULT_BAND;
+  try {
+    const parsed = JSON.parse(row.value);
+    if(typeof parsed?.min === 'number' && typeof parsed?.max === 'number') return parsed;
+  } catch(parseErr) {}
+  return TIME_VALUE_RATE_DEFAULT_BAND;
+}
+
 router.get('/time-value-rate', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'time_value_rate'").get();
   if(!row) return res.json({ rate: null });
@@ -350,8 +410,9 @@ router.get('/time-value-rate', requireSupabaseAuth(), requireRole('owner'), asyn
 });
 router.patch('/time-value-rate', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { rate, updatedBy } = req.body;
-  if(typeof rate !== 'number' || rate < 0.25 || rate > 0.30) {
-    return res.status(400).json({ error: 'rate must be between 0.25 and 0.30.' });
+  const band = await getTimeValueRateBandRow();
+  if(typeof rate !== 'number' || rate < band.min || rate > band.max) {
+    return res.status(400).json({ error: `rate must be between ${band.min} and ${band.max} (the current band).` });
   }
   await db.prepare(`
     INSERT INTO settings (key, value, updated_by, updated_at)
@@ -359,6 +420,26 @@ router.patch('/time-value-rate', requireSupabaseAuth(), requireRole('owner'), as
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
   `).run(String(rate), updatedBy || null);
   res.json({ ok: true, rate });
+});
+
+// The band itself — GET/PATCH mirror every other JSON-blob setting in this
+// file. Owner-only both ways, same as the rate above; the portal never
+// needs this, only the ERP's own Time-Value panel.
+router.get('/time-value-rate-band', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const band = await getTimeValueRateBandRow();
+  res.json({ band });
+});
+router.patch('/time-value-rate-band', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const { min, max, updatedBy } = req.body;
+  if(typeof min !== 'number' || typeof max !== 'number' || min < 0 || max <= 0 || min >= max || max > 1) {
+    return res.status(400).json({ error: 'min/max must be numbers, 0 <= min < max <= 1 (fractions, e.g. 0.20 for 20%).' });
+  }
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('time_value_rate_band', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify({ min, max }), updatedBy || null);
+  res.json({ ok: true, band: { min, max } });
 });
 
 // Owner PIN — hash and recovery hash only, NEVER plaintext (matches the
