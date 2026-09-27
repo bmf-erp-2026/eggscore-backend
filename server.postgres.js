@@ -38,6 +38,7 @@ app.use('/vehicles', require('./routes-postgres/vehicles'));
 app.use('/drivers', require('./routes-postgres/drivers'));
 app.use('/destinations', require('./routes-postgres/destinations'));
 app.use('/service-areas', require('./routes-postgres/service-areas'));
+app.use('/delivery-days', require('./routes-postgres/delivery-days'));
 app.use('/delivery-batches', require('./routes-postgres/delivery-batches'));
 app.use('/settings', require('./routes-postgres/settings'));
 app.use('/wallet', require('./routes-postgres/wallet'));
