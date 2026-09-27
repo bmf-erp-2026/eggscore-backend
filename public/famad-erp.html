@@ -12711,7 +12711,7 @@ function checkCreditLimit(customerName, gross, paymentMethod) {
         `🚫 <strong>Credit suspended — ${customerName}</strong><br>` +
         `Exposure: <strong>₦${exposure.toLocaleString()}</strong> (${exposurePct}% of ₦${creditLimit.toLocaleString()} limit) · ` +
         `Outstanding ${daysOutstanding} days · ` +
-        `<strong style="color:var(--red)">Time-value cost: ₦${Math.round(tv).toLocaleString()}</strong> at 30% p.a. · ` +
+        `<strong style="color:var(--red)">Time-value cost: ₦${Math.round(tv).toLocaleString()}</strong> at ${getTimeValueRatePct()}% p.a. · ` +
         `Daily carrying cost: ₦${Math.round(timeValue.dailyCost).toLocaleString()}/day.<br>` +
         `A rep cannot proceed. Owner override is required and will be permanently recorded.`;
       redEl.classList.add('show');
@@ -12741,7 +12741,7 @@ function checkCreditLimit(customerName, gross, paymentMethod) {
       `💳 <strong>Credit limit reached — ${customerName}</strong><br>` +
       `Exposure: ₦${exposure.toLocaleString()} (${exposurePct}% of limit) · ` +
       `Outstanding ${daysOutstanding} days · ` +
-      `<strong>Time-value cost: ₦${Math.round(tv).toLocaleString()}</strong> accrued at 30% p.a.<br>` +
+      `<strong>Time-value cost: ₦${Math.round(tv).toLocaleString()}</strong> accrued at ${getTimeValueRatePct()}% p.a.<br>` +
       `Credit payment has been automatically switched to <strong>Cash/Transfer</strong>. ` +
       `A WA settlement reminder can be sent from the Credit/Debt module.`;
     return true;
@@ -12753,7 +12753,7 @@ function checkCreditLimit(customerName, gross, paymentMethod) {
     txt.innerHTML =
       `⚠ <strong>Approaching credit limit — ${customerName}</strong> · ` +
       `Exposure ${exposurePct}% of ₦${creditLimit.toLocaleString()} limit · ` +
-      `Daily carrying cost: ₦${Math.round(timeValue.dailyCost).toLocaleString()}/day at 30% p.a.`;
+      `Daily carrying cost: ₦${Math.round(timeValue.dailyCost).toLocaleString()}/day at ${getTimeValueRatePct()}% p.a.`;
     return false; // Yellow is advisory — doesn't block
   }
 
@@ -17192,7 +17192,7 @@ function renderCredit() {
           <span style="font-family:'DM Mono',monospace;font-size:10px">
             Exposure: ₦${enf.exposure.toLocaleString()} (${enf.exposurePct}% of ₦${enf.creditLimit.toLocaleString()} limit) ·
             ${enf.daysOutstanding} days outstanding ·
-            <strong>Time-value cost: ₦${tv.toLocaleString()}</strong> at 30% p.a. (₦${daily.toLocaleString()}/day)
+            <strong>Time-value cost: ₦${tv.toLocaleString()}</strong> at ${getTimeValueRatePct()}% p.a. (₦${daily.toLocaleString()}/day)
           </span>
         </div>
         <button class="wa-btn" style="padding:3px 10px;font-size:9px;flex-shrink:0"
@@ -17226,7 +17226,7 @@ function renderCredit() {
                 ? `<br><span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--lime)">₦${paid.toLocaleString()} paid</span>`
                 : ''}
               <br><span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">of ₦${s.gross.toLocaleString()}</span>
-              <br><span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--red)" title="Time-value cost at 30% p.a.">~₦${Math.round(tvAccrued).toLocaleString()} TV cost</span>
+              <br><span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--red)" title="Time-value cost at ${getTimeValueRatePct()}% p.a.">~₦${Math.round(tvAccrued).toLocaleString()} TV cost</span>
             </td>
             <td data-label="Due Date" class="mono">${addDays(s.date, dueDay)}</td>
             <td data-label="Overdue">
@@ -24314,26 +24314,59 @@ function ensureLogisticsSettings() {
 }
 function ensureFleet() { if(!STATE.fleet) STATE.fleet = { vehicles: [], drivers: [] }; return STATE.fleet; }
 
+// Plate spelling isn't consistent everywhere it's typed (spaces, dashes,
+// case) — this is only for matching one waybill's plate against another's,
+// never for display.
+function normalizePlate(plate) {
+  return (plate || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 // A vehicle or driver can only really be on one road trip at a time, but
 // nothing previously stopped the same truck or driver being picked for two
 // orders that are both still 'in_transit'. This scans every order currently
-// out for delivery and reports which vehicle/driver ids are already
-// committed, and to which order — openGenerateWaybillModal() uses it to
+// out for delivery and reports, for a given vehicle/driver, which other
+// order (if any) already has it — openGenerateWaybillModal() uses it to
 // grey those options out, and submitGenerateWaybill() checks it again right
 // before saving, in case the picklist and the actual click land on
 // different data (e.g. another waybill was generated in between).
 // excludeOrderRef lets a waybill be regenerated for the very order that's
 // already holding the vehicle/driver, without flagging itself as a conflict.
+//
+// Sep 27 2026 — matches by id AND by plate/phone, not id alone. Two
+// waybills generated Sep 26 (before carrier.vehicleId/driverId existed —
+// see generateWaybill()) put the same physical truck under two different
+// drivers 11 minutes apart, and an id-only check can't see that: those
+// records have no vehicleId to compare. Matching the plate/phone too
+// catches that same scenario for every waybill already on file, not just
+// ones generated after this fix.
 function getBusyFleetAssignments(excludeOrderRef) {
-  const busyVehicles = {}; // vehicleId -> orderRef
-  const busyDrivers  = {}; // driverId  -> orderRef
+  const byVehicleId    = {}; // vehicleId -> orderRef
+  const byDriverId     = {}; // driverId  -> orderRef
+  const byVehiclePlate = {}; // normalized plate -> orderRef
+  const byDriverPhone  = {}; // normalized phone -> orderRef
   loadOrders().forEach(o => {
     if(o.status !== 'in_transit' || !o.waybill || o.ref === excludeOrderRef) return;
     const c = o.waybill.carrier || {};
-    if(c.vehicleId) busyVehicles[c.vehicleId] = o.ref;
-    if(c.driverId)  busyDrivers[c.driverId]  = o.ref;
+    if(c.vehicleId) byVehicleId[c.vehicleId] = o.ref;
+    if(c.driverId)  byDriverId[c.driverId]  = o.ref;
+    const plate = normalizePlate(c.vehiclePlate);
+    if(plate) byVehiclePlate[plate] = o.ref;
+    const phoneCore = normalizePhone(c.driverPhone);
+    if(phoneCore.length === 10) byDriverPhone[phoneCore] = o.ref;
   });
-  return { busyVehicles, busyDrivers };
+  return {
+    // Returns the orderRef already holding this vehicle, or null if it's free.
+    vehicleBusyOrderRef(vehicle) {
+      if(!vehicle) return null;
+      return byVehicleId[vehicle.id] || byVehiclePlate[normalizePlate(vehicle.plate)] || null;
+    },
+    // Returns the orderRef already holding this driver, or null if they're free.
+    driverBusyOrderRef(driver) {
+      if(!driver) return null;
+      const phoneCore = normalizePhone(driver.phone);
+      return byDriverId[driver.id] || (phoneCore.length === 10 ? byDriverPhone[phoneCore] : null) || null;
+    },
+  };
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -25202,18 +25235,40 @@ function buildOrdersNavUrl(orders) {
 // whether that happened. This builds a wa.me link, pre-filled, straight to
 // the driver's own number on this waybill — same one-tap-then-a-human-acts
 // pattern as buildWaybillCallLink() and every other wa.me link in this
-// file. Returns null (button hides itself, see renderInTransitPanel())
-// when there's no usable driver phone or the order was never geocoded —
-// never a broken/empty WhatsApp chat.
+// file.
+//
+// Sep 27 2026 — two bugs found by live testing, fixed together:
+//
+// 1) returns { link, reason } instead of a bare link-or-null. Two in-transit
+//    orders at the exact same stage could show completely different
+//    outcomes (one gets the button, one doesn't) for two very different
+//    reasons — no valid driver phone on file, vs. this order never got a
+//    precise geocoded location. Silently hiding the button either way left
+//    Bob with no way to tell which of those it was. renderInTransitPanel()
+//    now shows a disabled button explaining which one, on the rare case
+//    reason 2 below still can't produce a link.
+//
+// 2) a geocode miss no longer means NO link at all. Previously this only
+//    ever used o.latitude/o.longitude (set by "Group Nearby Orders",
+//    before the waybill existed) — an order that was never geocoded, or
+//    whose geocode failed, got no directions whatsoever, even though every
+//    waybill is required to carry a real destination address (see
+//    submitGenerateWaybill()'s validation). Now it falls back to that
+//    address text — Google Maps geocodes a plain address itself the moment
+//    the driver opens the link, just less precisely pinned than a
+//    lat/lng-anchored one. reason:'not-located' is now only possible in the
+//    pathological case where a waybill somehow has no destination at all.
 function buildDriverDirectionsWaLink(o) {
   const carrier = o.waybill?.carrier;
   const phone = carrier?.driverPhone;
-  if(!phone || normalizePhone(phone).length !== 10) return null;
-  const navUrl = buildOrdersNavUrl([o]);
-  if(!navUrl) return null;
+  if(!phone || normalizePhone(phone).length !== 10) return { link: null, reason: 'no-phone' };
+  const navUrl = buildOrdersNavUrl([o]) || (o.waybill.destination
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.waybill.destination)}&travelmode=driving`
+    : null);
+  if(!navUrl) return { link: null, reason: 'not-located' };
   const greeting = carrier.driverName && carrier.driverName !== '—' ? `Hi ${carrier.driverName}, ` : 'Hi, ';
   const msg = `${greeting}here's the run for ${o.waybill.waybillNumber} — ${o.customerName}, ${o.crates} crates to ${o.waybill.destination}.\n\nTurn-by-turn directions: ${navUrl}`;
-  return `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(msg)}`;
+  return { link: `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(msg)}`, reason: null };
 }
 
 function renderNearbyGroups() {
@@ -25279,10 +25334,17 @@ function renderInTransitPanel() {
     return;
   }
   el.innerHTML = orders.map(o => {
-    // See buildDriverDirectionsWaLink() — hides itself rather than shipping
-    // a dead/empty WhatsApp link when there's no driver phone or the order
-    // was never geocoded.
-    const waLink = buildDriverDirectionsWaLink(o);
+    // See buildDriverDirectionsWaLink() — two orders at this exact same
+    // stage can come out differently here for two different reasons, so
+    // this always shows a button, either live or explaining which reason.
+    const { link: waLink, reason } = buildDriverDirectionsWaLink(o);
+    const sendDirectionsBtn = waLink
+      ? `<a href="${waLink}" target="_blank" class="btn btn-ghost" style="font-size:10px;text-decoration:none" title="Opens WhatsApp to this driver with the turn-by-turn link already typed in">📲 Send Directions</a>`
+      : `<button class="btn btn-ghost" disabled style="font-size:10px;opacity:0.5;cursor:not-allowed" title="${
+          reason === 'no-phone'
+            ? 'No usable phone number on file for this driver — add one in Logistics.'
+            : 'This waybill has no destination on file at all — reopen it and re-enter the destination.'
+        }">📲 Send Directions</button>`;
     return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;
       background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.2);border-radius:8px;margin-bottom:7px">
@@ -25291,7 +25353,7 @@ function renderInTransitPanel() {
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${o.waybill?.waybillNumber || o.ref} · ${o.crates} crates → ${escapeHtml(o.waybill?.destination||'—')}</span>
       </div>
       <div style="display:flex;gap:6px">
-        ${waLink ? `<a href="${waLink}" target="_blank" class="btn btn-ghost" style="font-size:10px;text-decoration:none" title="Opens WhatsApp to this driver with the turn-by-turn link already typed in">📲 Send Directions</a>` : ''}
+        ${sendDirectionsBtn}
         <button class="btn btn-ghost" style="font-size:10px" onclick="viewWaybillDoc('${o.ref}')">📄 View</button>
         <button class="btn btn-primary" style="font-size:10px" onclick="openConfirmDeliveryModal('${o.ref}')">✓ Confirm Delivery</button>
       </div>
@@ -25343,11 +25405,11 @@ function openGenerateWaybillModal(orderRef) {
   // Orders already out for delivery lock their vehicle/driver — see
   // getBusyFleetAssignments(). excludeOrderRef=orderRef so re-opening this
   // same order's own waybill never flags its own truck/driver as busy.
-  const { busyVehicles, busyDrivers } = getBusyFleetAssignments(orderRef);
+  const busy = getBusyFleetAssignments(orderRef);
   const vSel = document.getElementById('wb-vehicle');
   vSel.innerHTML = fleet.vehicles.length
     ? fleet.vehicles.map(v => {
-        const busyRef = busyVehicles[v.id];
+        const busyRef = busy.vehicleBusyOrderRef(v);
         const label = `${escapeHtml(v.type)} ${v.plate ? '— '+escapeHtml(v.plate) : ''}`;
         return busyRef
           ? `<option value="${v.id}" disabled>${label} — 🚫 out on ${escapeHtml(busyRef)}</option>`
@@ -25357,7 +25419,7 @@ function openGenerateWaybillModal(orderRef) {
   const dSel = document.getElementById('wb-driver');
   dSel.innerHTML = fleet.drivers.length
     ? fleet.drivers.map(d => {
-        const busyRef = busyDrivers[d.id];
+        const busyRef = busy.driverBusyOrderRef(d);
         return busyRef
           ? `<option value="${d.id}" disabled>${escapeHtml(d.name)} — 🚫 out on ${escapeHtml(busyRef)}</option>`
           : `<option value="${d.id}">${escapeHtml(d.name)}</option>`;
@@ -25453,9 +25515,11 @@ function submitGenerateWaybill() {
   // Re-checked here, not just in the dropdown, in case another waybill was
   // generated (e.g. from another device, given cross-device sync) in the
   // gap between opening this modal and clicking Generate.
-  const { busyVehicles, busyDrivers } = getBusyFleetAssignments(orderRef);
-  if(busyVehicles[vehicleId]) { showToast(`⚠ That vehicle is already out on ${busyVehicles[vehicleId]} — pick another.`); return; }
-  if(busyDrivers[driverId])   { showToast(`⚠ That driver is already out on ${busyDrivers[driverId]} — pick another.`); return; }
+  const busy = getBusyFleetAssignments(orderRef);
+  const vehicleBusyRef = busy.vehicleBusyOrderRef(vehicle);
+  const driverBusyRef  = busy.driverBusyOrderRef(driver);
+  if(vehicleBusyRef) { showToast(`⚠ That vehicle is already out on ${vehicleBusyRef} — pick another.`); return; }
+  if(driverBusyRef)  { showToast(`⚠ That driver is already out on ${driverBusyRef} — pick another.`); return; }
 
   generateWaybill(orderRef, { vehicleId, driverId, destinationName, distanceKm });
   closeModal('modal-generate-waybill');
@@ -29165,6 +29229,18 @@ const TIME_VALUE_RATE_MAX = 0.30;
 function getTimeValueRate() {
   return STATE.timeValueRate || 0.30;
 }
+// Sep 27 2026 fix — every "at X% p.a." label anywhere in the app (credit
+// alerts, the owner-override modal, customer settlement WhatsApp messages)
+// used to have its OWN hardcoded "30%" typed into the string, separate from
+// the ₦ figures next to it, which DID call getTimeValueRate() correctly.
+// Result: changing the rate to 25% updated every peso/naira amount
+// immediately, but every one of those labels kept reading "30% p.a." —
+// confusingly wrong, and in the customer WhatsApp messages, an actual wrong
+// number sent externally. All of those call sites now read this one
+// function instead of carrying their own copy of the percentage.
+function getTimeValueRatePct() {
+  return Math.round(getTimeValueRate() * 1000) / 10;
+}
 function saveTimeValueRate(newRate, reason) {
   const val = parseFloat(newRate);
   if(isNaN(val)) return { ok: false, error: 'Not a number.' };
@@ -29378,7 +29454,7 @@ function openCreditOverrideModal() {
      (${enforcement.exposurePct}% of ₦${enforcement.creditLimit.toLocaleString()} limit)<br>
      Outstanding: ${enforcement.daysOutstanding} days<br>
      Time-value cost accrued: <strong style="color:var(--red)">₦${Math.round(tv.totalAccrued).toLocaleString()}</strong>
-     at 30% p.a. (₦${Math.round(tv.dailyCost).toLocaleString()}/day ongoing)<br>
+     at ${getTimeValueRatePct()}% p.a. (₦${Math.round(tv.dailyCost).toLocaleString()}/day ongoing)<br>
      Credit score: ${enforcement.creditScore} · ${enforcement.creditScoreTier?.toUpperCase()}`;
 
   document.getElementById('co-reason').value = '';
@@ -30427,7 +30503,7 @@ function renderPendingTransfers() {
       getCustomerTotalCrates(h.customerName) ? `${getCustomerTotalCrates(h.customerName).toLocaleString()} crates lifetime` : '',
     ].filter(Boolean).join(' · ');
     const tvDisplay = cratesHeld > 0
-      ? `Stock value held: ₦${tvFinal.stockValue.toLocaleString()} · <strong style="color:${urgencyColor}">₦${tvFinal.totalAccrued.toLocaleString()} accrued</strong> (₦${tvFinal.perHourCost.toLocaleString()}/hr at 30% p.a.)`
+      ? `Stock value held: ₦${tvFinal.stockValue.toLocaleString()} · <strong style="color:${urgencyColor}">₦${tvFinal.totalAccrued.toLocaleString()} accrued</strong> (₦${tvFinal.perHourCost.toLocaleString()}/hr at ${getTimeValueRatePct()}% p.a.)`
       : `Claimed: ₦${(h.claimedAmount||0).toLocaleString()}`;
     const custPhone = (cust?.phone||'').replace(/\D/g,'');
     const chaseMsg  = encodeURIComponent(`Hello ${h.customerName}, your transfer of ₦${(h.claimedAmount||0).toLocaleString()} (Ref: ${h.txRef||''}) has been pending ${hoursHeld}h. Kindly confirm with your bank and share an update. — BMF EggScore Limited`);
@@ -30516,7 +30592,7 @@ We flag this early so it doesn't affect your supply. Please plan a partial settl
 Your balance of *₦${exposure.toLocaleString()}* has reached your credit limit of *₦${creditLimit.toLocaleString()}*.
 
 📅 Outstanding: *${daysOutstanding} days*
-💸 Time-value cost at 30% p.a.: *₦${tv.toLocaleString()}* (₦${daily.toLocaleString()}/day ongoing)
+💸 Time-value cost at ${getTimeValueRatePct()}% p.a.: *₦${tv.toLocaleString()}* (₦${daily.toLocaleString()}/day ongoing)
 
 Please settle at least *₦${Math.round(exposure * 0.5).toLocaleString()}* to restore credit access.
 
@@ -30529,7 +30605,7 @@ Please settle at least *₦${Math.round(exposure * 0.5).toLocaleString()}* to re
 
 Balance: *₦${exposure.toLocaleString()}* (${enforcement.exposurePct}% of limit · ${daysOutstanding} days outstanding)
 
-💸 At 30% p.a. bank lending rates, the implicit cost of this credit is *₦${tv.toLocaleString()}* — equivalent to a commercial bank loan for the same period. This cost falls on us, not you.
+💸 At ${getTimeValueRatePct()}% p.a. bank lending rates, the implicit cost of this credit is *₦${tv.toLocaleString()}* — equivalent to a commercial bank loan for the same period. This cost falls on us, not you.
 
 Your account is currently on *cash/transfer-only terms*. Please contact us immediately to agree a settlement plan and restore full credit access.
 
