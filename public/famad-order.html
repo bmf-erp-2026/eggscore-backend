@@ -647,6 +647,20 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           border:1px solid rgba(61,214,192,0.2);border-radius:7px;padding:8px 11px;
           margin-top:8px;line-height:1.6"></div>
 
+        <!-- PREFERRED DELIVERY DAY — Sep 27 2026. Added here in Step 2's
+             existing panel, right next to the crate quantity that decides
+             which options this offers, rather than as a new indexed wizard
+             step — keeps the stepper/indicator and wizardStop analytics
+             tracker untouched. Options come from loadDeliveryDays() /
+             paintDeliveryDayOptions() (see script section), which also
+             re-run every time crates change so crossing the special-volume
+             threshold updates the choices live. -->
+        <div class="form-group" id="delivery-day-field">
+          <label class="form-label"><span data-i18n="s2.delivery_day_label">Preferred Delivery Day</span> <span class="req">*</span></label>
+          <select class="form-input" id="preferred-delivery-day" onchange="onPreferredDeliveryDayChange(this)"></select>
+          <div id="delivery-day-note" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:5px"></div>
+        </div>
+
         <div class="form-group">
           <label class="form-label"><span data-i18n="s2.notes_label">Delivery Notes</span> <span style="color:var(--mist)" data-i18n="common.optional">(optional)</span></label>
           <input class="form-input" id="c-notes" placeholder="Delivery address, timing preference, special instructions…"/>
@@ -659,7 +673,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       <button class="submit-btn" style="flex:1;margin-top:0" onclick="goToWizardStep(3)" data-i18n="s2.continue">Continue to Review →</button>
     </div>
 
-    <!-- STEP 2.5: DELIVERY PREFERENCE -->
+    <!-- STEP 2.5: DELIVERY PREFERENCE — implemented Sep 27 2026 inside
+         wizard-step-2's panel-body above (the "Preferred Delivery Day"
+         form-group), not as its own indexed step. See the note there. -->
     <!-- STEP 3: ORDER BREAKDOWN -->
     <div class="panel wizard-step" data-step="3" id="wizard-step-3">
       <div class="panel-hdr">
@@ -675,6 +691,10 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           <div class="ob-row">
             <div class="ob-label" data-i18n="s3.crates_ordered">Crates ordered</div>
             <div class="ob-val" id="ob-crates">—</div>
+          </div>
+          <div class="ob-row">
+            <div class="ob-label" data-i18n="s3.delivery_day">Preferred delivery day</div>
+            <div class="ob-val" id="ob-delivery-day">—</div>
           </div>
           <div class="ob-row">
             <div class="ob-label" data-i18n="s3.egg_subtotal">Egg subtotal</div>
@@ -1043,6 +1063,7 @@ let portalState = {
   deliveryLevy: 0,           // ₦ per crate — flat rate, same for every delivery
   deliveryTotal: 0,          // levy × crates
   language: localStorage.getItem('feds_language') || 'en',
+  preferredDeliveryDay: null, // set once loadDeliveryDays()/paintDeliveryDayOptions() run — see there
 };
 
 // Flat delivery rate — synced from the ERP's Distribution Pricing model
@@ -1202,9 +1223,10 @@ const UI_STRINGS = {
     's2.min_hint': 'Min: 1 crate · type a number directly for large orders',
     's2.stock_warn': 'Requested quantity exceeds available stock.',
     's2.promo_applied': 'Promo discount applied —', 's2.notes_label': 'Delivery Notes',
+    's2.delivery_day_label': 'Preferred Delivery Day',
     's2.continue': 'Continue to Review →',
     's3.title': 'Order Breakdown', 's3.tag': 'before payment', 's3.egg_price': 'Egg price',
-    's3.crates_ordered': 'Crates ordered', 's3.egg_subtotal': 'Egg subtotal',
+    's3.crates_ordered': 'Crates ordered', 's3.delivery_day': 'Preferred delivery day', 's3.egg_subtotal': 'Egg subtotal',
     's3.promo_discount': 'Promo discount', 's3.wallet_applied': 'Wallet credit applied',
     's3.total_payable': 'Total Payable', 's3.balance_to_pay': 'Balance to pay', 's3.you_saved': 'You saved',
     's3.wallet_covers': 'Wallet covers this order',
@@ -1271,9 +1293,10 @@ const UI_STRINGS = {
     's2.min_hint': 'Minimum: 1 crate · type number sef for big orders',
     's2.stock_warn': 'The number wey you want pass wetin dey available.',
     's2.promo_applied': 'Promo awoof don land —', 's2.notes_label': 'Delivery Notes',
+    's2.delivery_day_label': 'Which Day You Want Am',
     's2.continue': 'Go Check Am →',
     's3.title': 'Breakdown', 's3.tag': 'as money mata be', 's3.egg_price': 'Egg price',
-    's3.crates_ordered': 'Crates wey you order', 's3.egg_subtotal': 'Egg subtotal',
+    's3.crates_ordered': 'Crates wey you order', 's3.delivery_day': 'Day wey you want am', 's3.egg_subtotal': 'Egg subtotal',
     's3.promo_discount': 'Promo Awoof', 's3.wallet_applied': 'Wallet credit wey we use',
     's3.total_payable': 'Total Wey You Go Pay', 's3.balance_to_pay': 'How Much Remain', 's3.you_saved': 'Wetin you save',
     's3.wallet_covers': 'Wallet don cover this order',
@@ -1445,6 +1468,74 @@ async function loadServiceAreas() {
   paintServiceAreas();
 }
 document.addEventListener('DOMContentLoaded', loadServiceAreas);
+
+// Preferred Delivery Day (Sep 27 2026) — same fetch-with-fallback pattern
+// as Coverage Areas just above, backed by GET /delivery-days/public. Bob's
+// instruction was explicit: the fleet only runs on specific weekdays, and
+// that list must NOT be hardcoded here because it's expected to grow
+// ("tentatively Saturday, and Wednesday... might increase in future
+// subject to demand"). Staff manage the live list from the ERP's new
+// "Preferred Delivery Day" panel; this just mirrors whatever's active.
+//
+// SPECIAL_VOLUME_THRESHOLD_CRATES is a separate, simpler thing: the
+// crate count at or above which an order can be delivered any day of the
+// week instead of only on the days below (Bob: "special volume deliveries
+// of 250 crates and above should be flagged as appropriate to be
+// delivered any day of the week. Anything below will be batch-delivered
+// to save cost."). Bob only asked that the DAY LIST not be hardcoded —
+// this threshold is a plain constant here for now, since there's no
+// backend route yet for a lone settings number. It mirrors the same field
+// in the ERP's Logistics settings; if that number ever changes there, this
+// constant needs a matching manual edit until a small follow-up route is
+// built to sync it automatically.
+const FALLBACK_DELIVERY_DAYS = ['Wednesday', 'Saturday'];
+let DELIVERY_DAYS = FALLBACK_DELIVERY_DAYS;
+const SPECIAL_VOLUME_THRESHOLD_CRATES = 250;
+
+function isSpecialVolumeOrder() {
+  return (portalState.crates || 0) >= SPECIAL_VOLUME_THRESHOLD_CRATES;
+}
+function paintDeliveryDayOptions() {
+  const wrap = document.getElementById('delivery-day-field');
+  const select = document.getElementById('preferred-delivery-day');
+  const note = document.getElementById('delivery-day-note');
+  if(!select) return;
+
+  if(isSpecialVolumeOrder()) {
+    // Special-volume orders can be delivered any day — offer the full week
+    // and say so, rather than restricting to the batch-delivery days.
+    const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    select.innerHTML = ALL_DAYS.map(d => `<option value="${d}">${d}</option>`).join('');
+    if(note) note.textContent = `Special-volume order (${portalState.crates} crates) — any day works for us, pick what suits you.`;
+    if(portalState.preferredDeliveryDay && !ALL_DAYS.includes(portalState.preferredDeliveryDay)) {
+      portalState.preferredDeliveryDay = null;
+    }
+  } else {
+    select.innerHTML = DELIVERY_DAYS.map(d => `<option value="${d}">${d}</option>`).join('');
+    if(note) note.textContent = `Orders under ${SPECIAL_VOLUME_THRESHOLD_CRATES} crates are batch-delivered on our regular run days to keep costs down.`;
+    if(!portalState.preferredDeliveryDay || !DELIVERY_DAYS.includes(portalState.preferredDeliveryDay)) {
+      portalState.preferredDeliveryDay = DELIVERY_DAYS[0] || null;
+    }
+  }
+  if(select && portalState.preferredDeliveryDay) select.value = portalState.preferredDeliveryDay;
+  if(wrap) wrap.style.display = (DELIVERY_DAYS.length > 0 || isSpecialVolumeOrder()) ? '' : 'none';
+}
+function onPreferredDeliveryDayChange(el) {
+  portalState.preferredDeliveryDay = el.value;
+}
+async function loadDeliveryDays() {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/delivery-days/public`, { headers: { 'x-api-key': PORTAL_API_KEY } });
+    if(resp.ok) {
+      const rows = await resp.json();
+      if(Array.isArray(rows) && rows.length > 0) DELIVERY_DAYS = rows;
+    }
+  } catch(networkErr) {
+    // stays on FALLBACK_DELIVERY_DAYS
+  }
+  paintDeliveryDayOptions();
+}
+document.addEventListener('DOMContentLoaded', loadDeliveryDays);
 
 let coverageMapExpanded = false;
 
@@ -2672,6 +2763,11 @@ function setCratesValue(value) {
   if(disp) disp.value = v;
   updateOrderCalc();
   updateWAFallback();
+  // Crossing the special-volume threshold (250 crates) changes which
+  // delivery days are offered — re-paint every time crates change, not
+  // just on page load, so a customer who types a bigger number sees the
+  // "any day works" option appear without needing to touch anything else.
+  if(typeof paintDeliveryDayOptions === 'function') paintDeliveryDayOptions();
 }
 
 // +/- buttons — same shared path, just relative to the current value.
@@ -2790,6 +2886,7 @@ function updateOrderCalc() {
   // separate delivery line ──
   setText('ob-egg-price',    '₦' + blendedPricePerCrate.toLocaleString() + '/crate');
   setText('ob-crates',       crates + (crates === 1 ? ' crate' : ' crates'));
+  setText('ob-delivery-day', portalState.preferredDeliveryDay || '—');
   setText('ob-egg-subtotal', '₦' + eggSubtotal.toLocaleString());
   setText('ob-total',        '₦' + grandTotal.toLocaleString());
 
@@ -3386,6 +3483,12 @@ async function submitOrder() {
     return;
   }
 
+  if(!portalState.preferredDeliveryDay) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent='Please choose a preferred delivery day before submitting.'; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
+
   if(errEl) errEl.style.display='none';
 
   // ── Re-compute available balance at submission time ──
@@ -3468,6 +3571,8 @@ async function submitOrder() {
     customerName:   name,
     phone, location, notes,
     crates:         portalState.crates,
+    preferredDeliveryDay: portalState.preferredDeliveryDay,
+    isSpecialVolumeOrder: isSpecialVolumeOrder(), // audit trail — was this order eligible for any-day delivery at order time
     // ── Separated revenue fields ──
     pricePerCrate:  eggPrice,           // egg price only
     lockedPrice:    eggPrice,           // locked at order creation — honoured at fulfilment

@@ -2295,6 +2295,71 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof renderLogistics === 'function') renderLogistics();
   }
 
+  // Preferred Delivery Day backend helpers (Sep 27 2026) — same shape as
+  // the Coverage Areas helpers just above, same reasons: Bob's instruction
+  // was explicit that which weekdays the fleet runs must NOT be hardcoded,
+  // since it's expected to grow ("tentatively Saturday, and Wednesday...
+  // might increase in future subject to demand"). See
+  // routes-postgres/delivery-days.js.
+  async function postDeliveryDayToBackend(day) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/delivery-days`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ name: day.name }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) { return null; }
+  }
+  async function patchDeliveryDayToBackend(backendId, patch) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/delivery-days/${backendId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) { return null; }
+  }
+  async function deleteDeliveryDayFromBackend(backendId) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/delivery-days/${backendId}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch(networkErr) {}
+  }
+  async function syncDeliveryDaysFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let rows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/delivery-days`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      rows = await resp.json();
+    } catch(networkErr) { return; }
+
+    if(!STATE.deliveryDays) STATE.deliveryDays = [];
+    const byBackendId = new Map(STATE.deliveryDays.filter(d => d.backendId).map(d => [d.backendId, d]));
+    rows.forEach(row => {
+      const existing = byBackendId.get(row.id);
+      if(existing) {
+        existing.name = row.name; existing.active = row.active; existing.backendId = row.id;
+      } else {
+        STATE.deliveryDays.push({ id: 'sync-' + row.id, name: row.name, active: row.active, backendId: row.id });
+      }
+    });
+    saveState();
+    if(typeof renderLogistics === 'function') renderLogistics();
+  }
+
   // Delivery Fulfilment Board, Phase 1 (Sep 26 2026) — backend helpers for
   // tagging an order with a zone + time window. Deliberately NOT
   // optimistic like the destinations/service-areas helpers above: each
@@ -6483,6 +6548,50 @@ input[type=number]{-moz-appearance:textfield;}
       <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end">
         <div><label class="form-label">Area / corridor / LGA name</label><input class="form-input" id="lg-servicearea-name" placeholder="e.g. Woji" onkeydown="if(event.key==='Enter'){event.preventDefault();addServiceArea();}"/></div>
         <button class="btn btn-primary" onclick="addServiceArea()">Add</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- PREFERRED DELIVERY DAY — Sep 27 2026. Which weekdays the fleet runs
+       is deliberately a configurable list here, not a hardcoded pair —
+       Bob's own instruction: "the vehicles won't be moving everyday of the
+       week... Delivery days might increase in future subject to demand.
+       Therefore, do not hardcode Saturday and Wednesday." The customer
+       portal reads only the active ones via GET /delivery-days/public,
+       mirroring Coverage Areas above exactly. The crate threshold below is
+       the one exception a customer can route around any day of the week
+       for (special volume), so it lives here too, right next to the days
+       it modifies. -->
+  <div class="rep-hide-finance">
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">📅 Preferred Delivery Day</div>
+      <div class="panel-hdr-actions">
+        <div class="panel-tag">Which weekdays customers can pick at checkout — live on the portal instantly</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="lg-deliveryday-list" style="margin-bottom:10px"></div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-bottom:14px">
+        <div>
+          <label class="form-label">Delivery day</label>
+          <select class="form-input" id="lg-deliveryday-name">
+            <option value="Monday">Monday</option>
+            <option value="Tuesday">Tuesday</option>
+            <option value="Wednesday">Wednesday</option>
+            <option value="Thursday">Thursday</option>
+            <option value="Friday">Friday</option>
+            <option value="Saturday">Saturday</option>
+            <option value="Sunday">Sunday</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="addDeliveryDay()">Add</button>
+      </div>
+      <div style="border-top:1px dashed var(--border);padding-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label class="form-label" style="margin:0" for="lg-special-volume-threshold">Special-volume threshold (crates)</label>
+        <input class="form-input" type="number" min="1" id="lg-special-volume-threshold" style="width:110px;text-align:center" onchange="saveSpecialVolumeThreshold(this.value)"/>
+        <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">orders at or above this size can be delivered any day of the week; smaller orders are batch-delivered on the days above to save cost</span>
       </div>
     </div>
   </div>
@@ -23371,6 +23480,7 @@ function buildOrderCard(o, queueNum) {
           ${loyaltyRing(o.loyaltyTier||'New')}
           ${o.crates<=30?'<span class="chip chip-blue">SMALL ≤30</span>':''}
           ${o.lockedPrice?`<span class="chip chip-teal" title="Price locked at order creation">🔒 ₦${o.lockedPrice.toLocaleString()}/crate</span>`:''}
+          ${o.preferredDeliveryDay?`<span class="chip chip-teal" title="Customer's preferred delivery day, chosen at order booking">📅 ${escapeHtml(o.preferredDeliveryDay)}${o.isSpecialVolumeOrder?' (any-day eligible)':''}</span>`:''}
         </div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px">${o.location||'—'} · ${o.phone||'—'} · <span style="color:var(--blue)">${o.ref}</span></div>
       </div>
@@ -24359,7 +24469,16 @@ function ensureLogisticsSettings() {
       maintenanceAllocationPerTrip: 0,
       securityAllocationPerTrip: 0, insuranceAllocationPerTrip: 0,
       eggsPerCrate: 30, kgPerCrate: 2.5, avgSpeedKmH: 40,
+      specialVolumeThresholdCrates: 250,
     };
+    saveState();
+  }
+  // Defensive backfill (Sep 27 2026) — existing installs already have a
+  // logisticsSettings object from before this field existed, so the
+  // defaults above never ran for them. Preferred Delivery Day depends on
+  // this being a real number, not undefined.
+  if(STATE.logisticsSettings.specialVolumeThresholdCrates == null) {
+    STATE.logisticsSettings.specialVolumeThresholdCrates = 250;
     saveState();
   }
   return STATE.logisticsSettings;
@@ -24620,6 +24739,10 @@ function saveVehicleDocuments() {
 function ensureShipperDetails() { if(!STATE.shipperDetails) STATE.shipperDetails = { farmName: '', address: '', contact: '' }; return STATE.shipperDetails; }
 function ensureDestinationReference() { if(!STATE.destinationReference) STATE.destinationReference = []; return STATE.destinationReference; }
 function ensureServiceAreas() { if(!STATE.serviceAreas) STATE.serviceAreas = []; return STATE.serviceAreas; }
+// Preferred Delivery Day (Sep 27 2026) — see routes-postgres/delivery-days.js
+// and the panel below for why this is a configurable list, not a hardcoded
+// Wed/Sat pair.
+function ensureDeliveryDays() { if(!STATE.deliveryDays) STATE.deliveryDays = []; return STATE.deliveryDays; }
 // Delivery Fulfilment Board, Phase 1 — keyed by order ref (not an array)
 // since it's always looked up by ref, one order at a time, when rendering
 // the Ready for Waybill list.
@@ -24797,11 +24920,13 @@ function renderLogistics() {
   const ls      = ensureLogisticsSettings();
   const dests   = ensureDestinationReference();
   const areas   = ensureServiceAreas();
+  const days    = ensureDeliveryDays();
 
   renderVehicleDocumentAlerts();
   renderFleetStatusBoard();
 
   setVal('lg-farm-name', shipper.farmName); setVal('lg-farm-contact', shipper.contact); setVal('lg-farm-address', shipper.address);
+  setVal('lg-special-volume-threshold', ls.specialVolumeThresholdCrates);
   setVal('lg-fuel-eff', ls.fuelEfficiencyKmPerL); setVal('lg-fuel-price', ls.fuelPricePerL);
   setVal('lg-carton-cost', ls.cartonUnitCost); setVal('lg-label-cost', ls.labelUnitCost);
   setVal('lg-driver-wage', ls.driverWagePerTrip); setVal('lg-maint', ls.maintenanceAllocationPerTrip);
@@ -24884,6 +25009,22 @@ function renderLogistics() {
               <input type="checkbox" ${a.active ? 'checked' : ''} onchange="toggleServiceAreaActive('${a.id}')"/> ${a.active ? 'Live on portal' : 'Hidden'}
             </label>
             <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeServiceArea('${a.id}')">Remove</button>
+          </span>
+        </div>`).join('');
+  }
+
+  const dayEl = document.getElementById('lg-deliveryday-list');
+  if(dayEl) {
+    dayEl.innerHTML = days.length === 0
+      ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">No delivery days added yet — the portal falls back to its built-in default (Wednesday, Saturday) until at least one is added here.</div>`
+      : days.map(d => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px;gap:8px;flex-wrap:wrap">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(d.name)}</span>
+          <span style="display:flex;align-items:center;gap:10px">
+            <label style="display:inline-flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:9px;color:${d.active ? 'var(--lime)' : 'var(--mist)'};cursor:pointer">
+              <input type="checkbox" ${d.active ? 'checked' : ''} onchange="toggleDeliveryDayActive('${d.id}')"/> ${d.active ? 'Live on portal' : 'Hidden'}
+            </label>
+            <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDeliveryDay('${d.id}')">Remove</button>
           </span>
         </div>`).join('');
   }
@@ -25139,6 +25280,64 @@ function removeServiceArea(id) {
   saveState(); renderLogistics();
 }
 
+// Preferred Delivery Day (Sep 27 2026) — mirrors Coverage Areas above
+// exactly. New days start active (immediately selectable on the portal)
+// since that matches what picking a day from the dropdown and hitting Add
+// looks like it should do; flip the checkbox to hide one without deleting
+// its history.
+function addDeliveryDay() {
+  const nameSelect = document.getElementById('lg-deliveryday-name');
+  const name = nameSelect.value;
+  if(!name) { showToast('⚠ Pick a day first.'); return; }
+  if(ensureDeliveryDays().some(d => d.name === name && d.active)) {
+    showToast(`"${name}" is already live on the portal.`); return;
+  }
+  const newDay = { id: 'day' + Date.now(), name, active: true };
+  ensureDeliveryDays().push(newDay);
+  postDeliveryDayToBackend(newDay).then(row => {
+    if(row) { newDay.backendId = row.id; saveState(); renderLogistics(); }
+  });
+  saveState();
+  renderLogistics();
+  showToast(`✓ ${name} added — live on the portal now.`);
+}
+function toggleDeliveryDayActive(id) {
+  const d = STATE.deliveryDays.find(x => x.id === id);
+  if(!d) return;
+  d.active = !d.active;
+  if(d.backendId) patchDeliveryDayToBackend(d.backendId, { active: d.active });
+  saveState(); renderLogistics();
+  showToast(d.active ? `✓ ${d.name} is now live on the portal.` : `${d.name} hidden from the portal.`);
+}
+function removeDeliveryDay(id) {
+  const d = STATE.deliveryDays.find(x => x.id === id);
+  if(d?.backendId) deleteDeliveryDayFromBackend(d.backendId);
+  STATE.deliveryDays = STATE.deliveryDays.filter(x => x.id !== id);
+  saveState(); renderLogistics();
+}
+// The 250-crate special-volume cutoff (Bob: "special volume deliveries of
+// 250 crates and above should be flagged as appropriate to be delivered
+// any day of the week") — a single number, so it lives on
+// logisticsSettings rather than its own table/route.
+//
+// IMPORTANT — unlike the delivery days above, this number is NOT synced to
+// famad-order.html. There is no backend route or table for a lone settings
+// value like this one yet (the delivery-days table only holds day names),
+// so the portal currently carries its own copy as a plain constant
+// (SPECIAL_VOLUME_THRESHOLD_CRATES near the top of famad-order.html).
+// Changing it here is a staff-facing reference/record only — if the real
+// threshold changes, that portal constant needs a manual, matching edit
+// too. Flagged to Bob as a known gap; worth a small follow-up (a public
+// GET route for this one number) if the threshold is expected to move
+// often.
+function saveSpecialVolumeThreshold(value) {
+  const n = parseInt(value, 10);
+  if(isNaN(n) || n < 1) { showToast('⚠ Enter a whole number of crates, 1 or more.'); renderLogistics(); return; }
+  ensureLogisticsSettings().specialVolumeThresholdCrates = n;
+  saveState();
+  showToast(`✓ Special-volume threshold set to ${n} crates.`);
+}
+
 // Delivery Location Privacy & Safety Policy (Sep 26 2026), Policy §1 & §3 —
 // toggleDestinationCustomerVisibility() removed outright, along with its
 // checkbox in renderLogistics() above and every showOnCustomerMap read/write
@@ -25218,6 +25417,7 @@ function renderReadyForWaybill() {
       <div>
         <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${escapeHtml(o.customerName)}</strong>
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${o.ref} · ${o.crates} crates${o.location ? ' → '+escapeHtml(o.location) : ''}</span>
+        ${o.preferredDeliveryDay ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--teal);margin-left:8px">📅 wants ${escapeHtml(o.preferredDeliveryDay)}${o.isSpecialVolumeOrder ? ' (any-day eligible)' : ''}</span>` : ''}
         <div style="font-family:'DM Mono',monospace;font-size:8.5px;margin-top:2px">${payTag}</div>
         ${batchUI}
       </div>
@@ -30766,7 +30966,7 @@ We flag this early so it doesn't affect your supply. Please plan a partial settl
 Your balance of *₦${exposure.toLocaleString()}* has reached your credit limit of *₦${creditLimit.toLocaleString()}*.
 
 📅 Outstanding: *${daysOutstanding} days*
-💸 Time-value cost at ${getTimeValueRatePct()}% p.a.: *₦${tv.toLocaleString()}* (₦${daily.toLocaleString()}/day ongoing)
+💸 Holding this balance is currently costing us an estimated *₦${tv.toLocaleString()}* (about ₦${daily.toLocaleString()}/day ongoing)
 
 Please settle at least *₦${Math.round(exposure * 0.5).toLocaleString()}* to restore credit access.
 
@@ -30779,7 +30979,7 @@ Please settle at least *₦${Math.round(exposure * 0.5).toLocaleString()}* to re
 
 Balance: *₦${exposure.toLocaleString()}* (${enforcement.exposurePct}% of limit · ${daysOutstanding} days outstanding)
 
-💸 At ${getTimeValueRatePct()}% p.a. bank lending rates, the implicit cost of this credit is *₦${tv.toLocaleString()}* — equivalent to a commercial bank loan for the same period. This cost falls on us, not you.
+💸 Holding this balance is currently costing us an estimated *₦${tv.toLocaleString()}* — settling sooner helps us keep supply reliable for you and every other customer we serve. This cost falls on us, not you.
 
 Your account is currently on *cash/transfer-only terms*. Please contact us immediately to agree a settlement plan and restore full credit access.
 
@@ -31103,6 +31303,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncDriversFromBackend();
   syncDestinationsFromBackend();
   syncServiceAreasFromBackend();
+  syncDeliveryDaysFromBackend();
   syncDeliveryBatchesFromBackend();
 
   // Aug 28 fix — the 3 previously local-only-forever logs now sync too.
