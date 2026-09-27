@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>
+  // Same before-paint theme pick as famad-order.html, so this page matches
+  // whichever theme the customer's browser last used on the order portal
+  // (if they're on the same device) and defaults to light otherwise.
+  (function() {
+    try {
+      var saved = localStorage.getItem('feds_theme');
+      document.documentElement.setAttribute('data-theme', saved === 'dark' ? 'dark' : 'light');
+    } catch(e) {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  })();
+</script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>BMF EggScore · Confirm Your Delivery</title>
+<meta name="theme-color" content="#0a0e14"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Fraunces:ital,wght@0,300;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#0a0e14; --surface:#0f1520; --card:#141c2a; --raised:#1a2438;
+  --border:rgba(80,160,255,0.12); --border-b:rgba(80,160,255,0.28);
+  --blue:#4a9eff; --lime:#6dd96d; --sun:#f0c040;
+  --amber:#e09030; --red:#e04848; --cream:#eceee8; --dust:#a8aaa0;
+  --mist:#606870; --ink:#2a3040;
+}
+[data-theme="light"]{
+  --bg:#fbf9f4; --surface:#ffffff; --card:#ffffff; --raised:#fff6e0;
+  --border:rgba(120,90,40,0.14); --border-b:rgba(120,90,40,0.26);
+  --blue:#2f6fd1; --lime:#3d7d33; --sun:#b8860f;
+  --amber:#a15f14; --red:#b8342f; --cream:#2b2013; --dust:#7a6c53;
+  --mist:#9c8f76; --ink:#c9b896;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--cream);font-family:'Fraunces',Georgia,serif;min-height:100vh;}
+.wrap{max-width:480px;margin:0 auto;padding:28px 16px 60px;}
+.hdr{text-align:center;padding:12px 0 24px;}
+.logo{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--blue);letter-spacing:-.5px;}
+.logo span{color:var(--amber);font-size:12px;font-weight:400;font-family:'DM Mono',monospace;margin-left:4px;letter-spacing:1px;}
+.title{font-family:'Syne',sans-serif;font-size:23px;font-weight:800;color:var(--cream);margin-top:14px;line-height:1.15;}
+.sub{font-family:'DM Mono',monospace;font-size:11.5px;color:var(--mist);margin-top:8px;line-height:1.6;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-top:18px;}
+.order-line{display:flex;justify-content:space-between;padding:8px 0;font-family:'DM Mono',monospace;font-size:12.5px;color:var(--dust);border-bottom:1px solid var(--border);}
+.order-line:last-child{border-bottom:none;}
+.order-line b{color:var(--cream);font-weight:600;}
+.label{font-family:'DM Mono',monospace;font-size:10.5px;color:var(--mist);text-transform:uppercase;letter-spacing:.6px;margin:16px 0 8px;}
+.cond-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.cond-btn{background:var(--raised);border:1.5px solid var(--border);border-radius:10px;padding:12px 6px;text-align:center;cursor:pointer;font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);transition:.15s;}
+.cond-btn .em{display:block;font-size:20px;margin-bottom:4px;}
+.cond-btn.sel{border-color:var(--lime);background:rgba(109,217,109,0.1);color:var(--lime);}
+.cond-btn.sel.damaged, .cond-btn.damaged.sel{border-color:var(--red);background:rgba(224,72,72,0.1);color:var(--red);}
+.cond-btn.sel.short{border-color:var(--sun);background:rgba(240,192,64,0.12);color:var(--sun);}
+.field{width:100%;background:var(--raised);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--cream);font-family:'Fraunces',Georgia,serif;font-size:14px;outline:none;}
+.field:focus{border-color:var(--blue);}
+.field::placeholder{color:var(--mist);}
+textarea.field{resize:vertical;min-height:64px;font-family:'DM Mono',monospace;font-size:12px;}
+.sig-wrap{background:var(--raised);border:1.5px solid var(--border);border-radius:10px;overflow:hidden;position:relative;}
+canvas#sigpad{display:block;width:100%;height:150px;touch-action:none;cursor:crosshair;}
+.sig-hint{position:absolute;top:8px;left:12px;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);pointer-events:none;}
+.sig-clear{margin-top:6px;background:none;border:none;color:var(--mist);font-family:'DM Mono',monospace;font-size:10.5px;text-decoration:underline;cursor:pointer;padding:4px 0;}
+.submit-btn{width:100%;margin-top:20px;background:var(--lime);color:var(--bg);border:none;border-radius:10px;padding:15px;font-family:'Syne',sans-serif;font-weight:800;font-size:14.5px;cursor:pointer;letter-spacing:.3px;}
+.submit-btn:disabled{opacity:.5;cursor:not-allowed;}
+.alert{border-radius:10px;padding:14px 16px;font-family:'DM Mono',monospace;font-size:12px;line-height:1.6;margin-top:16px;}
+.alert.ok{background:rgba(109,217,109,0.08);border:1px solid rgba(109,217,109,0.3);color:var(--lime);}
+.alert.err{background:rgba(224,72,72,0.08);border:1px solid rgba(224,72,72,0.3);color:var(--red);}
+.big-check{font-size:44px;text-align:center;margin-bottom:8px;}
+.center{text-align:center;}
+#screen-loading{text-align:center;padding:60px 0;font-family:'DM Mono',monospace;font-size:12px;color:var(--mist);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <div class="logo">BMF EggScore<span>DELIVERY CONFIRMATION</span></div>
+  </div>
+
+  <div id="screen-loading">Loading your delivery details…</div>
+
+  <div id="screen-error" style="display:none">
+    <div class="card center">
+      <div class="title" style="font-size:18px">Link not recognised</div>
+      <div class="alert err" id="error-text" style="margin-top:14px;text-align:left"></div>
+      <div class="sub" style="margin-top:14px">Ask your driver for a fresh confirmation link, or contact BMF EggScore directly.</div>
+    </div>
+  </div>
+
+  <div id="screen-already" style="display:none">
+    <div class="card center">
+      <div class="big-check">✅</div>
+      <div class="title" style="font-size:18px">Already confirmed</div>
+      <div class="sub" style="margin-top:10px">This delivery was already signed off. Thank you — no further action is needed.</div>
+    </div>
+  </div>
+
+  <div id="screen-form" style="display:none">
+    <div class="title">Confirm your delivery</div>
+    <div class="sub">Please check the crates you received and let us know their condition. This closes out the order on our end.</div>
+
+    <div class="card">
+      <div class="order-line"><span>Order</span><b id="oi-ref">—</b></div>
+      <div class="order-line"><span>Customer</span><b id="oi-customer">—</b></div>
+      <div class="order-line"><span>Crates delivered</span><b id="oi-crates">—</b></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Condition of goods received</div>
+      <div class="cond-grid">
+        <div class="cond-btn good" data-val="good"><span class="em">✅</span>Good</div>
+        <div class="cond-btn damaged" data-val="damaged"><span class="em">⚠️</span>Damaged</div>
+        <div class="cond-btn short" data-val="short"><span class="em">📉</span>Short</div>
+      </div>
+
+      <div class="label">Your name</div>
+      <input class="field" id="in-name" type="text" placeholder="Full name"/>
+
+      <div class="label">Notes (optional — e.g. how many crates, damage details)</div>
+      <textarea class="field" id="in-notes" placeholder="Optional"></textarea>
+
+      <div class="label">Sign here</div>
+      <div class="sig-wrap">
+        <div class="sig-hint" id="sig-hint">Draw your signature</div>
+        <canvas id="sigpad"></canvas>
+      </div>
+      <button class="sig-clear" id="btn-clear-sig" type="button">Clear signature</button>
+
+      <div id="form-error" class="alert err" style="display:none"></div>
+      <button class="submit-btn" id="btn-submit">Confirm Delivery</button>
+    </div>
+  </div>
+
+  <div id="screen-success" style="display:none">
+    <div class="card center">
+      <div class="big-check">✅</div>
+      <div class="title" style="font-size:18px">Delivery confirmed</div>
+      <div class="sub" style="margin-top:10px">Thank you! BMF EggScore has been notified and this order is now closed out.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
+
+function qs(name) {
+  return new URLSearchParams(window.location.search).get(name);
+}
+const orderRef = qs('ref');
+const token = qs('token');
+
+function showScreen(id) {
+  ['screen-loading','screen-error','screen-already','screen-form','screen-success'].forEach(s => {
+    document.getElementById(s).style.display = (s === id) ? 'block' : 'none';
+  });
+}
+
+// ── Signature pad — plain canvas, mouse + touch, no library needed ──
+let sigCtx, drawing = false, hasSig = false;
+function setupSigPad() {
+  const canvas = document.getElementById('sigpad');
+  const ratio = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * ratio;
+  canvas.height = 150 * ratio;
+  sigCtx = canvas.getContext('2d');
+  sigCtx.scale(ratio, ratio);
+  sigCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cream').trim() || '#eceee8';
+  sigCtx.lineWidth = 2;
+  sigCtx.lineCap = 'round';
+
+  function pos(e) {
+    const r = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - r.left, y: p.clientY - r.top };
+  }
+  function start(e) {
+    e.preventDefault();
+    drawing = true;
+    hasSig = true;
+    document.getElementById('sig-hint').style.display = 'none';
+    const p = pos(e);
+    sigCtx.beginPath();
+    sigCtx.moveTo(p.x, p.y);
+  }
+  function move(e) {
+    if(!drawing) return;
+    e.preventDefault();
+    const p = pos(e);
+    sigCtx.lineTo(p.x, p.y);
+    sigCtx.stroke();
+  }
+  function end() { drawing = false; }
+
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  canvas.addEventListener('touchend', end);
+
+  document.getElementById('btn-clear-sig').addEventListener('click', () => {
+    sigCtx.clearRect(0, 0, canvas.width, canvas.height);
+    hasSig = false;
+    document.getElementById('sig-hint').style.display = 'block';
+  });
+}
+
+let selectedCondition = null;
+document.querySelectorAll('.cond-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.cond-btn').forEach(b => b.classList.remove('sel'));
+    btn.classList.add('sel');
+    selectedCondition = btn.dataset.val;
+  });
+});
+
+async function loadOrderInfo() {
+  if(!orderRef || !token) {
+    document.getElementById('error-text').textContent = 'This link is missing information and can\'t be used. Please ask your driver to resend it.';
+    showScreen('screen-error');
+    return;
+  }
+  try {
+    const resp = await fetch(`${BACKEND_URL}/orders/${encodeURIComponent(orderRef)}/confirm-info?token=${encodeURIComponent(token)}`);
+    if(!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      document.getElementById('error-text').textContent = body.error || 'This link could not be verified.';
+      showScreen('screen-error');
+      return;
+    }
+    const info = await resp.json();
+    if(info.alreadyAttested) {
+      showScreen('screen-already');
+      return;
+    }
+    document.getElementById('oi-ref').textContent = info.ref || orderRef;
+    document.getElementById('oi-customer').textContent = info.customerName || '—';
+    document.getElementById('oi-crates').textContent = (info.crates != null) ? `${info.crates} crates` : '—';
+    showScreen('screen-form');
+    setupSigPad();
+  } catch(networkErr) {
+    document.getElementById('error-text').textContent = 'Could not reach BMF EggScore right now. Check your connection and reload this page.';
+    showScreen('screen-error');
+  }
+}
+
+document.getElementById('btn-submit').addEventListener('click', async () => {
+  const errEl = document.getElementById('form-error');
+  errEl.style.display = 'none';
+  const name = document.getElementById('in-name').value.trim();
+  const notes = document.getElementById('in-notes').value.trim();
+
+  if(!selectedCondition) {
+    errEl.textContent = 'Please choose the condition of the goods received.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(!name) {
+    errEl.textContent = 'Please enter your name.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  const signature = hasSig ? document.getElementById('sigpad').toDataURL('image/png') : null;
+
+  try {
+    const resp = await fetch(`${BACKEND_URL}/orders/${encodeURIComponent(orderRef)}/customer-attestation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, condition: selectedCondition, attestedByName: name, notes: notes || null, signature }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if(!resp.ok) {
+      errEl.textContent = body.error || 'Something went wrong submitting your confirmation. Please try again.';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Confirm Delivery';
+      return;
+    }
+    showScreen(body.alreadyAttested ? 'screen-already' : 'screen-success');
+  } catch(networkErr) {
+    errEl.textContent = 'Could not reach BMF EggScore right now. Check your connection and try again.';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Confirm Delivery';
+  }
+});
+
+loadOrderInfo();
+</script>
+</body>
+</html>
