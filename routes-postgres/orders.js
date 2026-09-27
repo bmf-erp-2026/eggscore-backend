@@ -260,11 +260,25 @@ router.post('/:ref/customer-attestation', async (req, res) => {
     return res.json({ ok: true, alreadyAttested: true });
   }
 
+  // Sep 27 2026 fix — this route used to also flip status to 'delivered'
+  // here. 'delivered' isn't one of the statuses the rest of this app
+  // actually knows (orderStatusRank in famad-erp.html only recognises
+  // pending/reserved/confirmed/in_transit/fulfilled/rejected/cancelled) —
+  // it was silently invented for this one UPDATE. Harmless for a device
+  // that already had the order cached (the unrecognised value just failed
+  // to overwrite the cached 'in_transit'), but a device seeing this order
+  // for the FIRST time after this ran would pull down status:'delivered'
+  // literally and the order would vanish from every screen that filters
+  // by a real status — Orders Inbox, In Transit, Delivery Closeouts, all
+  // of it. Order status stays exactly what it's always been: something
+  // only the ERP's own confirmDeliveryAndProceed()/sendToSalesLog()
+  // pipeline changes, via the ordinary PATCH route above. This route's
+  // only job is recording that the customer attested — never touching
+  // status itself.
   await db.prepare(`
     UPDATE orders SET
       customer_condition = ?, customer_attested_by = ?, customer_notes = ?,
       customer_signature = ?, customer_attested_at = now(),
-      status = CASE WHEN status = 'in_transit' THEN 'delivered' ELSE status END,
       updated_at = now()
     WHERE ref = ?
   `).run(condition, attestedByName.trim(), notes || null, signature || null, req.params.ref);
