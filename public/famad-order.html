@@ -1634,6 +1634,14 @@ async function saveOrder(order) {
         // never got overwritten by the (wrong) synced value.
         status: order.status || 'pending',
         theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light',
+        // Sep 27 2026 fix — these two were never in this whitelist at all,
+        // so the customer's chosen delivery day only ever existed in this
+        // one browser's local copy of the order — invisible to any device
+        // that pulled the order down fresh from the backend, exactly the
+        // failure mode the reservation-fields fix above already warns
+        // about. See migration-order-delivery-day.sql.
+        preferredDeliveryDay: order.preferredDeliveryDay || null,
+        isSpecialVolumeOrder: !!order.isSpecialVolumeOrder,
       }),
     });
     if(resp.ok) {

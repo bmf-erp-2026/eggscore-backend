@@ -1240,6 +1240,58 @@ input[type=number]{-moz-appearance:textfield;}
         if(row.agreed_payment_terms !== undefined && row.agreed_payment_terms !== null) {
           existing.agreedPaymentTerms = row.agreed_payment_terms;
         }
+        // Sep 27 2026 fix — preferredDeliveryDay/isSpecialVolumeOrder were
+        // being silently dropped for any device other than the one that
+        // placed the order (never sent by the portal, never stored by the
+        // backend, never mapped back here — all three now fixed together).
+        // Backend is authoritative once set; never clobber a real local
+        // value with a null from a row that predates this fix.
+        if(row.preferred_delivery_day !== undefined && row.preferred_delivery_day !== null) {
+          existing.preferredDeliveryDay = row.preferred_delivery_day;
+        }
+        if(row.is_special_volume_order !== undefined && row.is_special_volume_order !== null) {
+          existing.isSpecialVolumeOrder = !!row.is_special_volume_order;
+        }
+        // Sep 27 2026 — delivery attestation fields (outbound at dispatch,
+        // customer at delivery — see migration-delivery-attestation.sql).
+        // Same never-clobber-a-real-value-with-a-stale-null rule as the
+        // delivery-day fields just above. customerAttestedAt landing here
+        // for the first time on a device that didn't set it locally is
+        // exactly the "live closeout" signal — see the toast fired below.
+        const hadCustomerAttestation = !!existing.customerAttestedAt;
+        if(row.delivery_token !== undefined && row.delivery_token !== null) {
+          existing.deliveryToken = row.delivery_token;
+        }
+        if(row.outbound_condition !== undefined && row.outbound_condition !== null) {
+          existing.outboundCondition = row.outbound_condition;
+        }
+        if(row.outbound_attested_by !== undefined && row.outbound_attested_by !== null) {
+          existing.outboundAttestedBy = row.outbound_attested_by;
+        }
+        if(row.outbound_notes !== undefined && row.outbound_notes !== null) {
+          existing.outboundNotes = row.outbound_notes;
+        }
+        if(row.outbound_attested_at !== undefined && row.outbound_attested_at !== null) {
+          existing.outboundAttestedAt = row.outbound_attested_at;
+        }
+        if(row.customer_condition !== undefined && row.customer_condition !== null) {
+          existing.customerCondition = row.customer_condition;
+        }
+        if(row.customer_attested_by !== undefined && row.customer_attested_by !== null) {
+          existing.customerAttestedBy = row.customer_attested_by;
+        }
+        if(row.customer_notes !== undefined && row.customer_notes !== null) {
+          existing.customerNotes = row.customer_notes;
+        }
+        if(row.customer_signature !== undefined && row.customer_signature !== null) {
+          existing.customerSignature = row.customer_signature;
+        }
+        if(row.customer_attested_at !== undefined && row.customer_attested_at !== null) {
+          existing.customerAttestedAt = row.customer_attested_at;
+          if(!hadCustomerAttestation) {
+            showToast(`✅ ${existing.customerName || row.ref} confirmed delivery — ${row.ref} is ready to close out.`);
+          }
+        }
         const localRank   = orderStatusRank(existing.status);
         const backendRank = orderStatusRank(row.status);
         if(!existing.status || backendRank > localRank) {
@@ -1305,6 +1357,29 @@ input[type=number]{-moz-appearance:textfield;}
           reservationExpiresAt: row.reservation_expires_at || null,
           convertedAt: row.converted_at || null,
           cancelledAt: row.cancelled_at || null,
+          // Sep 27 2026 fix — same standing lesson this comment block
+          // already calls out: this new-record branch must map every
+          // field the update-existing branch above maps. Was missing here
+          // entirely, so a device seeing an order for the first time got
+          // no delivery-day info at all, even after the other two layers
+          // of this bug (portal POST, backend column) were fixed.
+          preferredDeliveryDay: row.preferred_delivery_day || null,
+          isSpecialVolumeOrder: !!row.is_special_volume_order,
+          // Sep 27 2026 fix — same standing lesson, same story: delivery
+          // attestation fields must be mapped here too, or a device seeing
+          // this order for the first time (e.g. after a fresh login) would
+          // show it as still awaiting confirmation even after the customer
+          // already signed off on another device.
+          deliveryToken: row.delivery_token || null,
+          outboundCondition: row.outbound_condition || null,
+          outboundAttestedBy: row.outbound_attested_by || null,
+          outboundNotes: row.outbound_notes || null,
+          outboundAttestedAt: row.outbound_attested_at || null,
+          customerCondition: row.customer_condition || null,
+          customerAttestedBy: row.customer_attested_by || null,
+          customerNotes: row.customer_notes || null,
+          customerSignature: row.customer_signature || null,
+          customerAttestedAt: row.customer_attested_at || null,
         });
       }
     });
@@ -3471,6 +3546,28 @@ input[type=number]{-moz-appearance:textfield;}
       Checkpoint fees are handled separately as a reclaimable expense by the driver, not tracked here.
     </div>
     <div id="wb-cost-preview" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--teal);margin-bottom:16px"></div>
+
+    <!-- Sep 27 2026 — Outbound Goods Attestation (Bob's "Context 3", first
+         half of the two-attestation close-out). Captured HERE, at dispatch,
+         by whichever staff member is physically loading/releasing the
+         vehicle — they're already an authenticated ERP user, so this is
+         just a record of who checked the goods and what they saw, not a
+         signature. The matching customer-side (inbound) attestation
+         happens later, with no ERP login at all, on the public link this
+         same waybill generates — see buildCustomerConfirmationLink(). -->
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
+      <div class="form-label" style="margin-bottom:8px">📋 Outbound Goods Attestation <span style="color:var(--mist);font-weight:400">(condition as it leaves the farm)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <button type="button" class="btn btn-ghost wb-outbound-cond" data-val="good" onclick="selectWaybillOutboundCondition('good')" style="font-size:10px">✅ Good</button>
+        <button type="button" class="btn btn-ghost wb-outbound-cond" data-val="damaged" onclick="selectWaybillOutboundCondition('damaged')" style="font-size:10px">⚠️ Damaged</button>
+        <button type="button" class="btn btn-ghost wb-outbound-cond" data-val="short" onclick="selectWaybillOutboundCondition('short')" style="font-size:10px">📉 Short</button>
+      </div>
+      <input type="hidden" id="wb-outbound-condition"/>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
+        <input class="form-input" id="wb-outbound-attested-by" placeholder="Attested by (your name)"/>
+        <input class="form-input" id="wb-outbound-notes" placeholder="Notes (optional)"/>
+      </div>
+    </div>
 
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="closeModal('modal-generate-waybill')">Cancel</button>
@@ -6594,6 +6691,28 @@ input[type=number]{-moz-appearance:textfield;}
         <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">orders at or above this size can be delivered any day of the week; smaller orders are batch-delivered on the days above to save cost</span>
       </div>
     </div>
+  </div>
+  </div>
+
+  <!-- DELIVERY-DAY DEMAND REPORT — Sep 27 2026, built on Bob's request
+       after KIV'ing the "open every day, gate by volume" idea. Two
+       genuinely different questions, both from data already being
+       collected: (1) are the two active days carrying an even load, or is
+       one overloaded — a live case for spreading demand onto a third day;
+       (2) among special-volume orders (the only orders whose dropdown
+       ever offers a day outside the active list — a regular order's
+       dropdown never shows one, so it can never register "blocked"
+       demand), which off-schedule day do big orders actually gravitate to
+       when genuinely free to pick any day. See getDeliveryDayDemandReport(). -->
+  <div class="rep-hide-finance">
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">📊 Delivery-Day Demand</div>
+      <div class="panel-hdr-actions">
+        <div class="panel-tag">evidence for when to add a third run day — not a decision on its own</div>
+      </div>
+    </div>
+    <div class="panel-body" id="delivery-day-demand-report"></div>
   </div>
   </div>
 
@@ -24838,6 +24957,85 @@ function ensureServiceAreas() { if(!STATE.serviceAreas) STATE.serviceAreas = [];
 // and the panel below for why this is a configurable list, not a hardcoded
 // Wed/Sat pair.
 function ensureDeliveryDays() { if(!STATE.deliveryDays) STATE.deliveryDays = []; return STATE.deliveryDays; }
+
+// Delivery-Day Demand Report (Sep 27 2026) — see the panel comment above
+// renderLogistics() for the reasoning. Two separate questions, not one
+// blended number:
+//   1. activeDayLoad — of REGULAR (non-special-volume) orders, how much
+//      landed on each currently-active day. A regular order's dropdown
+//      only ever offers the active days, so this is a clean read on
+//      whether Wednesday and Saturday are carrying an even load.
+//   2. offScheduleRows — of SPECIAL-VOLUME orders only (the one group
+//      whose dropdown offers the full week), which days outside the
+//      active list they picked when genuinely free to pick any day. A
+//      regular order can never appear here at all — its dropdown never
+//      shows an inactive day, so it can't register a "blocked" vote —
+//      which is exactly why special-volume orders are the only real
+//      source of "would people actually use a third day" signal today.
+function getDeliveryDayDemandReport() {
+  const activeDays = ensureDeliveryDays().filter(d => d.active).map(d => d.name);
+  const orders = loadOrders().filter(o => o.preferredDeliveryDay && o.status !== 'rejected' && o.status !== 'cancelled');
+
+  const activeDayLoad = activeDays.map(day => {
+    const matching = orders.filter(o => o.preferredDeliveryDay === day && !o.isSpecialVolumeOrder);
+    return { day, orders: matching.length, crates: matching.reduce((s,o) => s + (o.crates || 0), 0) };
+  });
+
+  const specialOrders = orders.filter(o => o.isSpecialVolumeOrder);
+  const offScheduleByDay = {};
+  specialOrders.forEach(o => {
+    if(activeDays.includes(o.preferredDeliveryDay)) return;
+    if(!offScheduleByDay[o.preferredDeliveryDay]) offScheduleByDay[o.preferredDeliveryDay] = { day: o.preferredDeliveryDay, orders: 0, crates: 0 };
+    offScheduleByDay[o.preferredDeliveryDay].orders += 1;
+    offScheduleByDay[o.preferredDeliveryDay].crates += (o.crates || 0);
+  });
+  const offScheduleRows = Object.values(offScheduleByDay).sort((a, b) => b.crates - a.crates);
+
+  return {
+    activeDays, activeDayLoad,
+    specialVolumeOrderCount: specialOrders.length,
+    specialVolumeCrates: specialOrders.reduce((s, o) => s + (o.crates || 0), 0),
+    offScheduleRows,
+    totalConsidered: orders.length,
+  };
+}
+function renderDeliveryDayDemandReport() {
+  const el = document.getElementById('delivery-day-demand-report');
+  if(!el) return;
+  const r = getDeliveryDayDemandReport();
+
+  if(r.totalConsidered === 0) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">No orders with a preferred delivery day yet — this fills in as customers book through the portal.</div>`;
+    return;
+  }
+
+  const maxCrates = Math.max(1, ...r.activeDayLoad.map(d => d.crates));
+  const loadRows = r.activeDayLoad.map(d => `
+    <div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:10px;color:var(--cream);margin-bottom:3px">
+        <span>${escapeHtml(d.day)}</span><span>${d.orders} order${d.orders===1?'':'s'} · ${d.crates} crates</span>
+      </div>
+      <div style="background:var(--card);border-radius:5px;height:8px;overflow:hidden">
+        <div style="background:var(--blue);height:100%;width:${Math.round((d.crates/maxCrates)*100)}%;border-radius:5px"></div>
+      </div>
+    </div>`).join('');
+
+  const offScheduleUI = r.offScheduleRows.length === 0
+    ? `<div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist)">No special-volume order has picked a day outside ${r.activeDays.join('/')} yet.</div>`
+    : r.offScheduleRows.map(d => `
+        <div style="display:flex;justify-content:space-between;padding:5px 9px;background:var(--raised);border-radius:6px;margin-bottom:4px;font-family:'DM Mono',monospace;font-size:9.5px">
+          <span style="color:var(--cream)">${escapeHtml(d.day)}</span>
+          <span style="color:var(--teal)">${d.orders} order${d.orders===1?'':'s'} · ${d.crates} crates — freely chosen, not the current schedule</span>
+        </div>`).join('');
+
+  el.innerHTML = `
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:10px">Load across your current run days (regular orders only — ${r.totalConsidered - r.specialVolumeOrderCount} counted):</div>
+    ${loadRows || `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">No active delivery days configured.</div>`}
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin:14px 0 6px;border-top:1px dashed var(--border);padding-top:10px">
+      Off-schedule picks by special-volume orders (${r.specialVolumeOrderCount} such orders, ${r.specialVolumeCrates} crates total — these were free to choose ANY day, so a repeated pick here is a real signal, not noise):
+    </div>
+    ${offScheduleUI}`;
+}
 // Delivery Fulfilment Board, Phase 1 — keyed by order ref (not an array)
 // since it's always looked up by ref, one order at a time, when rendering
 // the Ready for Waybill list.
@@ -24866,6 +25064,21 @@ function generateVerifyCode() {
 // (e.g. an unexpected environment) must never block viewing/printing
 // the waybill itself, so it degrades to an empty string rather than
 // throwing.
+// Sep 27 2026 — the token that lets the public confirm-delivery.html page
+// act on this exact order with no ERP login. Long and random on purpose:
+// see the standing comment in routes-postgres/orders.js's customer
+// attestation routes for why order refs (sequential/date-based) are never
+// accepted in its place. crypto.randomUUID() isn't guaranteed in every
+// context (e.g. a non-HTTPS origin), so this falls back to an
+// equally-unguessable manual random string rather than ever leaving the
+// token blank.
+function generateDeliveryToken() {
+  if(window.crypto?.randomUUID) return crypto.randomUUID();
+  let token = '';
+  for (let i = 0; i < 32; i++) token += Math.floor(Math.random() * 16).toString(16);
+  return token;
+}
+
 function buildWaybillVerifyQrSvg(code) {
   try {
     const url = `${BRAND_TRUST.canonicalDomain}${BRAND_TRUST.verifyPathPrefix}${code}`;
@@ -24980,9 +25193,28 @@ function generateWaybill(orderRef, opts) {
     generatedAt: new Date().toISOString(), generatedBy: 'owner', status: 'in_transit',
   };
   o.status = 'in_transit';
+
+  // Sep 27 2026 — delivery_token + outbound attestation, deliberately flat
+  // top-level fields on the order (NOT nested inside o.waybill above), since
+  // o.waybill as a whole is local-only and never reaches the backend at
+  // all (see the migration-delivery-attestation.sql header comment). These
+  // are what let the public confirm-delivery.html page, and any other ERP
+  // device, see this order's attestation state.
+  o.deliveryToken = generateDeliveryToken();
+  o.outboundCondition = opts.outboundCondition || null;
+  o.outboundAttestedBy = opts.outboundAttestedBy || null;
+  o.outboundNotes = opts.outboundNotes || null;
+  o.outboundAttestedAt = new Date().toISOString();
+
   saveOrders(orders);
+  patchOrderStatusOnBackend(o.ref, {
+    deliveryToken: o.deliveryToken,
+    outboundCondition: o.outboundCondition,
+    outboundAttestedBy: o.outboundAttestedBy,
+    outboundNotes: o.outboundNotes,
+  });
   logOk('orders', `Waybill generated — ${o.waybill.waybillNumber}`,
-    `${o.customerName} · ${o.crates} crates · ${opts.distanceKm || 0}km · est. cost ₦${costs.total.toLocaleString()}`);
+    `${o.customerName} · ${o.crates} crates · ${opts.distanceKm || 0}km · est. cost ₦${costs.total.toLocaleString()} · outbound: ${o.outboundCondition} (${o.outboundAttestedBy})`);
   renderOrders();
   renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog();
   showToast(`✓ Waybill ${o.waybill.waybillNumber} generated — order now in transit.`);
@@ -25123,6 +25355,7 @@ function renderLogistics() {
           </span>
         </div>`).join('');
   }
+  renderDeliveryDayDemandReport();
 
   renderReadyForWaybill();
   renderNearbyGroups();
@@ -25686,6 +25919,30 @@ function buildDriverDirectionsWaLink(o) {
   return { link: `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(msg)}`, reason: null };
 }
 
+// Sep 27 2026 — the driver-facing half of the customer attestation
+// close-out. Goes to the DRIVER's phone, not the customer's — per Bob's
+// plan, the driver opens this on his own phone and hands it to the
+// customer at the door, rather than this app needing the customer's
+// phone number to be usable for WhatsApp at all (many aren't, or the
+// order was placed by someone other than who receives it). Same
+// {link, reason} shape as buildDriverDirectionsWaLink() above, for the
+// same reason — a missing driver phone and a waybill with no token yet
+// (generated before this feature existed) are different problems and
+// renderInTransitPanel() explains whichever one applies.
+function buildCustomerConfirmationWaLink(o) {
+  const carrier = o.waybill?.carrier;
+  const phone = carrier?.driverPhone;
+  if(!phone || normalizePhone(phone).length !== 10) return { link: null, reason: 'no-phone' };
+  if(!o.deliveryToken) return { link: null, reason: 'no-token' };
+  const confirmUrl = window.location.href.replace('famad-erp.html', 'confirm-delivery.html')
+    .replace(/\?.*$/, '') + `?ref=${encodeURIComponent(o.ref)}&token=${encodeURIComponent(o.deliveryToken)}`;
+  const greeting = carrier.driverName && carrier.driverName !== '—' ? `Hi ${carrier.driverName}, ` : 'Hi, ';
+  const msg = `${greeting}once you've delivered to ${o.customerName} (${o.crates} crates, ${o.waybill.waybillNumber}), ` +
+    `please open this link and hand your phone to the customer to confirm receipt:\n\n${confirmUrl}\n\n` +
+    `This closes out the order on our end — please don't leave without it.`;
+  return { link: `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(msg)}`, reason: null };
+}
+
 function renderNearbyGroups() {
   const el = document.getElementById('nearby-groups-panel');
   if(!el) return;
@@ -25765,15 +26022,30 @@ function renderInTransitPanel() {
             ? 'No usable phone number on file for this driver — add one in Logistics.'
             : 'This waybill has no destination on file at all — reopen it and re-enter the destination.'
         }">📲 Send Directions</button>`;
+    // Sep 27 2026 — the confirmation-link counterpart to Send Directions
+    // above, same disabled-with-reason pattern. 'no-token' covers waybills
+    // generated before this feature existed — nothing to send until a new
+    // waybill is generated for that order.
+    const { link: confirmWaLink, reason: confirmReason } = buildCustomerConfirmationWaLink(o);
+    const sendConfirmationBtn = o.customerAttestedAt
+      ? `<span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--lime)" title="Customer confirmed ${new Date(o.customerAttestedAt).toLocaleString()}">✅ Customer confirmed</span>`
+      : confirmWaLink
+        ? `<a href="${confirmWaLink}" target="_blank" class="btn btn-ghost" style="font-size:10px;text-decoration:none" title="Opens WhatsApp to this driver with the customer confirmation link already typed in">🔗 Send Confirmation Link</a>`
+        : `<button class="btn btn-ghost" disabled style="font-size:10px;opacity:0.5;cursor:not-allowed" title="${
+            confirmReason === 'no-phone'
+              ? 'No usable phone number on file for this driver — add one in Logistics.'
+              : 'This waybill was generated before customer confirmation existed — generate a new waybill to get a link.'
+          }">🔗 Send Confirmation Link</button>`;
     return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;
-      background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.2);border-radius:8px;margin-bottom:7px">
+      background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.2);border-radius:8px;margin-bottom:7px;flex-wrap:wrap;gap:6px">
       <div>
         <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${escapeHtml(o.customerName)}</strong>
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${o.waybill?.waybillNumber || o.ref} · ${o.crates} crates → ${escapeHtml(o.waybill?.destination||'—')}</span>
       </div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${sendDirectionsBtn}
+        ${sendConfirmationBtn}
         <button class="btn btn-ghost" style="font-size:10px" onclick="viewWaybillDoc('${o.ref}')">📄 View</button>
         <button class="btn btn-primary" style="font-size:10px" onclick="openConfirmDeliveryModal('${o.ref}')">✓ Confirm Delivery</button>
       </div>
@@ -25854,8 +26126,33 @@ function openGenerateWaybillModal(orderRef) {
   document.getElementById('wb-destination-name').value = o.location || '';
   document.getElementById('wb-distance-km').value = '';
   document.getElementById('wb-cost-preview').innerHTML = '';
+  // Reset the outbound attestation fields every time this modal opens —
+  // each waybill needs its own fresh check, never inherited from whatever
+  // the last order happened to have selected.
+  document.getElementById('wb-outbound-condition').value = '';
+  document.getElementById('wb-outbound-attested-by').value = '';
+  document.getElementById('wb-outbound-notes').value = '';
+  document.querySelectorAll('.wb-outbound-cond').forEach(b => {
+    b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
+  });
   checkWaybillVehicleWarnings();
   openModal('modal-generate-waybill');
+}
+
+// Toggle-style selector for the three outbound condition buttons in the
+// Generate Waybill modal — plain inline-style toggling rather than a new
+// global CSS class, since this is the only place that needs it.
+function selectWaybillOutboundCondition(val) {
+  document.getElementById('wb-outbound-condition').value = val;
+  const colors = { good: 'var(--lime)', damaged: 'var(--red)', short: 'var(--sun)' };
+  document.querySelectorAll('.wb-outbound-cond').forEach(b => {
+    if(b.dataset.val === val) {
+      b.style.borderColor = colors[val]; b.style.color = colors[val];
+      b.style.background = val === 'good' ? 'rgba(109,217,109,0.1)' : val === 'damaged' ? 'rgba(224,72,72,0.1)' : 'rgba(240,192,64,0.12)';
+    } else {
+      b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
+    }
+  });
 }
 
 // Fires when the vehicle dropdown changes (and once when the modal opens)
@@ -25915,6 +26212,9 @@ function submitGenerateWaybill() {
   const driverId = document.getElementById('wb-driver').value;
   const destinationName = document.getElementById('wb-destination-name').value.trim();
   const distanceKm = parseFloat(document.getElementById('wb-distance-km').value) || 0;
+  const outboundCondition = document.getElementById('wb-outbound-condition').value;
+  const outboundAttestedBy = document.getElementById('wb-outbound-attested-by').value.trim();
+  const outboundNotes = document.getElementById('wb-outbound-notes').value.trim();
 
   // ── Waybill fields are dispatch-critical — a blank fallback like '—' ──
   // ── or '(not yet provided)' on a real waybill is an operational gap, ──
@@ -25925,6 +26225,11 @@ function submitGenerateWaybill() {
   if(!driverId) { showToast('⚠ Select a driver.'); return; }
   if(!destinationName) { showToast('⚠ Enter a destination.'); return; }
   if(!distanceKm || distanceKm <= 0) { showToast('⚠ Enter a real distance (km).'); return; }
+  // Outbound attestation is the first half of the two-attestation close-out
+  // Bob asked for — required at dispatch, same as vehicle/driver/destination
+  // above, not an optional afterthought.
+  if(!outboundCondition) { showToast('⚠ Select the outbound condition of the goods.'); return; }
+  if(!outboundAttestedBy) { showToast('⚠ Enter who is attesting to the outbound condition.'); return; }
 
   const fleet = ensureFleet();
   const vehicle = fleet.vehicles.find(v => v.id === vehicleId);
@@ -25941,7 +26246,7 @@ function submitGenerateWaybill() {
   if(vehicleBusyRef) { showToast(`⚠ That vehicle is already out on ${vehicleBusyRef} — pick another.`); return; }
   if(driverBusyRef)  { showToast(`⚠ That driver is already out on ${driverBusyRef} — pick another.`); return; }
 
-  generateWaybill(orderRef, { vehicleId, driverId, destinationName, distanceKm });
+  generateWaybill(orderRef, { vehicleId, driverId, destinationName, distanceKm, outboundCondition, outboundAttestedBy, outboundNotes });
   closeModal('modal-generate-waybill');
 }
 
