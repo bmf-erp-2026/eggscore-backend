@@ -3045,7 +3045,7 @@ input[type=number]{-moz-appearance:textfield;}
     saveFeedbackSubmissions(mapped);
     if(document.getElementById('feedback-review-panel')) renderFeedbackReview();
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); });
+  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); });
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
@@ -4786,7 +4786,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('reservations')"><span class="icon">🕐</span><span>Reservations</span></div>
   <div class="si" onclick="switchModule('sales')"><span class="icon">🥚</span><span>Sales Log</span></div>
   <div class="si" onclick="switchModule('inventory')"><span class="icon">📦</span><span>Inventory</span></div>
-  <div class="si" onclick="switchModule('logistics')"><span class="icon">🚚</span><span>Logistics</span></div>
+  <div class="si" onclick="switchModule('logistics')"><span class="icon">🚚</span><span>Logistics <span class="si-badge" id="closeouts-badge" style="display:none;background:rgba(109,217,109,0.18);color:var(--lime)" title="Customer-confirmed deliveries waiting to be closed out">🔔0</span></span></div>
   <div class="si" onclick="switchModule('reps')"><span class="icon">👤</span><span>Rep Centre</span></div>
   <hr class="sdiv"/>
   <div class="sl">Procurement</div>
@@ -6774,6 +6774,21 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="panel-tag">waybilled orders on the road — confirm delivery when they're back</div>
     </div>
     <div class="panel-body panel-scroll" id="in-transit-panel"></div>
+  </div>
+
+  <!-- Sep 27 2026 — the in-ERP half of the closeout notification (the
+       other half is the toast fired from syncOrdersFromBackend() the
+       moment a new customer attestation arrives). This panel is the
+       persistent version of that same signal — it stays visible for
+       anyone who wasn't looking at the screen the instant the toast
+       fired, mirroring the Fleet Status board's live-state pattern
+       rather than a one-time popup. -->
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">🔔 Delivery Closeouts</div>
+      <div class="panel-tag">customer has confirmed receipt — ready for you to Confirm Delivery</div>
+    </div>
+    <div class="panel-body panel-scroll" id="delivery-closeouts-panel"></div>
   </div>
 
   <div class="panel">
@@ -26003,6 +26018,7 @@ function renderInTransitPanel() {
   // whenever a waybill is generated or a delivery confirmed, not just when
   // the Logistics tab happens to be reopened.
   renderFleetStatusBoard();
+  renderDeliveryCloseoutsPanel();
   const el = document.getElementById('in-transit-panel');
   if(!el) return;
   const orders = loadOrders().filter(o => o.status === 'in_transit');
@@ -26049,6 +26065,55 @@ function renderInTransitPanel() {
         <button class="btn btn-ghost" style="font-size:10px" onclick="viewWaybillDoc('${o.ref}')">📄 View</button>
         <button class="btn btn-primary" style="font-size:10px" onclick="openConfirmDeliveryModal('${o.ref}')">✓ Confirm Delivery</button>
       </div>
+    </div>`;
+  }).join('');
+}
+
+// Sep 27 2026 — the persistent half of the closeout notification (see the
+// HTML comment above the panel itself). Shows every in-transit order whose
+// customer has already attested — i.e. every order ready for a staff
+// member to Confirm Delivery — sorted most-recently-confirmed first, plus
+// keeps the Logistics nav badge in sync so it's visible even from another
+// module. This list, not a single toast that can be missed, is meant to be
+// the actual "second insurance" Bob asked for if nobody happened to be
+// watching the screen the moment the customer signed off.
+function renderDeliveryCloseoutsPanel() {
+  const el = document.getElementById('delivery-closeouts-panel');
+  const badge = document.getElementById('closeouts-badge');
+  const orders = loadOrders()
+    .filter(o => o.status === 'in_transit' && o.customerAttestedAt)
+    .sort((a, b) => (b.customerAttestedAt || '').localeCompare(a.customerAttestedAt || ''));
+
+  if(badge) {
+    if(orders.length > 0) {
+      badge.textContent = '🔔' + orders.length;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  if(!el) return;
+  if(!orders.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">Nothing waiting — every confirmed delivery has been closed out.</div>`;
+    return;
+  }
+  const condColor = { good: 'var(--lime)', damaged: 'var(--red)', short: 'var(--sun)' };
+  const condLabel = { good: '✅ Good', damaged: '⚠️ Damaged', short: '📉 Short' };
+  el.innerHTML = orders.map(o => {
+    const cond = o.customerCondition || 'good';
+    return `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;
+      background:rgba(109,217,109,0.07);border:1px solid rgba(109,217,109,0.25);border-radius:8px;margin-bottom:7px;flex-wrap:wrap;gap:6px">
+      <div>
+        <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${escapeHtml(o.customerName)}</strong>
+        <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:${condColor[cond]||'var(--lime)'};margin-left:8px">${condLabel[cond]||cond}</span>
+        <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:2px">
+          ${o.waybill?.waybillNumber || o.ref} · ${o.crates} crates · confirmed by ${escapeHtml(o.customerAttestedBy || 'customer')} ${new Date(o.customerAttestedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
+          ${o.customerNotes ? `<br>📝 ${escapeHtml(o.customerNotes)}` : ''}
+        </div>
+      </div>
+      <button class="btn btn-primary" style="font-size:10px" onclick="openConfirmDeliveryModal('${o.ref}')">✓ Confirm Delivery</button>
     </div>`;
   }).join('');
 }
@@ -28598,7 +28663,7 @@ function deleteOrder(ref) {
   saveOrders(orders); updateOrdersBadge(); renderOrders(); showToast('Order deleted.');
 }
 
-async function refreshOrders(){ await syncOrdersFromBackend(); renderOrders(); showToast('↻ Orders refreshed.'); }
+async function refreshOrders(){ await syncOrdersFromBackend(); renderOrders(); renderDeliveryCloseoutsPanel(); showToast('↻ Orders refreshed.'); }
 async function refreshSales(){ await syncSalesFromBackend(); renderLedger(); showToast('↻ Sales refreshed.'); }
 
 function waReplyOrder(ref, type) {
