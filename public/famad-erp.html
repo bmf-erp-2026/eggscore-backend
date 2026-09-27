@@ -5996,11 +5996,11 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">⚙ Time-Value Rate</div>
-      <!-- Text set from TIME_VALUE_RATE_MIN/MAX in renderTimeValue() — this markup is just a fallback for first paint. -->
+      <!-- Text set from STATE.timeValueRateBand in renderTimeValue() — this markup is just a fallback for first paint. -->
       <div class="panel-tag" id="tv-rate-band-label">negotiable band: 25%–30% p.a.</div>
     </div>
     <div class="panel-body" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <!-- min/max below are a static fallback; renderTimeValue() overwrites them from TIME_VALUE_RATE_MIN/MAX so there's one real source of truth. -->
+      <!-- min/max below are a static fallback; renderTimeValue() overwrites them from STATE.timeValueRateBand so there's one real source of truth. -->
       <input class="form-input" type="number" id="tv-rate-input" step="0.5" min="25" max="30"
         style="width:100px;text-align:center;font-family:'Syne',sans-serif;font-weight:700"/>
       <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">%  p.a.</span>
@@ -6008,6 +6008,19 @@ input[type=number]{-moz-appearance:textfield;}
         style="flex:1;min-width:220px"/>
       <button class="btn btn-primary" onclick="applyTimeValueRate()">Save Rate</button>
       <div id="tv-rate-warn" style="display:none;width:100%;font-family:'DM Mono',monospace;font-size:9px;color:var(--red)"></div>
+    </div>
+    <div class="panel-body" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px dashed var(--border);margin-top:4px;padding-top:12px">
+      <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);width:100%">
+        Adjust the band itself (floor/ceiling) — only when real lending rates have actually moved, not for routine changes within it:
+      </span>
+      <input class="form-input" type="number" id="tv-band-min-input" step="0.5" style="width:90px;text-align:center" placeholder="Floor"/>
+      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">to</span>
+      <input class="form-input" type="number" id="tv-band-max-input" step="0.5" style="width:90px;text-align:center" placeholder="Ceiling"/>
+      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">% p.a.</span>
+      <input class="form-input" type="text" id="tv-band-reason" placeholder="Reason (optional) — e.g. CBN cut MPR 250bps"
+        style="flex:1;min-width:200px"/>
+      <button class="btn btn-ghost" onclick="applyTimeValueRateBand()">Save Band</button>
+      <div id="tv-band-warn" style="display:none;width:100%;font-family:'DM Mono',monospace;font-size:9px;color:var(--red)"></div>
     </div>
   </div>
 
@@ -6370,6 +6383,14 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="page-title">Logistics</div>
       <div class="page-sub">Waybills · fleet · shipment cost tracking</div>
     </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">🚦 Fleet Status</div>
+      <div class="panel-tag">who/what is out right now, at a glance — see getFleetStatusBoard()</div>
+    </div>
+    <div class="panel-body" id="fleet-status-board"></div>
   </div>
 
   <div class="panel">
@@ -17310,7 +17331,13 @@ function renderCreditOverrideLog(targetId, filterType, limit) {
   const el = document.getElementById(targetId);
   if(!el) return;
   let log = STATE.creditOverrideLog || [];
-  if(filterType) log = log.filter(l => (l.type || 'enforcement_override') === filterType);
+  if(filterType) {
+    // filterType can be one type or an array of types — the Time-Value
+    // panel's history shows both rate changes AND band changes together,
+    // since they're really one audit trail for one module.
+    const types = Array.isArray(filterType) ? filterType : [filterType];
+    log = log.filter(l => types.includes(l.type || 'enforcement_override'));
+  }
   if(!log.length) {
     el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">No overrides recorded yet.</div>`;
     return;
@@ -17321,6 +17348,10 @@ function renderCreditOverrideLog(targetId, filterType, limit) {
     if(type === 'timevalue_rate_change') {
       label = 'RATE CHANGE'; color = 'var(--teal)';
       detail = `${Math.round(l.oldRate*1000)/10}% → ${Math.round(l.newRate*1000)/10}% p.a.${l.reason ? ' · '+escapeHtml(l.reason) : ''}`;
+      when = l.overriddenAt; by = l.overriddenBy;
+    } else if(type === 'timevalue_band_change') {
+      label = 'BAND CHANGED'; color = 'var(--violet)';
+      detail = `${Math.round(l.oldMin*1000)/10}–${Math.round(l.oldMax*1000)/10}% → ${Math.round(l.newMin*1000)/10}–${Math.round(l.newMax*1000)/10}% p.a.${l.reason ? ' · '+escapeHtml(l.reason) : ''}`;
       when = l.overriddenAt; by = l.overriddenBy;
     } else if(type === 'terms_change') {
       label = 'CREDIT TERMS'; color = 'var(--blue)';
@@ -17366,20 +17397,25 @@ function renderTimeValue() {
   setText('tv-rate-display', ratePct + '%');
   const rateInput = document.getElementById('tv-rate-input');
   if(rateInput && document.activeElement !== rateInput) rateInput.value = ratePct;
-  // TIME_VALUE_RATE_MIN/MAX (see saveTimeValueRate()) is the one real source
-  // of truth for this band — the input's min/max and the label text are
-  // both re-derived from it on every render, instead of being separate
-  // hardcoded numbers that could quietly drift out of sync with each other
-  // or with what saveTimeValueRate() actually enforces.
-  const bandMinPct = Math.round(TIME_VALUE_RATE_MIN * 100);
-  const bandMaxPct = Math.round(TIME_VALUE_RATE_MAX * 100);
+  // STATE.timeValueRateBand (see ensureTimeValueRateBand()) is the one real
+  // source of truth for this band — the input's min/max, the label text,
+  // and the band editor fields below are all re-derived from it on every
+  // render, instead of being separate hardcoded numbers that could quietly
+  // drift out of sync with each other or with what saveTimeValueRate()
+  // actually enforces.
+  const bandMinPct = Math.round(getTimeValueRateMin() * 100);
+  const bandMaxPct = Math.round(getTimeValueRateMax() * 100);
   if(rateInput) { rateInput.min = bandMinPct; rateInput.max = bandMaxPct; }
   setText('tv-rate-band-label', `negotiable band: ${bandMinPct}%–${bandMaxPct}% p.a.`);
+  const bandMinInput = document.getElementById('tv-band-min-input');
+  const bandMaxInput = document.getElementById('tv-band-max-input');
+  if(bandMinInput && document.activeElement !== bandMinInput) bandMinInput.value = bandMinPct;
+  if(bandMaxInput && document.activeElement !== bandMaxInput) bandMaxInput.value = bandMaxPct;
 
   const cnt = document.getElementById('tv-count');
   if(cnt) cnt.textContent = rows.length + ' account' + (rows.length === 1 ? '' : 's');
 
-  renderCreditOverrideLog('tv-rate-history', 'timevalue_rate_change', 10);
+  renderCreditOverrideLog('tv-rate-history', ['timevalue_rate_change', 'timevalue_band_change'], 10);
   generateTimeValueInsights();
 
   const body = document.getElementById('tv-table-body');
@@ -17417,6 +17453,22 @@ function applyTimeValueRate() {
   if(reasonEl) reasonEl.value = '';
   renderTimeValue();
   showToast(`✓ Time-value rate set to ${pct}% p.a.`);
+}
+
+function applyTimeValueRateBand() {
+  const minEl    = document.getElementById('tv-band-min-input');
+  const maxEl    = document.getElementById('tv-band-max-input');
+  const reasonEl = document.getElementById('tv-band-reason');
+  const warnEl   = document.getElementById('tv-band-warn');
+  const result = saveTimeValueRateBand(minEl?.value, maxEl?.value, reasonEl?.value.trim());
+  if(!result.ok) {
+    if(warnEl) { warnEl.style.display = 'block'; warnEl.textContent = '⚠ ' + result.error; }
+    return;
+  }
+  if(warnEl) warnEl.style.display = 'none';
+  if(reasonEl) reasonEl.value = '';
+  renderTimeValue();
+  showToast(`✓ Band updated to ${minEl.value}%–${maxEl.value}% p.a.`);
 }
 
 function runTimeValueSimulation() {
@@ -19596,10 +19648,10 @@ async function generateTimeValueInsights() {
     netDifferential: fmt(totals.netDifferential),
     netDifferentialMeaning: totals.netDifferential >= 0 ? 'customers are net-financing BEL' : 'BEL is net-financing customers',
     currentRate: (Math.round(getTimeValueRate()*1000)/10) + '%',
-    // Derived from TIME_VALUE_RATE_MIN/MAX rather than a separate hardcoded
+    // Derived from getTimeValueRateMin()/Max() rather than a separate hardcoded
     // string, so this can never say a different band than what
     // saveTimeValueRate() actually enforces.
-    negotiableBand: `${Math.round(TIME_VALUE_RATE_MIN*100)}%-${Math.round(TIME_VALUE_RATE_MAX*100)}% p.a.`,
+    negotiableBand: `${Math.round(getTimeValueRateMin()*100)}%-${Math.round(getTimeValueRateMax()*100)}% p.a.`,
     accountsTracked: rows.length,
     biggestNetSupport: sorted.slice(0,3).map(r => ({ customer: r.customer, net: fmt(r.netDifferential) })),
     biggestNetDrag: sorted.slice(-3).reverse().map(r => ({ customer: r.customer, net: fmt(r.netDifferential) })),
@@ -24370,6 +24422,73 @@ function getBusyFleetAssignments(excludeOrderRef) {
 }
 
 /* ═══════════════════════════════════════════════════════
+   FLEET STATUS BOARD (Sep 27 2026)
+   Generate Waybill already greys out a vehicle/driver that's busy — the
+   SYSTEM knows who's out and on what. But that knowledge only ever
+   surfaced at the one moment someone tries to double-book it; there was
+   nowhere a logistics manager could just look and see, at a glance,
+   what's out right now and what's free — they had to reconstruct it
+   from memory or by scanning the In Transit list order-by-order. This
+   reuses the exact same getBusyFleetAssignments() the booking check
+   runs on, so the board and the check can never disagree with each
+   other about who's actually free.
+═══════════════════════════════════════════════════════ */
+function getFleetStatusBoard() {
+  const fleet = ensureFleet();
+  const busy  = getBusyFleetAssignments(null); // no exclusion — this is a plain snapshot, not a picklist for one order
+  const orders = loadOrders();
+  function currentTrip(orderRef) {
+    const o = orders.find(x => x.ref === orderRef);
+    if(!o || !o.waybill) return { orderRef, customerName: '—', destination: '—', since: null };
+    return { orderRef, customerName: o.customerName, destination: o.waybill.destination, since: o.waybill.generatedAt };
+  }
+  const vehicles = fleet.vehicles.map(v => {
+    const busyRef = busy.vehicleBusyOrderRef(v);
+    return { ...v, status: busyRef ? 'out' : 'available', current: busyRef ? currentTrip(busyRef) : null };
+  });
+  const drivers = fleet.drivers.map(d => {
+    const busyRef = busy.driverBusyOrderRef(d);
+    return { ...d, status: busyRef ? 'out' : 'available', current: busyRef ? currentTrip(busyRef) : null };
+  });
+  return { vehicles, drivers };
+}
+
+function renderFleetStatusBoard() {
+  const el = document.getElementById('fleet-status-board');
+  if(!el) return;
+  const { vehicles, drivers } = getFleetStatusBoard();
+  if(!vehicles.length && !drivers.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">Add vehicles and drivers below to see live status here.</div>`;
+    return;
+  }
+  const row = (label, item) => {
+    const isOut = item.status === 'out';
+    const sinceStr = item.current?.since
+      ? new Date(item.current.since).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+      : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;
+      background:${isOut ? 'rgba(255,90,90,0.08)' : 'rgba(126,217,87,0.08)'};border-radius:6px;margin-bottom:5px;flex-wrap:wrap;gap:4px">
+      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(label)}</span>
+      <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:${isOut ? 'var(--red)' : 'var(--lime)'}">${
+        isOut
+          ? `🔴 Out — ${escapeHtml(item.current.orderRef)} · ${escapeHtml(item.current.customerName)}${sinceStr ? ' · since '+sinceStr : ''}`
+          : '🟢 Available at base'
+      }</span>
+    </div>`;
+  };
+  el.innerHTML = `
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:10px;color:var(--dust);margin-bottom:6px">Vehicles</div>
+    ${vehicles.length
+      ? vehicles.map(v => row(`${v.type}${v.plate ? ' — '+v.plate : ''}`, v)).join('')
+      : `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px">None on file.</div>`}
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:10px;color:var(--dust);margin:10px 0 6px 0">Drivers</div>
+    ${drivers.length
+      ? drivers.map(d => row(d.name, d)).join('')
+      : `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">None on file.</div>`}
+  `;
+}
+
+/* ═══════════════════════════════════════════════════════
    LOGISTICS: VEHICLE DOCUMENT RENEWAL TRACKER
    Six recurring (yearly) statutory documents per vehicle, each
    with its own expiry date. A trigger fires the moment any
@@ -24680,6 +24799,7 @@ function renderLogistics() {
   const areas   = ensureServiceAreas();
 
   renderVehicleDocumentAlerts();
+  renderFleetStatusBoard();
 
   setVal('lg-farm-name', shipper.farmName); setVal('lg-farm-contact', shipper.contact); setVal('lg-farm-address', shipper.address);
   setVal('lg-fuel-eff', ls.fuelEfficiencyKmPerL); setVal('lg-fuel-price', ls.fuelPricePerL);
@@ -25326,6 +25446,11 @@ async function groupNearbyOrders() {
 }
 
 function renderInTransitPanel() {
+  // Fleet Status shares its underlying data with this panel (both come from
+  // getBusyFleetAssignments()) — refreshed here too so it can't fall behind
+  // whenever a waybill is generated or a delivery confirmed, not just when
+  // the Logistics tab happens to be reopened.
+  renderFleetStatusBoard();
   const el = document.getElementById('in-transit-panel');
   if(!el) return;
   const orders = loadOrders().filter(o => o.status === 'in_transit');
@@ -29218,14 +29343,30 @@ const CREDIT_TIER = {
 };
 
 // Prevailing lending rate for time-value calculation.
-// CBN MPR + commercial spread (~30% effective annual rate for SME unsecured).
-// Configurable within a 25%-30% band — see saveTimeValueRate(). Used
-// symmetrically: the same rate prices both the cost of credit BEL
-// extends to customers (OUT) and the time-value of wallet balances
-// customers leave with BEL (IN). Internal analytics only — see the
-// Time-Value module banner.
-const TIME_VALUE_RATE_MIN = 0.25;
-const TIME_VALUE_RATE_MAX = 0.30;
+// CBN MPR + commercial spread (~30% effective annual rate for SME unsecured
+// at the time this module was built). Used symmetrically: the same rate
+// prices both the cost of credit BEL extends to customers (OUT) and the
+// time-value of wallet balances customers leave with BEL (IN). Internal
+// analytics only — see the Time-Value module banner.
+//
+// Sep 27 2026 — the band itself (floor/ceiling) moved from hardcoded
+// constants to an editable, persisted setting (STATE.timeValueRateBand).
+// The original 25%-30% was a one-time snapshot of real lending rates the
+// day this was built; Bob needs to widen or shift it himself as real rates
+// move, without asking for a code change each time. These are just the
+// seed values used the first time the app ever runs — see
+// ensureTimeValueRateBand() and saveTimeValueRateBand().
+const TIME_VALUE_RATE_MIN_SEED = 0.25;
+const TIME_VALUE_RATE_MAX_SEED = 0.30;
+function ensureTimeValueRateBand() {
+  if(!STATE.timeValueRateBand) {
+    STATE.timeValueRateBand = { min: TIME_VALUE_RATE_MIN_SEED, max: TIME_VALUE_RATE_MAX_SEED };
+    saveState();
+  }
+  return STATE.timeValueRateBand;
+}
+function getTimeValueRateMin() { return ensureTimeValueRateBand().min; }
+function getTimeValueRateMax() { return ensureTimeValueRateBand().max; }
 function getTimeValueRate() {
   return STATE.timeValueRate || 0.30;
 }
@@ -29244,8 +29385,9 @@ function getTimeValueRatePct() {
 function saveTimeValueRate(newRate, reason) {
   const val = parseFloat(newRate);
   if(isNaN(val)) return { ok: false, error: 'Not a number.' };
-  if(val < TIME_VALUE_RATE_MIN || val > TIME_VALUE_RATE_MAX) {
-    return { ok: false, error: `Must stay between ${Math.round(TIME_VALUE_RATE_MIN*100)}% and ${Math.round(TIME_VALUE_RATE_MAX*100)}%.` };
+  const bandMin = getTimeValueRateMin(), bandMax = getTimeValueRateMax();
+  if(val < bandMin || val > bandMax) {
+    return { ok: false, error: `Must stay between ${Math.round(bandMin*100)}% and ${Math.round(bandMax*100)}% — that's the current band; adjust it below if reality has moved.` };
   }
   const oldRate = getTimeValueRate();
   STATE.timeValueRate = val;
@@ -29259,6 +29401,38 @@ function saveTimeValueRate(newRate, reason) {
   postCreditOverrideToBackend(covEntry); // Aug 28 fix — was local-only before
   saveState();
   postTimeValueRateToBackend(val, 'Admin');
+  return { ok: true };
+}
+// Adjusts the band itself (floor/ceiling), not the rate within it — for
+// when real lending rates have actually shifted, not routine day-to-day
+// changes (that's saveTimeValueRate() above). If the CURRENT rate would end
+// up outside the new band, it's pulled to the nearest new edge rather than
+// left sitting on a value the band would now reject — a stale unreachable
+// rate would be a worse trap than an audited auto-adjustment.
+function saveTimeValueRateBand(newMinPct, newMaxPct, reason) {
+  const min = parseFloat(newMinPct), max = parseFloat(newMaxPct);
+  if(isNaN(min) || isNaN(max)) return { ok: false, error: 'Enter numbers for both floor and ceiling.' };
+  if(min < 0 || max <= 0) return { ok: false, error: 'Floor and ceiling must be positive.' };
+  if(min >= max) return { ok: false, error: 'Floor must be less than ceiling.' };
+  if(max > 100) return { ok: false, error: 'A ceiling above 100% p.a. is almost certainly a typo — double-check and re-enter.' };
+  const band = ensureTimeValueRateBand();
+  const oldMin = band.min, oldMax = band.max;
+  band.min = min / 100; band.max = max / 100;
+  let clampNote = '';
+  if(STATE.timeValueRate != null) {
+    if(STATE.timeValueRate < band.min) { STATE.timeValueRate = band.min; clampNote = ` (current rate raised to new floor ${min}%)`; }
+    else if(STATE.timeValueRate > band.max) { STATE.timeValueRate = band.max; clampNote = ` (current rate lowered to new ceiling ${max}%)`; }
+  }
+  if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
+  const covEntry = {
+    id: 'cov' + Date.now(), type: 'timevalue_band_change',
+    oldMin, oldMax, newMin: band.min, newMax: band.max, reason: (reason || '') + clampNote,
+    overriddenAt: new Date().toISOString(), overriddenBy: 'owner',
+  };
+  STATE.creditOverrideLog.unshift(covEntry);
+  postCreditOverrideToBackend(covEntry);
+  saveState();
+  postTimeValueRateToBackend(getTimeValueRate(), 'Admin'); // keep backend in sync if the rate itself got clamped
   return { ok: true };
 }
 
