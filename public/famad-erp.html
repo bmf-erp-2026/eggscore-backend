@@ -3046,6 +3046,25 @@ input[type=number]{-moz-appearance:textfield;}
     if(document.getElementById('feedback-review-panel')) renderFeedbackReview();
   }
   erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); });
+
+  // Sep 27 2026 fix — the Delivery Closeouts badge/panel only ever refreshed
+  // at login or when someone clicked "↻ Refresh Orders". A driver's
+  // confirmation link is opened on the DRIVER's phone, completely outside
+  // the ERP, so nothing about that action ever told an already-open ERP
+  // tab to look again — the badge and panel would sit stale until the next
+  // manual refresh or full page reload, which isn't what "live" was
+  // supposed to mean here. This quiet poll is what actually makes it live:
+  // every 75s, silently re-pull orders and refresh just the closeout
+  // signal (badge + panel + the Orders Inbox badge, which has the exact
+  // same staleness problem for a new incoming order). erpGetAuthToken()
+  // inside syncOrdersFromBackend() already no-ops cleanly when signed out,
+  // so this is harmless to leave running across login/logout.
+  setInterval(async () => {
+    await syncOrdersFromBackend();
+    if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
+    if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
+    if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
+  }, 75000);
 </script>
 
 <!-- Shared metric-composition tooltip — deliberately a single element
