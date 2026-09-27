@@ -3387,9 +3387,13 @@ input[type=number]{-moz-appearance:textfield;}
     <div id="wb-order-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.8"></div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-      <div><label class="form-label">Vehicle</label><select class="form-select" id="wb-vehicle"></select></div>
+      <div><label class="form-label">Vehicle</label><select class="form-select" id="wb-vehicle" onchange="checkWaybillVehicleWarnings()"></select></div>
       <div><label class="form-label">Driver</label><select class="form-select" id="wb-driver"></select></div>
     </div>
+    <!-- Non-blocking — see checkWaybillVehicleWarnings(). Vehicles/drivers already
+         out on another order are disabled in the dropdowns above instead, which
+         IS enforced (see submitGenerateWaybill()). -->
+    <div id="wb-availability-warn" style="display:none;background:rgba(255,90,90,0.12);border:1px solid var(--red);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--red);line-height:1.6"></div>
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Destination <span style="color:var(--mist)">(pick a saved one, or type a new one below)</span></label>
       <select class="form-select" id="wb-destination-ref" onchange="applyDestinationRef()" style="margin-bottom:8px"><option value="">— Type a custom destination —</option></select>
@@ -5992,9 +5996,11 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel">
     <div class="panel-hdr">
       <div class="panel-title">⚙ Time-Value Rate</div>
-      <div class="panel-tag">negotiable band: 25%–30% p.a.</div>
+      <!-- Text set from TIME_VALUE_RATE_MIN/MAX in renderTimeValue() — this markup is just a fallback for first paint. -->
+      <div class="panel-tag" id="tv-rate-band-label">negotiable band: 25%–30% p.a.</div>
     </div>
     <div class="panel-body" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <!-- min/max below are a static fallback; renderTimeValue() overwrites them from TIME_VALUE_RATE_MIN/MAX so there's one real source of truth. -->
       <input class="form-input" type="number" id="tv-rate-input" step="0.5" min="25" max="30"
         style="width:100px;text-align:center;font-family:'Syne',sans-serif;font-weight:700"/>
       <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">%  p.a.</span>
@@ -17360,6 +17366,15 @@ function renderTimeValue() {
   setText('tv-rate-display', ratePct + '%');
   const rateInput = document.getElementById('tv-rate-input');
   if(rateInput && document.activeElement !== rateInput) rateInput.value = ratePct;
+  // TIME_VALUE_RATE_MIN/MAX (see saveTimeValueRate()) is the one real source
+  // of truth for this band — the input's min/max and the label text are
+  // both re-derived from it on every render, instead of being separate
+  // hardcoded numbers that could quietly drift out of sync with each other
+  // or with what saveTimeValueRate() actually enforces.
+  const bandMinPct = Math.round(TIME_VALUE_RATE_MIN * 100);
+  const bandMaxPct = Math.round(TIME_VALUE_RATE_MAX * 100);
+  if(rateInput) { rateInput.min = bandMinPct; rateInput.max = bandMaxPct; }
+  setText('tv-rate-band-label', `negotiable band: ${bandMinPct}%–${bandMaxPct}% p.a.`);
 
   const cnt = document.getElementById('tv-count');
   if(cnt) cnt.textContent = rows.length + ' account' + (rows.length === 1 ? '' : 's');
@@ -19581,7 +19596,10 @@ async function generateTimeValueInsights() {
     netDifferential: fmt(totals.netDifferential),
     netDifferentialMeaning: totals.netDifferential >= 0 ? 'customers are net-financing BEL' : 'BEL is net-financing customers',
     currentRate: (Math.round(getTimeValueRate()*1000)/10) + '%',
-    negotiableBand: '25%-30% p.a.',
+    // Derived from TIME_VALUE_RATE_MIN/MAX rather than a separate hardcoded
+    // string, so this can never say a different band than what
+    // saveTimeValueRate() actually enforces.
+    negotiableBand: `${Math.round(TIME_VALUE_RATE_MIN*100)}%-${Math.round(TIME_VALUE_RATE_MAX*100)}% p.a.`,
     accountsTracked: rows.length,
     biggestNetSupport: sorted.slice(0,3).map(r => ({ customer: r.customer, net: fmt(r.netDifferential) })),
     biggestNetDrag: sorted.slice(-3).reverse().map(r => ({ customer: r.customer, net: fmt(r.netDifferential) })),
@@ -24296,6 +24314,28 @@ function ensureLogisticsSettings() {
 }
 function ensureFleet() { if(!STATE.fleet) STATE.fleet = { vehicles: [], drivers: [] }; return STATE.fleet; }
 
+// A vehicle or driver can only really be on one road trip at a time, but
+// nothing previously stopped the same truck or driver being picked for two
+// orders that are both still 'in_transit'. This scans every order currently
+// out for delivery and reports which vehicle/driver ids are already
+// committed, and to which order — openGenerateWaybillModal() uses it to
+// grey those options out, and submitGenerateWaybill() checks it again right
+// before saving, in case the picklist and the actual click land on
+// different data (e.g. another waybill was generated in between).
+// excludeOrderRef lets a waybill be regenerated for the very order that's
+// already holding the vehicle/driver, without flagging itself as a conflict.
+function getBusyFleetAssignments(excludeOrderRef) {
+  const busyVehicles = {}; // vehicleId -> orderRef
+  const busyDrivers  = {}; // driverId  -> orderRef
+  loadOrders().forEach(o => {
+    if(o.status !== 'in_transit' || !o.waybill || o.ref === excludeOrderRef) return;
+    const c = o.waybill.carrier || {};
+    if(c.vehicleId) busyVehicles[c.vehicleId] = o.ref;
+    if(c.driverId)  busyDrivers[c.driverId]  = o.ref;
+  });
+  return { busyVehicles, busyDrivers };
+}
+
 /* ═══════════════════════════════════════════════════════
    LOGISTICS: VEHICLE DOCUMENT RENEWAL TRACKER
    Six recurring (yearly) statutory documents per vehicle, each
@@ -24530,6 +24570,13 @@ function generateWaybill(orderRef, opts) {
     destination: opts.destinationName || o.location || '—',
     distanceKm: opts.distanceKm || 0,
     carrier: {
+      // vehicleId/driverId (added alongside the existing display fields) are
+      // what getBusyFleetAssignments() uses to block double-booking a truck
+      // or driver onto two in-transit waybills at once — see
+      // openGenerateWaybillModal(). Waybills generated before this field
+      // existed won't have it, so they're simply invisible to that check,
+      // never mistaken for a false conflict.
+      vehicleId: vehicle?.id || null, driverId: driver?.id || null,
       vehicleType: vehicle?.type || '—', vehiclePlate: vehicle?.plate || '(not yet provided)',
       trackingProvider: vehicle?.trackingProvider || '', trackingReference: vehicle?.trackingReference || '',
       driverName: driver?.name || '—', driverPhone: driver?.phone || '—',
@@ -25149,6 +25196,26 @@ function buildOrdersNavUrl(orders) {
   return url;
 }
 
+// The 🧭 nav link above only ever lived on Bob's own screen — nothing
+// actually got it to the driver's phone, so the real hand-off was Bob
+// reading the route out or forwarding it himself, with nothing tracking
+// whether that happened. This builds a wa.me link, pre-filled, straight to
+// the driver's own number on this waybill — same one-tap-then-a-human-acts
+// pattern as buildWaybillCallLink() and every other wa.me link in this
+// file. Returns null (button hides itself, see renderInTransitPanel())
+// when there's no usable driver phone or the order was never geocoded —
+// never a broken/empty WhatsApp chat.
+function buildDriverDirectionsWaLink(o) {
+  const carrier = o.waybill?.carrier;
+  const phone = carrier?.driverPhone;
+  if(!phone || normalizePhone(phone).length !== 10) return null;
+  const navUrl = buildOrdersNavUrl([o]);
+  if(!navUrl) return null;
+  const greeting = carrier.driverName && carrier.driverName !== '—' ? `Hi ${carrier.driverName}, ` : 'Hi, ';
+  const msg = `${greeting}here's the run for ${o.waybill.waybillNumber} — ${o.customerName}, ${o.crates} crates to ${o.waybill.destination}.\n\nTurn-by-turn directions: ${navUrl}`;
+  return `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(msg)}`;
+}
+
 function renderNearbyGroups() {
   const el = document.getElementById('nearby-groups-panel');
   if(!el) return;
@@ -25211,7 +25278,12 @@ function renderInTransitPanel() {
     el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">Nothing on the road right now.</div>`;
     return;
   }
-  el.innerHTML = orders.map(o => `
+  el.innerHTML = orders.map(o => {
+    // See buildDriverDirectionsWaLink() — hides itself rather than shipping
+    // a dead/empty WhatsApp link when there's no driver phone or the order
+    // was never geocoded.
+    const waLink = buildDriverDirectionsWaLink(o);
+    return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;
       background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.2);border-radius:8px;margin-bottom:7px">
       <div>
@@ -25219,10 +25291,12 @@ function renderInTransitPanel() {
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${o.waybill?.waybillNumber || o.ref} · ${o.crates} crates → ${escapeHtml(o.waybill?.destination||'—')}</span>
       </div>
       <div style="display:flex;gap:6px">
+        ${waLink ? `<a href="${waLink}" target="_blank" class="btn btn-ghost" style="font-size:10px;text-decoration:none" title="Opens WhatsApp to this driver with the turn-by-turn link already typed in">📲 Send Directions</a>` : ''}
         <button class="btn btn-ghost" style="font-size:10px" onclick="viewWaybillDoc('${o.ref}')">📄 View</button>
         <button class="btn btn-primary" style="font-size:10px" onclick="openConfirmDeliveryModal('${o.ref}')">✓ Confirm Delivery</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function renderWaybillLog() {
@@ -25266,13 +25340,28 @@ function openGenerateWaybillModal(orderRef) {
      Order: <span style="color:var(--blue)">${o.ref}</span> · ${o.crates} crates`;
 
   const fleet = ensureFleet();
+  // Orders already out for delivery lock their vehicle/driver — see
+  // getBusyFleetAssignments(). excludeOrderRef=orderRef so re-opening this
+  // same order's own waybill never flags its own truck/driver as busy.
+  const { busyVehicles, busyDrivers } = getBusyFleetAssignments(orderRef);
   const vSel = document.getElementById('wb-vehicle');
   vSel.innerHTML = fleet.vehicles.length
-    ? fleet.vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.type)} ${v.plate ? '— '+escapeHtml(v.plate) : ''}</option>`).join('')
+    ? fleet.vehicles.map(v => {
+        const busyRef = busyVehicles[v.id];
+        const label = `${escapeHtml(v.type)} ${v.plate ? '— '+escapeHtml(v.plate) : ''}`;
+        return busyRef
+          ? `<option value="${v.id}" disabled>${label} — 🚫 out on ${escapeHtml(busyRef)}</option>`
+          : `<option value="${v.id}">${label}</option>`;
+      }).join('')
     : '<option value="">No vehicles on file — add one in Logistics</option>';
   const dSel = document.getElementById('wb-driver');
   dSel.innerHTML = fleet.drivers.length
-    ? fleet.drivers.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('')
+    ? fleet.drivers.map(d => {
+        const busyRef = busyDrivers[d.id];
+        return busyRef
+          ? `<option value="${d.id}" disabled>${escapeHtml(d.name)} — 🚫 out on ${escapeHtml(busyRef)}</option>`
+          : `<option value="${d.id}">${escapeHtml(d.name)}</option>`;
+      }).join('')
     : '<option value="">No drivers on file — add one in Logistics</option>';
 
   const destRefSel = document.getElementById('wb-destination-ref');
@@ -25283,7 +25372,36 @@ function openGenerateWaybillModal(orderRef) {
   document.getElementById('wb-destination-name').value = o.location || '';
   document.getElementById('wb-distance-km').value = '';
   document.getElementById('wb-cost-preview').innerHTML = '';
+  checkWaybillVehicleWarnings();
   openModal('modal-generate-waybill');
+}
+
+// Fires when the vehicle dropdown changes (and once when the modal opens)
+// to warn — not block — if the selected vehicle has a statutory document
+// that's expired or inside its 3-week renewal window (see
+// getVehicleDocumentAlerts()). Dispatching on an expired document is a real
+// checkpoint risk, but the owner may still have a good reason to do it
+// (e.g. renewal already in progress), so this stays a visible warning
+// rather than a hard block.
+function checkWaybillVehicleWarnings() {
+  const warnEl = document.getElementById('wb-availability-warn');
+  if(!warnEl) return;
+  const fleet = ensureFleet();
+  const vehicleId = document.getElementById('wb-vehicle')?.value;
+  const vehicle = fleet.vehicles.find(v => v.id === vehicleId);
+  const msgs = [];
+  if(vehicle) {
+    const docs = vehicle.documents || {};
+    VEHICLE_DOCUMENT_TYPES.forEach(dt => {
+      const daysLeft = getDocumentDaysLeft(docs[dt.key]?.expiryDate);
+      if(daysLeft === null || daysLeft > VEHICLE_DOC_RENEWAL_WINDOW_DAYS) return;
+      msgs.push(daysLeft < 0
+        ? `⛔ ${dt.label} expired ${Math.abs(daysLeft)} day(s) ago for this vehicle.`
+        : `⚠ ${dt.label} expires in ${daysLeft} day(s) for this vehicle.`);
+    });
+  }
+  warnEl.style.display = msgs.length ? 'block' : 'none';
+  warnEl.innerHTML = msgs.map(m => `<div>${escapeHtml(m)}</div>`).join('');
 }
 
 function applyDestinationRef() {
@@ -25331,6 +25449,13 @@ function submitGenerateWaybill() {
   const driver  = fleet.drivers.find(d => d.id === driverId);
   if(!vehicle?.plate) { showToast('⚠ Selected vehicle has no plate on file — add one in Logistics first.'); return; }
   if(!driver?.phone)  { showToast('⚠ Selected driver has no phone on file — add one in Logistics first.'); return; }
+
+  // Re-checked here, not just in the dropdown, in case another waybill was
+  // generated (e.g. from another device, given cross-device sync) in the
+  // gap between opening this modal and clicking Generate.
+  const { busyVehicles, busyDrivers } = getBusyFleetAssignments(orderRef);
+  if(busyVehicles[vehicleId]) { showToast(`⚠ That vehicle is already out on ${busyVehicles[vehicleId]} — pick another.`); return; }
+  if(busyDrivers[driverId])   { showToast(`⚠ That driver is already out on ${busyDrivers[driverId]} — pick another.`); return; }
 
   generateWaybill(orderRef, { vehicleId, driverId, destinationName, distanceKm });
   closeModal('modal-generate-waybill');
