@@ -17547,13 +17547,13 @@ function renderTimeValue() {
   }
 }
 
-function applyTimeValueRate() {
+async function applyTimeValueRate() {
   const inputEl  = document.getElementById('tv-rate-input');
   const reasonEl = document.getElementById('tv-rate-reason');
   const warnEl   = document.getElementById('tv-rate-warn');
   const pct = parseFloat(inputEl?.value);
   if(isNaN(pct)) { if(warnEl){warnEl.style.display='block'; warnEl.textContent='Enter a rate first.';} return; }
-  const result = saveTimeValueRate(pct / 100, reasonEl?.value.trim());
+  const result = await saveTimeValueRate(pct / 100, reasonEl?.value.trim());
   if(!result.ok) {
     if(warnEl) { warnEl.style.display = 'block'; warnEl.textContent = '⚠ ' + result.error; }
     return;
@@ -17561,15 +17561,21 @@ function applyTimeValueRate() {
   if(warnEl) warnEl.style.display = 'none';
   if(reasonEl) reasonEl.value = '';
   renderTimeValue();
-  showToast(`✓ Time-value rate set to ${pct}% p.a.`);
+  // Sep 27 2026 fix — this is the toast that used to lie: it said "saved"
+  // even on the run where the backend silently rejected it. Now it says so.
+  if(result.backendOk === false) {
+    showToast(`⚠ Rate is ${pct}% here, but didn't save to the backend (${result.backendError || 'unknown error'}) — it will revert on next refresh unless this is fixed.`);
+  } else {
+    showToast(`✓ Time-value rate set to ${pct}% p.a. — saved and synced.`);
+  }
 }
 
-function applyTimeValueRateBand() {
+async function applyTimeValueRateBand() {
   const minEl    = document.getElementById('tv-band-min-input');
   const maxEl    = document.getElementById('tv-band-max-input');
   const reasonEl = document.getElementById('tv-band-reason');
   const warnEl   = document.getElementById('tv-band-warn');
-  const result = saveTimeValueRateBand(minEl?.value, maxEl?.value, reasonEl?.value.trim());
+  const result = await saveTimeValueRateBand(minEl?.value, maxEl?.value, reasonEl?.value.trim());
   if(!result.ok) {
     if(warnEl) { warnEl.style.display = 'block'; warnEl.textContent = '⚠ ' + result.error; }
     return;
@@ -17577,7 +17583,11 @@ function applyTimeValueRateBand() {
   if(warnEl) warnEl.style.display = 'none';
   if(reasonEl) reasonEl.value = '';
   renderTimeValue();
-  showToast(`✓ Band updated to ${minEl.value}%–${maxEl.value}% p.a.`);
+  if(result.backendOk === false) {
+    showToast(`⚠ Band is ${minEl.value}%–${maxEl.value}% here, but didn't save to the backend (${result.backendError || 'unknown error'}) — it will revert on next refresh unless this is fixed.`);
+  } else {
+    showToast(`✓ Band updated to ${minEl.value}%–${maxEl.value}% p.a. — saved and synced.`);
+  }
 }
 
 function runTimeValueSimulation() {
@@ -20444,15 +20454,100 @@ async function syncTimeValueRateFromBackend() {
     saveState();
   } catch(networkErr) {}
 }
+// Sep 27 2026 fix — this used to be fire-and-forget, never checking
+// resp.ok. That's exactly how the 23.5%-reverts-to-25% bug went unnoticed:
+// the backend was silently rejecting the PATCH (its own hardcoded 0.25-0.30
+// check, now retired — see routes-postgres/settings.js), the ERP had no
+// idea the save didn't take, and the next syncTimeValueRateFromBackend()
+// call pulled the old value straight back. Now returns {ok, error} so a
+// caller can tell the owner immediately instead of finding out on the next
+// refresh.
 async function postTimeValueRateToBackend(rate, updatedBy) {
   const token = await erpGetAuthToken();
-  if(!token) return;
+  if(!token) return { ok: false, error: 'Not signed in — change saved on this device only.' };
   try {
-    await fetch(`${BACKEND_URL}/settings/time-value-rate`, {
+    const resp = await fetch(`${BACKEND_URL}/settings/time-value-rate`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ rate, updatedBy: updatedBy || null }),
     });
+    if(!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return { ok: false, error: body.error || `Backend rejected the rate (HTTP ${resp.status}).` };
+    }
+    return { ok: true };
+  } catch(networkErr) {
+    return { ok: false, error: 'Network error — change saved on this device only, will retry to sync later.' };
+  }
+}
+
+// The band itself (Sep 27 2026 fix — see the long note in
+// routes-postgres/settings.js for the bug this closes). Mirrors the rate
+// pair exactly; STATE.timeValueRateBand is now just a local cache of
+// whatever this backend key holds, same relationship the rate has to its
+// own backend key.
+async function syncTimeValueRateBandFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/time-value-rate-band`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.band || typeof data.band.min !== 'number' || typeof data.band.max !== 'number') return;
+    STATE.timeValueRateBand = { min: data.band.min, max: data.band.max };
+    saveState();
   } catch(networkErr) {}
+}
+async function postTimeValueRateBandToBackend(min, max, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return { ok: false, error: 'Not signed in — band saved on this device only.' };
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/time-value-rate-band`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ min, max, updatedBy: updatedBy || null }),
+    });
+    if(!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return { ok: false, error: body.error || `Backend rejected the band (HTTP ${resp.status}).` };
+    }
+    return { ok: true };
+  } catch(networkErr) {
+    return { ok: false, error: 'Network error — band saved on this device only, will retry to sync later.' };
+  }
+}
+
+// Special-volume crate threshold (Sep 27 2026 — the "small sync route"
+// from Preferred Delivery Day). Same relationship to
+// /settings/special-volume-threshold as selling price has to its own
+// route; famad-order.html now reads this live instead of carrying its own
+// hardcoded copy.
+async function syncSpecialVolumeThresholdFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/special-volume-threshold`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(data.crates === null || data.crates === undefined) return;
+    ensureLogisticsSettings().specialVolumeThresholdCrates = data.crates;
+    saveState();
+  } catch(networkErr) {}
+}
+async function postSpecialVolumeThresholdToBackend(crates, updatedBy) {
+  const token = await erpGetAuthToken();
+  if(!token) return { ok: false, error: 'Not signed in — saved on this device only.' };
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/special-volume-threshold`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ crates, updatedBy: updatedBy || null }),
+    });
+    if(!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return { ok: false, error: body.error || `Backend rejected the threshold (HTTP ${resp.status}).` };
+    }
+    return { ok: true };
+  } catch(networkErr) {
+    return { ok: false, error: 'Network error — saved on this device only, will retry to sync later.' };
+  }
 }
 
 // Owner PIN — hash/recoveryHash/setAt/lockoutUntil only, never plaintext.
@@ -25320,22 +25415,22 @@ function removeDeliveryDay(id) {
 // any day of the week") — a single number, so it lives on
 // logisticsSettings rather than its own table/route.
 //
-// IMPORTANT — unlike the delivery days above, this number is NOT synced to
-// famad-order.html. There is no backend route or table for a lone settings
-// value like this one yet (the delivery-days table only holds day names),
-// so the portal currently carries its own copy as a plain constant
-// (SPECIAL_VOLUME_THRESHOLD_CRATES near the top of famad-order.html).
-// Changing it here is a staff-facing reference/record only — if the real
-// threshold changes, that portal constant needs a manual, matching edit
-// too. Flagged to Bob as a known gap; worth a small follow-up (a public
-// GET route for this one number) if the threshold is expected to move
-// often.
-function saveSpecialVolumeThreshold(value) {
+// Sep 27 2026 — now synced via GET/PATCH /settings/special-volume-threshold
+// (see syncSpecialVolumeThresholdFromBackend/postSpecialVolumeThresholdToBackend
+// above), the "small sync route" Bob asked for. famad-order.html reads the
+// same live number instead of carrying its own hardcoded copy — closes the
+// gap flagged when this field was first added.
+async function saveSpecialVolumeThreshold(value) {
   const n = parseInt(value, 10);
   if(isNaN(n) || n < 1) { showToast('⚠ Enter a whole number of crates, 1 or more.'); renderLogistics(); return; }
   ensureLogisticsSettings().specialVolumeThresholdCrates = n;
   saveState();
-  showToast(`✓ Special-volume threshold set to ${n} crates.`);
+  const result = await postSpecialVolumeThresholdToBackend(n, 'Admin');
+  if(result.ok === false) {
+    showToast(`⚠ Threshold is ${n} crates here, but didn't save to the backend (${result.error || 'unknown error'}) — the portal may not see this change.`);
+  } else {
+    showToast(`✓ Special-volume threshold set to ${n} crates — saved and synced to the portal.`);
+  }
 }
 
 // Delivery Location Privacy & Safety Policy (Sep 26 2026), Policy §1 & §3 —
@@ -29582,7 +29677,7 @@ function getTimeValueRate() {
 function getTimeValueRatePct() {
   return Math.round(getTimeValueRate() * 1000) / 10;
 }
-function saveTimeValueRate(newRate, reason) {
+async function saveTimeValueRate(newRate, reason) {
   const val = parseFloat(newRate);
   if(isNaN(val)) return { ok: false, error: 'Not a number.' };
   const bandMin = getTimeValueRateMin(), bandMax = getTimeValueRateMax();
@@ -29600,8 +29695,13 @@ function saveTimeValueRate(newRate, reason) {
   STATE.creditOverrideLog.unshift(covEntry);
   postCreditOverrideToBackend(covEntry); // Aug 28 fix — was local-only before
   saveState();
-  postTimeValueRateToBackend(val, 'Admin');
-  return { ok: true };
+  // Sep 27 2026 fix — now awaited and checked. Saving locally always
+  // succeeds and this function still returns { ok: true } for that (the
+  // rate IS in effect on this device right now) — but the caller also gets
+  // told if the backend copy didn't take, instead of finding out days
+  // later when a refresh quietly reverts it.
+  const backendResult = await postTimeValueRateToBackend(val, 'Admin');
+  return { ok: true, backendOk: backendResult.ok, backendError: backendResult.error };
 }
 // Adjusts the band itself (floor/ceiling), not the rate within it — for
 // when real lending rates have actually shifted, not routine day-to-day
@@ -29609,7 +29709,7 @@ function saveTimeValueRate(newRate, reason) {
 // up outside the new band, it's pulled to the nearest new edge rather than
 // left sitting on a value the band would now reject — a stale unreachable
 // rate would be a worse trap than an audited auto-adjustment.
-function saveTimeValueRateBand(newMinPct, newMaxPct, reason) {
+async function saveTimeValueRateBand(newMinPct, newMaxPct, reason) {
   const min = parseFloat(newMinPct), max = parseFloat(newMaxPct);
   if(isNaN(min) || isNaN(max)) return { ok: false, error: 'Enter numbers for both floor and ceiling.' };
   if(min < 0 || max <= 0) return { ok: false, error: 'Floor and ceiling must be positive.' };
@@ -29632,8 +29732,17 @@ function saveTimeValueRateBand(newMinPct, newMaxPct, reason) {
   STATE.creditOverrideLog.unshift(covEntry);
   postCreditOverrideToBackend(covEntry);
   saveState();
-  postTimeValueRateToBackend(getTimeValueRate(), 'Admin'); // keep backend in sync if the rate itself got clamped
-  return { ok: true };
+  // Sep 27 2026 fix — THIS call was the actual bug. The band used to never
+  // reach the backend at all, only the (possibly-clamped) rate did — so
+  // the backend's own rate-validation route had no way to know the band
+  // had moved, and kept enforcing its old hardcoded 0.25-0.30 range
+  // forever. Now the band itself is persisted first, then the rate (in
+  // case it got clamped to a new edge above) — both awaited, both checked.
+  const bandResult = await postTimeValueRateBandToBackend(band.min, band.max, 'Admin');
+  const rateResult  = await postTimeValueRateToBackend(getTimeValueRate(), 'Admin');
+  const backendOk = bandResult.ok && rateResult.ok;
+  const backendError = !bandResult.ok ? bandResult.error : (!rateResult.ok ? rateResult.error : null);
+  return { ok: true, backendOk, backendError };
 }
 
 /* ── Compute time-value cost of outstanding debt ────────
@@ -31291,7 +31400,9 @@ document.addEventListener('DOMContentLoaded', () => {
   syncLogisticsSettingsFromBackend();
   syncProcurementReminderSettingsFromBackend();
   syncBrandingReadinessSettingsFromBackend();
+  syncTimeValueRateBandFromBackend(); // Sep 27 2026 fix — must sync before the rate below, see saveTimeValueRateBand()
   syncTimeValueRateFromBackend();
+  syncSpecialVolumeThresholdFromBackend();
   syncOwnerPinFromBackend();
   syncDistributionPricingSettingsFromBackend();
   syncPriceRampSettingsFromBackend();

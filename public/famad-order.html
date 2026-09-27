@@ -95,6 +95,20 @@ input[type=number]{-moz-appearance:textfield;}
 .coverage-map-card{border:1px solid rgba(74,158,255,0.4);animation:mapGlow 2.6s ease-in-out infinite;position:relative;}
 .coverage-map-card.expanded{animation:none;box-shadow:none;border-color:var(--border);}
 
+/* Preferred Delivery Day note (Sep 27 2026) — Bob's own words: "I need the
+   highlighted notification... in Neon green and breathing so that
+   customers can't miss it." Same "look at this" glow language as
+   .ph-progressive-banner / .coverage-map-card above, just in --lime
+   instead of teal/blue, since this note is telling the customer something
+   they need to act on (which day to book, or that any day works for a
+   big order) rather than something merely nice to notice. */
+@keyframes deliveryDayGlow{0%,100%{box-shadow:0 0 8px rgba(109,217,109,0.25);}50%{box-shadow:0 0 18px rgba(109,217,109,0.55);}}
+#delivery-day-note.dd-note-glow{
+  color:var(--lime);background:rgba(109,217,109,0.08);border:1px solid rgba(109,217,109,0.4);
+  border-radius:7px;padding:7px 11px;margin-top:6px;line-height:1.5;font-size:10.5px;
+  animation:deliveryDayGlow 2.4s ease-in-out infinite;
+}
+
 /* Side-rail area lists — Sep 26 2026. Purely a wide-screen bonus: the
    580px content column is centered, so these sit in the empty margin that
    only exists once the viewport is wide enough to show it (roughly tablet/
@@ -658,7 +672,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         <div class="form-group" id="delivery-day-field">
           <label class="form-label"><span data-i18n="s2.delivery_day_label">Preferred Delivery Day</span> <span class="req">*</span></label>
           <select class="form-input" id="preferred-delivery-day" onchange="onPreferredDeliveryDayChange(this)"></select>
-          <div id="delivery-day-note" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:5px"></div>
+          <div id="delivery-day-note" style="font-family:'DM Mono',monospace"></div>
         </div>
 
         <div class="form-group">
@@ -1482,15 +1496,16 @@ document.addEventListener('DOMContentLoaded', loadServiceAreas);
 // week instead of only on the days below (Bob: "special volume deliveries
 // of 250 crates and above should be flagged as appropriate to be
 // delivered any day of the week. Anything below will be batch-delivered
-// to save cost."). Bob only asked that the DAY LIST not be hardcoded —
-// this threshold is a plain constant here for now, since there's no
-// backend route yet for a lone settings number. It mirrors the same field
-// in the ERP's Logistics settings; if that number ever changes there, this
-// constant needs a matching manual edit until a small follow-up route is
-// built to sync it automatically.
+// to save cost.").
+//
+// Sep 27 2026 — now live-synced from GET /settings/special-volume-threshold
+// (the "small sync route" Bob asked for once he confirmed nothing was
+// actually stopping it — see routes-postgres/settings.js and the matching
+// helpers in famad-erp.html). 250 remains only as the pre-sync fallback,
+// same role FALLBACK_DELIVERY_DAYS plays for the day list below.
 const FALLBACK_DELIVERY_DAYS = ['Wednesday', 'Saturday'];
 let DELIVERY_DAYS = FALLBACK_DELIVERY_DAYS;
-const SPECIAL_VOLUME_THRESHOLD_CRATES = 250;
+let SPECIAL_VOLUME_THRESHOLD_CRATES = 250;
 
 function isSpecialVolumeOrder() {
   return (portalState.crates || 0) >= SPECIAL_VOLUME_THRESHOLD_CRATES;
@@ -1501,18 +1516,32 @@ function paintDeliveryDayOptions() {
   const note = document.getElementById('delivery-day-note');
   if(!select) return;
 
+  // Sep 27 2026 — Bob: "I need the highlighted notification... in Neon
+  // green and breathing so that customers can't miss it." Applies to this
+  // note either way (which day to book, or that any day works), so the
+  // class goes on unconditionally and only the wording changes below.
+  if(note) note.classList.add('dd-note-glow');
+
   if(isSpecialVolumeOrder()) {
     // Special-volume orders can be delivered any day — offer the full week
     // and say so, rather than restricting to the batch-delivery days.
     const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     select.innerHTML = ALL_DAYS.map(d => `<option value="${d}">${d}</option>`).join('');
-    if(note) note.textContent = `Special-volume order (${portalState.crates} crates) — any day works for us, pick what suits you.`;
+    if(note) note.textContent = `🎉 Special-volume order (${portalState.crates} crates) — any day works for us, pick what suits you.`;
     if(portalState.preferredDeliveryDay && !ALL_DAYS.includes(portalState.preferredDeliveryDay)) {
       portalState.preferredDeliveryDay = null;
     }
   } else {
     select.innerHTML = DELIVERY_DAYS.map(d => `<option value="${d}">${d}</option>`).join('');
-    if(note) note.textContent = `Orders under ${SPECIAL_VOLUME_THRESHOLD_CRATES} crates are batch-delivered on our regular run days to keep costs down.`;
+    // Sep 27 2026 — Bob asked for two more things in this note: tell
+    // customers other weekdays may open up as demand grows (so today's
+    // fixed list doesn't read as permanent), and nudge early booking
+    // around the current run days specifically. DELIVERY_DAYS is rendered
+    // here rather than named literally, since the whole point of this
+    // feature is that the list isn't hardcoded — this note has to stay
+    // true if a third day gets added later without a code change.
+    const dayList = DELIVERY_DAYS.length ? DELIVERY_DAYS.join(' and ') : 'our scheduled run days';
+    if(note) note.textContent = `Orders under ${SPECIAL_VOLUME_THRESHOLD_CRATES} crates are batch-delivered on ${dayList} to keep costs down — book early, as slots between runs fill up fast. More delivery days may open up as demand grows.`;
     if(!portalState.preferredDeliveryDay || !DELIVERY_DAYS.includes(portalState.preferredDeliveryDay)) {
       portalState.preferredDeliveryDay = DELIVERY_DAYS[0] || null;
     }
@@ -1523,6 +1552,19 @@ function paintDeliveryDayOptions() {
 function onPreferredDeliveryDayChange(el) {
   portalState.preferredDeliveryDay = el.value;
 }
+async function loadSpecialVolumeThreshold() {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/special-volume-threshold`, { headers: { 'x-api-key': PORTAL_API_KEY } });
+    if(resp.ok) {
+      const data = await resp.json();
+      if(Number.isInteger(data.crates) && data.crates > 0) SPECIAL_VOLUME_THRESHOLD_CRATES = data.crates;
+    }
+  } catch(networkErr) {
+    // stays on the 250 fallback
+  }
+  paintDeliveryDayOptions();
+}
+document.addEventListener('DOMContentLoaded', loadSpecialVolumeThreshold);
 async function loadDeliveryDays() {
   try {
     const resp = await fetch(`${BACKEND_URL}/delivery-days/public`, { headers: { 'x-api-key': PORTAL_API_KEY } });
