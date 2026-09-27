@@ -3064,6 +3064,11 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
     if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
     if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
+    // Sep 27 2026 — keeps the Confirm Sale lock readout current for an SR
+    // who has a portal-linked sale form sitting open when the customer's
+    // confirmation lands, so they see it unlock without needing to leave
+    // and re-open the form.
+    if(typeof refreshSaleLinkedOrderBanner === 'function') refreshSaleLinkedOrderBanner();
   }, 75000);
 </script>
 
@@ -4004,6 +4009,48 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="closeModal('modal-credit-override')">Cancel</button>
       <button class="btn btn-danger" onclick="confirmCreditOverride()">🔑 Authorise Override</button>
+    </div>
+  </div>
+</div>
+
+<!-- Customer Attestation Override Modal (Sep 27 2026) — the escape hatch
+     for the "Confirm Sale requires customer attestation" gate in
+     handleSave(). Real world means a real edge case eventually: a dead
+     phone, no WhatsApp, a customer who won't touch a link — this is
+     where Bob steps in and vouches for it himself, PIN-verified and
+     permanently logged, exactly like the credit-override modal above. -->
+<div class="modal-overlay" id="modal-attestation-override">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">🔑 Owner Override — Customer Attestation</div>
+      <button class="modal-close" onclick="closeModal('modal-attestation-override')">✕</button>
+    </div>
+    <div class="alert-banner crit" style="margin-bottom:16px">
+      🚫 This customer hasn't confirmed delivery through the link sent to the driver. A rep cannot close this sale without it. This override is recorded permanently in the audit log with your name, the reason, and the timestamp.
+    </div>
+    <input type="hidden" id="ao-order-ref"/>
+    <div id="ao-order-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.9"></div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Override Reason <span class="req">*</span></label>
+      <select class="form-select" id="ao-reason">
+        <option value="">— Select a reason —</option>
+        <option value="Customer has no phone/WhatsApp on hand — verified by phone call instead">Customer has no phone/WhatsApp on hand — verified by phone call instead</option>
+        <option value="Customer unable to use the link — verbal confirmation taken">Customer unable to use the link — verbal confirmation taken</option>
+        <option value="Confirmation link failed technically — driver reports successful delivery">Confirmation link failed technically — driver reports successful delivery</option>
+        <option value="Other — see notes">Other — see notes</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Notes <span style="color:var(--mist)">(required if "Other")</span></label>
+      <input class="form-input" id="ao-notes" placeholder="What actually happened"/>
+    </div>
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Owner PIN <span class="req">*</span><span style="color:var(--mist);font-size:9px;margin-left:8px">Set in Settings · default: 0000</span></label>
+      <input class="form-input" type="password" id="ao-pin" placeholder="Enter owner PIN" maxlength="8"/>
+    </div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-attestation-override')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmAttestationOverride()">🔑 Authorise Override</button>
     </div>
   </div>
 </div>
@@ -5508,6 +5555,11 @@ input[type=number]{-moz-appearance:textfield;}
         </span>
         <button class="btn btn-danger" style="font-size:9px;padding:4px 10px;white-space:nowrap"
           onclick="cancelLinkedOrderFromSaleForm()">✕ Cancel This Order</button>
+        <!-- Sep 27 2026 — live readout of the customer-attestation gate
+             handleSave() enforces (see refreshSaleLinkedOrderBanner()).
+             flex-basis:100% puts it on its own line under the text/button
+             above rather than squeezing into the same row. -->
+        <div id="sale-linked-order-attest-status" style="font-family:'DM Mono',monospace;font-size:9px;flex-basis:100%"></div>
       </div>
 
       <div class="submit-row">
@@ -11110,6 +11162,7 @@ function autoPopulateOrderRef(customerName) {
           : `This form is locked to a portal order. If the customer called to cancel, don't just Clear the form — that only resets these fields, the order itself stays open.`;
       }
     }
+    refreshSaleLinkedOrderBanner();
 
     // Trigger computation with locked values
     computeSale();
@@ -11169,6 +11222,36 @@ function releaseLockedOrderFields() {
   if(adjustWrap) adjustWrap.style.display = 'none';
   const linkBanner = document.getElementById('sale-linked-order-banner');
   if(linkBanner) linkBanner.style.display = 'none';
+}
+
+// Sep 27 2026 — the visible half of handleSave()'s customer-attestation
+// gate (the actual block is enforced at click time, in handleSave() —
+// this is just so an SR sees the lock BEFORE they try, matching Bob's
+// "tag out the button" ask, rather than only finding out via a toast
+// after clicking). Called once when the form first locks onto an order,
+// and again from the background poll (see the setInterval near
+// erpCheckSession()) so it stays current even if the customer confirms
+// while this exact form is still sitting open on screen.
+function refreshSaleLinkedOrderBanner() {
+  const invField = document.getElementById('s-inv');
+  const ref = invField?.dataset.linkedOrderRef;
+  const linkBanner = document.getElementById('sale-linked-order-banner');
+  const attestLine = document.getElementById('sale-linked-order-attest-status');
+  if(!ref || !attestLine || !linkBanner || linkBanner.style.display === 'none') return;
+  const o = loadOrders().find(x => x.ref === ref);
+  if(!o) return;
+  // No waybill at all yet (e.g. a reservation not even dispatched) — the
+  // attestation question doesn't apply yet, so stay silent rather than
+  // showing a confusing "locked" message for a sale that isn't near that
+  // stage regardless.
+  if(!o.waybill) { attestLine.innerHTML = ''; return; }
+  if(o.customerAttestedAt) {
+    attestLine.style.color = 'var(--lime)';
+    attestLine.innerHTML = `✅ Customer confirmed ${new Date(o.customerAttestedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} — Confirm Sale is unlocked.`;
+  } else {
+    attestLine.style.color = 'var(--amber)';
+    attestLine.innerHTML = `🔒 Awaiting customer confirmation — Confirm Sale is locked until they confirm delivery, or an owner authorises an override.`;
+  }
 }
 
 // Reads the order ref currently locked into the Record Sale form (set by
@@ -13724,6 +13807,30 @@ function handleSave() {
   // ── Manual-entry abuse check — same identity checks the portal runs,
   // closed by default, openable with the owner PIN once verified ──
   const orderRefForAbuseCheck = document.getElementById('s-inv')?.dataset.linkedOrderRef || null;
+
+  // ── Customer attestation gate (Sep 27 2026) — the actual "Confirm Sale
+  // retirement" Bob asked for. A plain walk-in/manually-entered sale has
+  // no linkedOrderRef at all and is completely untouched by this — it's
+  // ONLY a sale that came from an order (sendToSalesLog() is what sets
+  // this dataset attribute when it pre-fills this form) that now needs
+  // the customer's own signoff before it can close. Same underlying
+  // sale-closing logic as always; this just refuses to let a click fire
+  // it ahead of the real-world event. Owner override exists for the
+  // genuine edge case (customer has no working phone/WhatsApp, refuses
+  // the link, etc.) — same PIN-and-reason, permanently-logged pattern as
+  // the credit and stop-loss overrides just above/below this.
+  if(orderRefForAbuseCheck) {
+    const linkedOrder = loadOrders().find(x => x.ref === orderRefForAbuseCheck);
+    if(linkedOrder && !linkedOrder.customerAttestedAt) {
+      const overrideKey = `attestation_override_${orderRefForAbuseCheck}`;
+      if(!sessionStorage.getItem(overrideKey)) {
+        showToast('🚫 Customer hasn\'t confirmed this delivery yet — Confirm Sale is locked until they do.');
+        openAttestationOverrideModal(orderRefForAbuseCheck);
+        return;
+      }
+    }
+  }
+
   const abuseReasons = checkOrderAbuseRisk(customer, crates, orderRefForAbuseCheck);
   if(abuseReasons.length > 0) {
     const overrideKey = `abuse_override_${customer}_${new Date().toISOString().split('T')[0]}`;
@@ -30378,6 +30485,69 @@ async function confirmCreditOverride() {
 
   closeModal('modal-credit-override');
   showToast(`✓ Override authorised — ${customer}. This sale may proceed. Override is permanently logged.`);
+}
+
+// Sep 27 2026 — the escape hatch for handleSave()'s customer-attestation
+// gate. Same PIN-and-reason-logged shape as the credit override just
+// above; the only real difference is what it's unlocking (one specific
+// order's sale, not a customer's whole credit line) and that it's keyed
+// per-order rather than per-customer-per-day, since a missing attestation
+// is a one-off delivery-event problem, not a recurring relationship one.
+function openAttestationOverrideModal(orderRef) {
+  const o = loadOrders().find(x => x.ref === orderRef);
+  if(!o) { closeModal('modal-attestation-override'); return; }
+  document.getElementById('ao-order-ref').value = orderRef;
+  document.getElementById('ao-order-summary').innerHTML =
+    `<strong style="color:var(--cream)">${escapeHtml(o.customerName)}</strong><br>
+     Order: <span style="color:var(--blue)">${o.ref}</span> · ${o.crates} crates<br>
+     Waybill: ${o.waybill?.waybillNumber || '—'} · Driver: ${escapeHtml(o.waybill?.carrier?.driverName || '—')}`;
+  document.getElementById('ao-reason').value = '';
+  document.getElementById('ao-notes').value = '';
+  document.getElementById('ao-pin').value = '';
+  openModal('modal-attestation-override');
+}
+
+async function confirmAttestationOverride() {
+  const orderRef = document.getElementById('ao-order-ref').value;
+  const reason   = document.getElementById('ao-reason')?.value;
+  const notes    = document.getElementById('ao-notes')?.value.trim();
+  const pin      = document.getElementById('ao-pin')?.value;
+
+  if(!reason) { showToast('⚠ Select a reason for the override.'); return; }
+  if(reason === 'Other — see notes' && !notes) { showToast('⚠ Add a note explaining what happened.'); return; }
+  if(!pin)    { showToast('⚠ Enter the owner PIN.'); return; }
+
+  const result = await verifyPin(pin);
+  if(!result.ok) {
+    if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
+    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+    return;
+  }
+
+  const o = loadOrders().find(x => x.ref === orderRef);
+
+  if(!STATE.attestationOverrideLog) STATE.attestationOverrideLog = [];
+  STATE.attestationOverrideLog.unshift({
+    id: 'ao' + Date.now(), type: 'customer_attestation_override',
+    orderRef, customerName: o?.customerName || '—',
+    reason, notes: notes || '',
+    overriddenAt: new Date().toISOString(), overriddenBy: 'owner',
+  });
+  saveState();
+
+  const overrideKey = `attestation_override_${orderRef}`;
+  sessionStorage.setItem(overrideKey, '1');
+
+  const btn = document.querySelector('#mod-sales .btn-primary[onclick="handleSave()"]');
+  if(btn) { btn.disabled = false; btn.style.opacity = ''; btn.title = ''; }
+
+  logCrit('orders',
+    `Customer attestation override authorised — ${orderRef} · ${o?.customerName || '—'}`,
+    `Reason: ${reason}${notes ? ' — ' + notes : ''} · PIN verified`
+  );
+
+  closeModal('modal-attestation-override');
+  showToast(`✓ Override authorised — ${orderRef}. This sale may proceed. Override is permanently logged.`);
 }
 
 /* ═══════════════════════════════════════════════════════
