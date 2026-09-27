@@ -40,7 +40,12 @@ function genReferralCode(name) {
 router.post('/', requireEitherAuth(), async (req, res) => {
   const { customerName, phone, location, crates, eggPricePerCrate, deliveryPerCrate, notes, paymentMethod,
           referredByCustomerName, reservationCustomerType, reservedAt, reservationWindowHours, reservationExpiresAt, status,
-          confirmedExistingCid, theme } = req.body;
+          confirmedExistingCid, theme,
+          // Sep 27 2026 fix — these two were never destructured here at
+          // all, so even though famad-order.html now sends them, they'd
+          // have been silently dropped on the floor. See
+          // migration-order-delivery-day.sql for the matching columns.
+          preferredDeliveryDay, isSpecialVolumeOrder } = req.body;
   if(!customerName || !crates || crates < 1) {
     return res.status(400).json({ error: 'customerName and a positive crates value are required.' });
   }
@@ -101,13 +106,14 @@ router.post('/', requireEitherAuth(), async (req, res) => {
 
 const ref = genOrderRef();
   const info = await db.prepare(`
-    INSERT INTO orders (ref, customer_id, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method, referred_by_customer_name, reservation_customer_type, reserved_at, reservation_window_hours, reservation_expires_at, status, theme)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (ref, customer_id, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method, referred_by_customer_name, reservation_customer_type, reserved_at, reservation_window_hours, reservation_expires_at, status, theme, preferred_delivery_day, is_special_volume_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(ref, customerId, customerName, phone || null, location || null, crates,
     eggPricePerCrate || 0, deliveryPerCrate || 0, notes || null, paymentMethod || null,
     referredByCustomerName || null, reservationCustomerType || null, reservedAt || null,
     reservationWindowHours || null, reservationExpiresAt || null, status || 'pending',
-    theme === 'dark' ? 'dark' : 'light');
+    theme === 'dark' ? 'dark' : 'light',
+    preferredDeliveryDay || null, !!isSpecialVolumeOrder);
 
   const order = await db.prepare('SELECT * FROM orders WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ ...order, customerCid, isNewCustomer });
@@ -163,7 +169,15 @@ router.get('/:ref', requireEitherAuth(), async (req, res) => {
 });
 
 router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
-  const { status, paymentVerified, batchId, convertedAt, cancelledAt, agreedPaymentTerms } = req.body;
+  const { status, paymentVerified, batchId, convertedAt, cancelledAt, agreedPaymentTerms,
+          // Sep 27 2026 — outbound attestation (Electronic Waybill Goods
+          // Attestation, Bob's "Context 3"), set by whichever staff member
+          // dispatches the vehicle at Generate Waybill time — see the
+          // matching famad-erp.html change. deliveryToken is generated
+          // client-side and saved here too, so the public confirmation
+          // page (below) can be reached with it before any staff member
+          // needs to be involved again.
+          deliveryToken, outboundCondition, outboundAttestedBy, outboundNotes } = req.body;
   const order = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
 
@@ -178,6 +192,13 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
   // comment in migration-agreed-payment-terms.sql for why this is a
   // separate field from payment_method (the customer's own portal choice).
   if(agreedPaymentTerms !== undefined) { fields.push('agreed_payment_terms = ?'); values.push(agreedPaymentTerms); }
+  if(deliveryToken !== undefined) { fields.push('delivery_token = ?'); values.push(deliveryToken); }
+  if(outboundCondition !== undefined) { fields.push('outbound_condition = ?'); values.push(outboundCondition); }
+  if(outboundAttestedBy !== undefined) { fields.push('outbound_attested_by = ?'); values.push(outboundAttestedBy); }
+  if(outboundNotes !== undefined) { fields.push('outbound_notes = ?'); values.push(outboundNotes); }
+  if(outboundCondition !== undefined || outboundAttestedBy !== undefined) {
+    fields.push('outbound_attested_at = now()');
+  }
   fields.push("updated_at = now()");
 
   if(fields.length === 1) return res.status(400).json({ error: 'No updatable fields provided.' });
@@ -187,6 +208,69 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
   console.log(`[audit] Order ${req.params.ref} updated by ${req.user?.email || 'portal key'}`);
 
   res.json(await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref));
+});
+
+// ── Customer delivery attestation — Sep 27 2026 ──────────────────────
+// The actual close-out mechanism for Bob's "who really confirmed this
+// arrived" gap. Deliberately NOT behind requireSupabaseAuth() or an
+// x-api-key — the person completing this is the CUSTOMER, standing at
+// their own door with no ERP login and often no prior relationship with
+// this backend at all. What stands in for auth here is the delivery_token:
+// a long random value, generated client-side in the ERP and saved onto
+// this exact order at waybill time (see the PATCH above), known only to
+// whoever the driver's WhatsApp link was sent to. Guessing another
+// order's token would mean guessing a long random string with no
+// enumerable pattern (order refs are sequential/date-based and NOT
+// accepted here in place of a token, on purpose).
+//
+// GET confirm-info is the read the confirmation page uses to render
+// itself — deliberately minimal (no phone, no address, no price) since
+// it's reachable by anyone who has the link, which in practice also means
+// anyone who later gets hold of the driver's phone.
+router.get('/:ref/confirm-info', async (req, res) => {
+  const { token } = req.query;
+  if(!token) return res.status(400).json({ error: 'token is required.' });
+  const order = await db.prepare('SELECT ref, customer_name, crates, delivery_token, customer_attested_at FROM orders WHERE ref = ?').get(req.params.ref);
+  if(!order || !order.delivery_token || order.delivery_token !== token) {
+    return res.status(404).json({ error: 'Link not recognised — ask for a fresh one.' });
+  }
+  res.json({
+    ref: order.ref,
+    customerName: order.customer_name,
+    crates: order.crates,
+    alreadyAttested: !!order.customer_attested_at,
+  });
+});
+
+router.post('/:ref/customer-attestation', async (req, res) => {
+  const { token, condition, attestedByName, notes, signature } = req.body;
+  if(!token) return res.status(400).json({ error: 'token is required.' });
+  if(!condition || !attestedByName || !attestedByName.trim()) {
+    return res.status(400).json({ error: 'condition and your name are both required.' });
+  }
+  const order = await db.prepare('SELECT ref, status, delivery_token, customer_attested_at FROM orders WHERE ref = ?').get(req.params.ref);
+  if(!order || !order.delivery_token || order.delivery_token !== token) {
+    return res.status(404).json({ error: 'Link not recognised — ask for a fresh one.' });
+  }
+  if(order.customer_attested_at) {
+    // Already done — same idempotent-success shape as re-clicking a
+    // WhatsApp link twice, not an error. Only the FIRST attestation ever
+    // counts, so a driver accidentally opening the link a second time
+    // can't silently overwrite what the customer already signed off on.
+    return res.json({ ok: true, alreadyAttested: true });
+  }
+
+  await db.prepare(`
+    UPDATE orders SET
+      customer_condition = ?, customer_attested_by = ?, customer_notes = ?,
+      customer_signature = ?, customer_attested_at = now(),
+      status = CASE WHEN status = 'in_transit' THEN 'delivered' ELSE status END,
+      updated_at = now()
+    WHERE ref = ?
+  `).run(condition, attestedByName.trim(), notes || null, signature || null, req.params.ref);
+
+  console.log(`[audit] Order ${req.params.ref} customer-attested by "${attestedByName.trim()}" (${condition})`);
+  res.json({ ok: true, alreadyAttested: false });
 });
 
 module.exports = router;
