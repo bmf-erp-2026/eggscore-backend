@@ -26724,7 +26724,7 @@ function renderWaybillLog() {
         <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${wb.waybillNumber}</strong>
         ${wb.tripId ? `<span style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--blue);margin-left:6px" title="Part of a multi-stop cluster run — same driver/vehicle as its other stops">🚚 ${wb.tripId} · stop ${wb.tripStopNumber}/${wb.tripStopCount}</span>` : ''}
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${escapeHtml(o.customerName)} · ${o.crates} crates → ${escapeHtml(wb.destination)}</span>
-        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--teal)">${wb.tripId ? "This stop's share of the trip cost" : 'Est. shipment cost'}: ₦${wb.costs.total.toLocaleString()}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--teal)">${wb.tripId ? "This stop's share of the trip cost" : 'Est. shipment cost'}: ₦${(wb.costs.total||0).toLocaleString()}</div>
       </div>
       <div style="text-align:right">
         <span style="font-family:'DM Mono',monospace;font-size:9px;color:${statusColor};text-transform:uppercase;font-weight:600">${wb.status}</span><br>
@@ -27326,9 +27326,9 @@ function viewWaybillDoc(orderRef) {
     </div>
     <div class="wb-internal-only" style="margin-bottom:14px;opacity:0.85;border-top:1px dashed var(--border);padding-top:10px">
       <div style="color:var(--mist);font-weight:600;margin-bottom:4px;font-size:9px;letter-spacing:0.5px">INTERNAL COST NOTE — STAFF ONLY, NOT SHOWN TO CUSTOMER</div>
-      <span style="color:var(--mist)">Fuel ₦${wb.costs.fuelCost.toLocaleString()} · Packaging ₦${wb.costs.packagingCost.toLocaleString()} · Labour ₦${wb.costs.laborCost.toLocaleString()}<br>
-      Maintenance ₦${wb.costs.maintenanceCost.toLocaleString()}<br>
-      Total real cost: ₦${wb.costs.total.toLocaleString()}<br>
+      <span style="color:var(--mist)">Fuel ₦${(wb.costs.fuelCost||0).toLocaleString()} · Packaging ₦${(wb.costs.packagingCost||0).toLocaleString()} · Labour ₦${(wb.costs.laborCost||0).toLocaleString()}<br>
+      Maintenance ₦${(wb.costs.maintenanceCost||0).toLocaleString()}<br>
+      Total real cost: ₦${(wb.costs.total||0).toLocaleString()}<br>
       Checkpoint/route fees are a reclaimable expense handled directly by the driver, not tracked in this total.</span>
     </div>
     ${wb.spoilage.cratesLost > 0 ? `<div style="margin-bottom:14px;color:var(--red)">
