@@ -3614,6 +3614,62 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 </div>
 
+<!-- Cluster Delivery (Sep 28 2026) — same shipment paperwork as Generate
+     Waybill above, but for several orders going out on one driver/vehicle
+     in one trip. Order selection, vehicle/driver, distance and cost
+     preview are all rendered/updated by JS (openGenerateClusterWaybillModal,
+     toggleClusterOrderSelection, updateClusterModal) — see those. -->
+<div class="modal-overlay" id="modal-generate-cluster-waybill">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">🚚 Generate Cluster Waybill</div>
+      <button class="modal-close" onclick="closeModal('modal-generate-cluster-waybill')">✕</button>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Stops on this trip <span style="color:var(--mist)">(tick every order going out with this driver)</span></label>
+      <div id="cwb-order-list" style="max-height:180px;overflow-y:auto;background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px"></div>
+      <div id="cwb-order-summary" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--teal);margin-top:6px"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div><label class="form-label">Vehicle</label><select class="form-select" id="cwb-vehicle"></select></div>
+      <div><label class="form-label">Driver</label><select class="form-select" id="cwb-driver"></select></div>
+    </div>
+    <div id="cwb-availability-warn" style="display:none;background:rgba(255,90,90,0.12);border:1px solid var(--red);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--red);line-height:1.6"></div>
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Total trip distance (km) <span style="color:var(--mist)">— the whole run, out and back, not one leg</span></label>
+      <input class="form-input" type="number" id="cwb-distance-km" placeholder="Distance (km)" oninput="updateClusterCostPreview()"/>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:12px">
+      Checkpoint fees are handled separately as a reclaimable expense by the driver, not tracked here.
+    </div>
+    <div id="cwb-cost-preview" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--teal);margin-bottom:16px"></div>
+
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
+      <div class="form-label" style="margin-bottom:8px">📋 Outbound Goods Attestation <span style="color:var(--mist);font-weight:400">(condition of the whole load as it leaves the farm)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <button type="button" class="btn btn-ghost cwb-outbound-cond" data-val="good" onclick="selectClusterOutboundCondition('good')" style="font-size:10px">✅ Good</button>
+        <button type="button" class="btn btn-ghost cwb-outbound-cond" data-val="damaged" onclick="selectClusterOutboundCondition('damaged')" style="font-size:10px">⚠️ Damaged</button>
+        <button type="button" class="btn btn-ghost cwb-outbound-cond" data-val="short" onclick="selectClusterOutboundCondition('short')" style="font-size:10px">📉 Short</button>
+      </div>
+      <input type="hidden" id="cwb-outbound-condition"/>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
+        <input class="form-input" id="cwb-outbound-attested-by" placeholder="Attested by (your name)"/>
+        <div>
+          <select class="form-select" id="cwb-outbound-notes-preset" onchange="applyClusterNotesPreset()" style="display:none;margin-bottom:6px"></select>
+          <input class="form-input" id="cwb-outbound-notes" placeholder="Notes (optional)"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-generate-cluster-waybill')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitGenerateClusterWaybill()">✓ Generate Waybills for This Trip</button>
+    </div>
+  </div>
+</div>
+
 <!-- Confirm Delivery Modal -->
 <div class="modal-overlay" id="modal-confirm-delivery">
   <div class="modal">
@@ -6843,16 +6899,17 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="panel-title">📤 Ready for Waybill</div>
       <div class="panel-hdr-actions">
         <button class="btn btn-ghost" style="font-size:9px;padding:4px 10px" onclick="groupNearbyOrders()" title="Geocode these orders' delivery addresses and flag which ones are close enough together to share one driver trip">📍 Group Nearby Orders</button>
+        <button class="btn btn-ghost" style="font-size:9px;padding:4px 10px" onclick="openGenerateClusterWaybillModal([])" title="Pick any 2+ orders yourself and put them on one driver's trip — no geocoding needed">🚚 Build Cluster Run</button>
         <div class="panel-tag">confirmed orders without one yet — the actual "generate" step lives here</div>
       </div>
     </div>
-    <!-- Phase 2 (Sep 24 2026) — Advisory grouping. Deliberately NOT a
-         new waybill/trip data model: waybills stay exactly the
-         one-order-at-a-time thing they've always been. This panel is
-         purely informational — "these orders are close enough to send
-         the same driver" — with a shared navigation link Bob can hand
-         over even though he still generates one waybill per order as
-         usual. See renderNearbyGroups(). -->
+    <!-- Phase 2 (Sep 24 2026), extended Sep 28 2026 — proximity grouping
+         is still purely advisory (suggests who's close enough to ride
+         together, via geocoding), but Cluster Delivery itself is now a
+         real feature: "🚚 Generate Cluster Waybill" on a suggested group,
+         or "🚚 Build Cluster Run" above for a fully manual pick, both open
+         the same modal and genuinely put several orders on one driver's
+         trip — see generateClusterWaybill()/openGenerateClusterWaybillModal(). -->
     <div id="nearby-groups-panel"></div>
     <div class="panel-body panel-scroll" id="ready-for-waybill-panel"></div>
   </div>
@@ -25008,13 +25065,21 @@ function normalizePlate(plate) {
 // records have no vehicleId to compare. Matching the plate/phone too
 // catches that same scenario for every waybill already on file, not just
 // ones generated after this fix.
+// Sep 28 2026 — excludeOrderRef now also accepts an ARRAY of refs, needed
+// for cluster waybills: every stop going onto the same driver/vehicle in
+// one trip must be excluded together, not just one, or generating the
+// 2nd stop's waybill would see the 1st stop (already in_transit, same
+// driver) and wrongly flag it as a double-booking. A bare string still
+// works exactly as before — every existing single-waybill call site is
+// unchanged.
 function getBusyFleetAssignments(excludeOrderRef) {
+  const excludeSet = new Set(Array.isArray(excludeOrderRef) ? excludeOrderRef : [excludeOrderRef]);
   const byVehicleId    = {}; // vehicleId -> orderRef
   const byDriverId     = {}; // driverId  -> orderRef
   const byVehiclePlate = {}; // normalized plate -> orderRef
   const byDriverPhone  = {}; // normalized phone -> orderRef
   loadOrders().forEach(o => {
-    if(o.status !== 'in_transit' || !o.waybill || o.ref === excludeOrderRef) return;
+    if(o.status !== 'in_transit' || !o.waybill || excludeSet.has(o.ref)) return;
     const c = o.waybill.carrier || {};
     if(c.vehicleId) byVehicleId[c.vehicleId] = o.ref;
     if(c.driverId)  byDriverId[c.driverId]  = o.ref;
@@ -25392,6 +25457,58 @@ function computeWaybillCosts(order, distanceKm) {
   return { fuelCost, packagingCost, laborCost, maintenanceCost, securityCost, insuranceCost, total };
 }
 
+function ensureDeliveryTrips() { if(!STATE.deliveryTrips) STATE.deliveryTrips = []; return STATE.deliveryTrips; }
+
+// Cluster Delivery (Sep 28 2026) — Bob's ask: one driver taking several
+// orders in a single trip, not the one-order-per-waybill model above.
+// The real risk here isn't the driver/navigation side (Group Nearby
+// Orders already builds a working multi-stop nav link) — it's cost
+// accounting. computeWaybillCosts() above charges a FULL trip's fuel,
+// driver wage, maintenance, security and insurance to every single
+// order — correct when there's exactly one order per trip, but if that
+// same per-order function were called once per stop on a 4-stop cluster,
+// the shipment-cost reports (getAllWaybills(), Waybill Log, the P&L
+// trend that reads them) would silently show 4x the real fuel/labour
+// cost for what was actually one truck, one driver, one trip.
+//
+// Fix: compute the trip's genuinely one-time costs (fuel + labour +
+// maintenance + security + insurance) exactly ONCE, off the whole
+// trip's distance — then split ONLY that shared pool across the stops
+// by crate share, so each stop's own costs.total is its fair slice.
+// Packaging is deliberately never split — it's a real per-crate cost,
+// computed per stop as normal. Summing every stop's costs.total this
+// way always reconstructs the true one-time trip total, never a
+// multiple of it — see generateClusterWaybill() for where this feeds in.
+function computeTripCosts(orders, distanceKm) {
+  const s = ensureLogisticsSettings();
+  const totalCrates = orders.reduce((sum, o) => sum + (o.crates || 0), 0);
+  const fuelCost        = (distanceKm > 0 && s.fuelEfficiencyKmPerL > 0) ? round2((distanceKm / s.fuelEfficiencyKmPerL) * s.fuelPricePerL) : 0;
+  const laborCost       = round2(s.driverWagePerTrip || 0);
+  const maintenanceCost = round2(s.maintenanceAllocationPerTrip || 0);
+  const securityCost    = round2(s.securityAllocationPerTrip || 0);
+  const insuranceCost   = round2(s.insuranceAllocationPerTrip || 0);
+  const sharedTotal     = round2(fuelCost + laborCost + maintenanceCost + securityCost + insuranceCost);
+  const packagingTotal  = round2(totalCrates * (s.cartonUnitCost + s.labelUnitCost));
+
+  const perOrder = {};
+  let sharedAssigned = 0;
+  orders.forEach((o, i) => {
+    const packagingCost = round2((o.crates || 0) * (s.cartonUnitCost + s.labelUnitCost));
+    // Last stop absorbs whatever rounding remainder is left, so the
+    // per-stop shares always add up exactly to sharedTotal — never a
+    // few kobo short/over from rounding each share independently.
+    const isLast = i === orders.length - 1;
+    const share = isLast
+      ? round2(sharedTotal - sharedAssigned)
+      : round2(sharedTotal * (totalCrates > 0 ? (o.crates || 0) / totalCrates : 1 / orders.length));
+    sharedAssigned = round2(sharedAssigned + share);
+    perOrder[o.ref] = { packagingCost, sharedShare: share, total: round2(packagingCost + share) };
+  });
+
+  return { fuelCost, laborCost, maintenanceCost, securityCost, insuranceCost, sharedTotal, packagingTotal,
+    total: round2(sharedTotal + packagingTotal), totalCrates, perOrder };
+}
+
 // ── Shared payment-verification gate ─────────────────────
 // Previously this only lived inside sendToSalesLog(), which meant a
 // waybill could be generated — goods dispatched, driver on the road —
@@ -25502,6 +25619,112 @@ function generateWaybill(orderRef, opts) {
   renderOrders();
   renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog();
   showToast(`✓ Waybill ${o.waybill.waybillNumber} generated — order now in transit.`);
+}
+
+// Cluster Delivery (Sep 28 2026) — same shape as generateWaybill() above,
+// but for N orders going out on one driver/vehicle in one trip. Each
+// order still gets its OWN waybill number, verify code and delivery
+// token — every customer needs their own document and their own
+// confirm-delivery.html link, since they're each separately signing for
+// their own goods — but all N share one driver, one vehicle, one
+// distance figure, and one outbound attestation (the whole truckload is
+// inspected/loaded together, by the same person, at the same time).
+// costs.total on each is its fair split from computeTripCosts(), never
+// the whole trip's cost repeated — see that function's header comment.
+function generateClusterWaybill(orderRefs, opts) {
+  const orders = loadOrders();
+  const group = orderRefs.map(ref => orders.find(o => o.ref === ref)).filter(Boolean);
+  if(group.length < 2) { showToast('⚠ A cluster run needs at least 2 orders.'); return false; }
+  const badStatus = group.find(o => o.status !== 'confirmed' && o.status !== 'pending');
+  if(badStatus) { showToast(`⚠ ${badStatus.ref} is not pending/confirmed — only those can be given a waybill.`); return false; }
+  for(const o of group) {
+    if(!checkOrderPaymentVerified(o.ref, o)) return false; // stops at the first stop needing verification, same gate as a single waybill
+  }
+
+  const shipper = ensureShipperDetails();
+  const fleet   = ensureFleet();
+  const ls      = ensureLogisticsSettings();
+  const vehicle = fleet.vehicles.find(v => v.id === opts.vehicleId);
+  const driver  = fleet.drivers.find(d => d.id === opts.driverId);
+  const tripCosts = computeTripCosts(group, opts.distanceKm);
+  const tripId = 'TRIP-' + Date.now().toString(36).toUpperCase();
+  const navUrl = buildOrdersNavUrl(group);
+
+  group.forEach((o, idx) => {
+    const split = tripCosts.perOrder[o.ref];
+    o.waybill = {
+      waybillNumber: generateWaybillNumber(o.ref), orderRef: o.ref,
+      verifyCode: generateVerifyCode(),
+      shipper: { ...shipper },
+      consignee: { name: o.customerName, address: o.location || '—', phone: o.phone || '—' },
+      origin: shipper.address || '—',
+      destination: o.location || '—',
+      distanceKm: opts.distanceKm || 0, // whole-trip distance — same figure on every stop in this trip, not a per-leg split
+      carrier: {
+        vehicleId: vehicle?.id || null, driverId: driver?.id || null,
+        vehicleType: vehicle?.type || '—', vehiclePlate: vehicle?.plate || '(not yet provided)',
+        trackingProvider: vehicle?.trackingProvider || '', trackingReference: vehicle?.trackingReference || '',
+        driverName: driver?.name || '—', driverPhone: driver?.phone || '—',
+      },
+      cargo: {
+        crates: o.crates, eggs: (o.crates || 0) * ls.eggsPerCrate,
+        weightKg: round2((o.crates || 0) * ls.kgPerCrate),
+        handling: 'Fragile — handle with care. Keep upright. Avoid direct sun and excess heat.',
+      },
+      route: { mode: 'Road', estimatedTravelHours: opts.distanceKm > 0 ? round2(opts.distanceKm / ls.avgSpeedKmH) : null },
+      conditions: {
+        liability: 'DRAFT TEMPLATE — not legal advice. Goods travel at consignee risk once ' +
+          'signed for on delivery. Claims for shortage or damage must be raised in writing ' +
+          'within 24 hours of delivery, with the waybill number quoted. This clause is a ' +
+          'starting point only and should be reviewed by a qualified professional before ' +
+          'being relied on as a binding contract term.',
+      },
+      costs: { packagingCost: split.packagingCost, sharedShare: split.sharedShare, total: split.total },
+      dormant: {
+        insurance: 'Not currently insured — self-insured.',
+        security: 'No paid escort arranged.',
+        gpsTracking: vehicle?.trackingProvider
+          ? `External — check position via ${vehicle.trackingProvider}, ref ${vehicle.trackingReference || '(none on file)'}`
+          : 'No tracking provider on file for this vehicle.',
+      },
+      spoilage: { cratesLost: 0, reason: '' },
+      generatedAt: new Date().toISOString(), generatedBy: 'owner', status: 'in_transit',
+      // Absent entirely on an ordinary single-order waybill, so every
+      // existing read site (getAllWaybills(), the PDF, printWaybill()...)
+      // keeps working completely unchanged for those — only the
+      // trip-aware UI added alongside this feature checks for it.
+      tripId, tripStopNumber: idx + 1, tripStopCount: group.length,
+    };
+    o.status = 'in_transit';
+    o.deliveryToken = generateDeliveryToken();
+    o.outboundCondition = opts.outboundCondition || null;
+    o.outboundAttestedBy = opts.outboundAttestedBy || null;
+    o.outboundNotes = opts.outboundNotes || null;
+    o.outboundAttestedAt = new Date().toISOString();
+    patchOrderStatusOnBackend(o.ref, {
+      deliveryToken: o.deliveryToken,
+      outboundCondition: o.outboundCondition,
+      outboundAttestedBy: o.outboundAttestedBy,
+      outboundNotes: o.outboundNotes,
+    });
+  });
+
+  ensureDeliveryTrips().push({
+    id: tripId, driverId: driver?.id || null, vehicleId: vehicle?.id || null,
+    driverName: driver?.name || '—', vehiclePlate: vehicle?.plate || '—',
+    orderRefs: group.map(o => o.ref), distanceKm: opts.distanceKm || 0,
+    totalCrates: tripCosts.totalCrates,
+    costs: { sharedTotal: tripCosts.sharedTotal, packagingTotal: tripCosts.packagingTotal, total: tripCosts.total },
+    navUrl, createdAt: new Date().toISOString(), status: 'in_transit',
+  });
+
+  saveOrders(orders);
+  logOk('logistics', `Cluster waybill generated — ${driver?.name || 'driver'} · ${group.length} stops`,
+    `${tripId} · ${tripCosts.totalCrates} crates total · ₦${tripCosts.total.toLocaleString()} trip cost · outbound: ${opts.outboundCondition} (${opts.outboundAttestedBy})`);
+  renderOrders();
+  renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog();
+  showToast(`✓ ${group.length} waybills generated for this trip (${tripId}) — orders now in transit.`);
+  return true;
 }
 
 // Delivery confirmation captures what actually happened — real checkpoint
@@ -26247,11 +26470,18 @@ function renderNearbyGroups() {
       const names = g.map(o => escapeHtml(o.customerName)).join(', ');
       const totalCrates = g.reduce((sum, o) => sum + (o.crates || 0), 0);
       const navUrl = buildOrdersNavUrl(g);
+      // Sep 28 2026 — refs are plain BEL-ORD-YYMMDD-HHMMSS strings, never
+      // containing a quote, so building the array literal inline here is
+      // safe without JSON-escaping.
+      const refsArg = g.map(o => `'${o.ref}'`).join(',');
       return `
       <div style="padding:8px 10px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:8px;margin-bottom:6px">
         <div style="font-family:'Syne',sans-serif;font-size:11px;color:var(--cream)">Group ${i + 1} — ${g.length} stops, ${totalCrates} crates</div>
         <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin:3px 0 6px 0">${names}</div>
-        ${navUrl ? `<a href="${navUrl}" target="_blank" class="btn btn-primary" style="font-size:9px;padding:4px 10px;text-decoration:none;display:inline-block">🧭 Navigate all ${g.length} stops</a>` : ''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${navUrl ? `<a href="${navUrl}" target="_blank" class="btn btn-ghost" style="font-size:9px;padding:4px 10px;text-decoration:none;display:inline-block">🧭 Navigate all ${g.length} stops</a>` : ''}
+          <button class="btn btn-primary" style="font-size:9px;padding:4px 10px" onclick="openGenerateClusterWaybillModal([${refsArg}])">🚚 Generate Cluster Waybill</button>
+        </div>
       </div>`;
     }).join('');
 }
@@ -26281,6 +26511,34 @@ async function groupNearbyOrders() {
     : `✓ ${result.geocoded}/${result.attempted} located` + (result.failed > 0 ? ` — ${result.failed} couldn't be matched (check the address on the order).` : '.'));
 }
 
+// Cluster Delivery (Sep 28 2026) — one driver, one message. Instead of
+// pinging the same driver N separate times (once per stop's own
+// buildDriverDirectionsWaLink()/buildCustomerConfirmationWaLink() below),
+// this builds ONE WhatsApp message covering the whole run: the multi-stop
+// route once, plus every stop's own confirmation link listed underneath
+// it (each customer still needs their own link to sign for their own
+// goods — this just saves the driver from N separate incoming texts).
+function buildTripConsolidatedWaLink(tripId) {
+  const orders = loadOrders().filter(o => o.waybill?.tripId === tripId && o.status === 'in_transit');
+  if(!orders.length) return { link: null, reason: 'no-stops' };
+  const carrier = orders[0].waybill.carrier;
+  const phone = carrier?.driverPhone;
+  if(!phone || normalizePhone(phone).length !== 10) return { link: null, reason: 'no-phone' };
+  const sorted = orders.slice().sort((a, b) => (a.waybill.tripStopNumber || 0) - (b.waybill.tripStopNumber || 0));
+  const navUrl = buildOrdersNavUrl(sorted);
+  const greeting = carrier.driverName && carrier.driverName !== '—' ? `Hi ${carrier.driverName}, ` : 'Hi, ';
+  const stopLines = sorted.map((o, i) => {
+    const confirmUrl = o.deliveryToken
+      ? window.location.href.replace('famad-erp.html', 'confirm-delivery.html').replace(/\?.*$/, '') + `?ref=${encodeURIComponent(o.ref)}&token=${encodeURIComponent(o.deliveryToken)}`
+      : null;
+    return `${i + 1}. ${o.customerName} — ${o.crates} crates, ${o.waybill.destination}${confirmUrl ? `\n   Confirm here: ${confirmUrl}` : ''}`;
+  }).join('\n\n');
+  const msg = `${greeting}here's today's run — ${sorted.length} stops:\n\n${stopLines}` +
+    (navUrl ? `\n\nTurn-by-turn for all stops: ${navUrl}` : '') +
+    `\n\nPlease hand your phone to each customer at their stop so they can confirm receipt before you leave.`;
+  return { link: `https://wa.me/${toWhatsAppNumber(phone)}?text=${encodeURIComponent(msg)}`, reason: null };
+}
+
 function renderInTransitPanel() {
   // Fleet Status shares its underlying data with this panel (both come from
   // getBusyFleetAssignments()) — refreshed here too so it can't fall behind
@@ -26295,7 +26553,32 @@ function renderInTransitPanel() {
     el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">Nothing on the road right now.</div>`;
     return;
   }
-  el.innerHTML = orders.map(o => {
+  // Cluster Delivery (Sep 28 2026) — one banner per active trip, above the
+  // usual per-stop cards below (which are left completely unchanged, so an
+  // individual stop's own directions/confirmation link is still there as a
+  // fallback if the driver needs just one resent).
+  const activeTripIds = [...new Set(orders.map(o => o.waybill?.tripId).filter(Boolean))];
+  const tripBannerHtml = activeTripIds.map(tripId => {
+    const stops = orders.filter(o => o.waybill?.tripId === tripId);
+    const driverName = stops[0]?.waybill?.carrier?.driverName || '—';
+    const totalCrates = stops.reduce((s, o) => s + (o.crates || 0), 0);
+    const confirmedCount = stops.filter(o => o.customerAttestedAt).length;
+    const { link: tripLink, reason: tripReason } = buildTripConsolidatedWaLink(tripId);
+    const sendBtn = tripLink
+      ? `<a href="${tripLink}" target="_blank" class="btn btn-primary" style="font-size:10px;text-decoration:none">📲 Send Trip Directions &amp; Confirmations</a>`
+      : `<button class="btn btn-ghost" disabled style="font-size:10px;opacity:0.5;cursor:not-allowed" title="${
+          tripReason === 'no-phone' ? 'No usable phone number on file for this driver — add one in Logistics.' : 'No active stops found for this trip.'
+        }">📲 Send Trip Directions &amp; Confirmations</button>`;
+    return `
+    <div style="padding:10px 12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.25);border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">🚚 Cluster run — ${escapeHtml(driverName)} · ${stops.length} stops, ${totalCrates} crates</div>
+        <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:2px">${tripId} · ${confirmedCount}/${stops.length} customer(s) confirmed so far</div>
+      </div>
+      ${sendBtn}
+    </div>`;
+  }).join('');
+  el.innerHTML = tripBannerHtml + orders.map(o => {
     // See buildDriverDirectionsWaLink() — two orders at this exact same
     // stage can come out differently here for two different reasons, so
     // this always shows a button, either live or explaining which reason.
@@ -26326,6 +26609,7 @@ function renderInTransitPanel() {
       background:rgba(155,127,232,0.07);border:1px solid rgba(155,127,232,0.2);border-radius:8px;margin-bottom:7px;flex-wrap:wrap;gap:6px">
       <div>
         <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${escapeHtml(o.customerName)}</strong>
+        ${o.waybill?.tripId ? `<span style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--blue);margin-left:6px" title="Part of a multi-stop cluster run">🚚 stop ${o.waybill.tripStopNumber}/${o.waybill.tripStopCount}</span>` : ''}
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${o.waybill?.waybillNumber || o.ref} · ${o.crates} crates → ${escapeHtml(o.waybill?.destination||'—')}</span>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -26402,8 +26686,9 @@ function renderWaybillLog() {
       background:var(--raised);border-radius:8px;margin-bottom:7px">
       <div>
         <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${wb.waybillNumber}</strong>
+        ${wb.tripId ? `<span style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--blue);margin-left:6px" title="Part of a multi-stop cluster run — same driver/vehicle as its other stops">🚚 ${wb.tripId} · stop ${wb.tripStopNumber}/${wb.tripStopCount}</span>` : ''}
         <span style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-left:8px">${escapeHtml(o.customerName)} · ${o.crates} crates → ${escapeHtml(wb.destination)}</span>
-        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--teal)">Est. shipment cost: ₦${wb.costs.total.toLocaleString()}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--teal)">${wb.tripId ? "This stop's share of the trip cost" : 'Est. shipment cost'}: ₦${wb.costs.total.toLocaleString()}</div>
       </div>
       <div style="text-align:right">
         <span style="font-family:'DM Mono',monospace;font-size:9px;color:${statusColor};text-transform:uppercase;font-weight:600">${wb.status}</span><br>
@@ -26747,6 +27032,182 @@ function submitGenerateWaybill() {
 
   generateWaybill(orderRef, { vehicleId, driverId, destinationName, distanceKm, outboundCondition, outboundAttestedBy, outboundNotes });
   closeModal('modal-generate-waybill');
+}
+
+/* ═══════════════════════════════════════════════════════
+   CLUSTER DELIVERY MODAL — Sep 28 2026
+   One driver, several orders, one trip. clusterSelectedRefs holds the
+   working selection while the modal is open (a plain module-level array
+   is fine — only one instance of this modal can ever be open at once,
+   same assumption every other single-instance modal in this file makes).
+═══════════════════════════════════════════════════════ */
+let clusterSelectedRefs = [];
+
+// preselectedRefs: pass the refs from a "Group Nearby Orders" suggestion
+// to open pre-ticked, or omit/pass [] to open empty for a fully manual
+// pick — either way every pending/confirmed order without a waybill yet
+// is listed and toggleable.
+function openGenerateClusterWaybillModal(preselectedRefs) {
+  const orders = loadOrders().filter(o => (o.status === 'confirmed' || o.status === 'pending') && !o.waybill);
+  if(orders.length < 2) { showToast('⚠ Need at least 2 pending/confirmed orders without a waybill to build a cluster run.'); return; }
+  clusterSelectedRefs = (preselectedRefs || []).filter(ref => orders.some(o => o.ref === ref));
+
+  document.getElementById('cwb-distance-km').value = '';
+  document.getElementById('cwb-outbound-condition').value = '';
+  document.getElementById('cwb-outbound-attested-by').value = '';
+  document.getElementById('cwb-outbound-notes').value = '';
+  document.getElementById('cwb-outbound-notes').placeholder = 'Notes (optional)';
+  document.getElementById('cwb-outbound-notes-preset').style.display = 'none';
+  document.getElementById('cwb-outbound-notes-preset').innerHTML = '';
+  document.querySelectorAll('.cwb-outbound-cond').forEach(b => { b.style.borderColor = ''; b.style.background = ''; b.style.color = ''; });
+
+  renderClusterOrderList();
+  updateClusterFleetOptions();
+  updateClusterCostPreview();
+  openModal('modal-generate-cluster-waybill');
+}
+
+function toggleClusterOrderSelection(ref) {
+  clusterSelectedRefs = clusterSelectedRefs.includes(ref)
+    ? clusterSelectedRefs.filter(r => r !== ref)
+    : [...clusterSelectedRefs, ref];
+  renderClusterOrderList();
+  updateClusterFleetOptions();
+  updateClusterCostPreview();
+}
+
+function renderClusterOrderList() {
+  const listEl = document.getElementById('cwb-order-list');
+  const sumEl  = document.getElementById('cwb-order-summary');
+  if(!listEl) return;
+  const orders = loadOrders().filter(o => (o.status === 'confirmed' || o.status === 'pending') && !o.waybill);
+  listEl.innerHTML = orders.map(o => {
+    const checked = clusterSelectedRefs.includes(o.ref);
+    return `
+    <label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust)">
+      <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleClusterOrderSelection('${o.ref}')"/>
+      <span style="color:var(--cream)">${escapeHtml(o.customerName)}</span> — ${o.crates} crates → ${escapeHtml(o.location || '—')}
+      <span style="color:var(--mist);margin-left:auto">${o.ref}</span>
+    </label>`;
+  }).join('') || '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">No eligible orders.</div>';
+
+  const selected = orders.filter(o => clusterSelectedRefs.includes(o.ref));
+  const totalCrates = selected.reduce((s, o) => s + (o.crates || 0), 0);
+  sumEl.textContent = selected.length
+    ? `${selected.length} stop${selected.length > 1 ? 's' : ''} selected · ${totalCrates} crates total`
+    : 'Tick at least 2 orders to build a trip.';
+}
+
+// Busy-check excludes every currently-selected ref together (see
+// getBusyFleetAssignments()'s Sep 28 2026 comment) — otherwise picking a
+// driver for stop 1 would make stop 2's own list show that same driver
+// as "busy" the moment both are ticked.
+function updateClusterFleetOptions() {
+  const fleet = ensureFleet();
+  const busy = getBusyFleetAssignments(clusterSelectedRefs);
+  const vSel = document.getElementById('cwb-vehicle');
+  const prevV = vSel.value;
+  vSel.innerHTML = fleet.vehicles.length
+    ? fleet.vehicles.map(v => {
+        const busyRef = busy.vehicleBusyOrderRef(v);
+        const label = `${escapeHtml(v.type)} ${v.plate ? '— '+escapeHtml(v.plate) : ''}`;
+        return busyRef
+          ? `<option value="${v.id}" disabled>${label} — 🚫 out on ${escapeHtml(busyRef)}</option>`
+          : `<option value="${v.id}">${label}</option>`;
+      }).join('')
+    : '<option value="">No vehicles on file — add one in Logistics</option>';
+  if([...vSel.options].some(op => op.value === prevV && !op.disabled)) vSel.value = prevV;
+
+  const dSel = document.getElementById('cwb-driver');
+  const prevD = dSel.value;
+  dSel.innerHTML = fleet.drivers.length
+    ? fleet.drivers.map(d => {
+        const busyRef = busy.driverBusyOrderRef(d);
+        return busyRef
+          ? `<option value="${d.id}" disabled>${escapeHtml(d.name)} — 🚫 out on ${escapeHtml(busyRef)}</option>`
+          : `<option value="${d.id}">${escapeHtml(d.name)}</option>`;
+      }).join('')
+    : '<option value="">No drivers on file — add one in Logistics</option>';
+  if([...dSel.options].some(op => op.value === prevD && !op.disabled)) dSel.value = prevD;
+}
+
+function updateClusterCostPreview() {
+  const orders = loadOrders().filter(o => clusterSelectedRefs.includes(o.ref));
+  const previewEl = document.getElementById('cwb-cost-preview');
+  if(!previewEl) return;
+  if(orders.length < 2) { previewEl.innerHTML = ''; return; }
+  const distanceKm = parseFloat(document.getElementById('cwb-distance-km').value) || 0;
+  const costs = computeTripCosts(orders, distanceKm);
+  previewEl.innerHTML =
+    `Trip-wide: fuel ₦${costs.fuelCost.toLocaleString()} · labour ₦${costs.laborCost.toLocaleString()} · maintenance ₦${costs.maintenanceCost.toLocaleString()} · packaging ₦${costs.packagingTotal.toLocaleString()}<br>
+     <strong style="color:var(--lime)">Total estimated trip cost: ₦${costs.total.toLocaleString()}</strong> — split across ${orders.length} stops by crate share`;
+}
+
+function selectClusterOutboundCondition(val) {
+  document.getElementById('cwb-outbound-condition').value = val;
+  const colors = { good: 'var(--lime)', damaged: 'var(--red)', short: 'var(--sun)' };
+  document.querySelectorAll('.cwb-outbound-cond').forEach(b => {
+    if(b.dataset.val === val) {
+      b.style.borderColor = colors[val]; b.style.color = colors[val];
+      b.style.background = val === 'good' ? 'rgba(109,217,109,0.1)' : val === 'damaged' ? 'rgba(224,72,72,0.1)' : 'rgba(240,192,64,0.12)';
+    } else {
+      b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
+    }
+  });
+  const presetEl = document.getElementById('cwb-outbound-notes-preset');
+  const notesEl  = document.getElementById('cwb-outbound-notes');
+  const templates = INCIDENT_NOTE_TEMPLATES[val];
+  if(!templates) { presetEl.style.display = 'none'; presetEl.innerHTML = ''; notesEl.placeholder = 'Notes (optional)'; return; }
+  presetEl.innerHTML = '<option value="">— Pick what happened, or choose Other —</option>' +
+    templates.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') +
+    '<option value="__other__">Other — type below</option>';
+  presetEl.style.display = '';
+  presetEl.value = '';
+  notesEl.value = '';
+  notesEl.placeholder = 'Pick an option above, or describe it here';
+}
+
+function applyClusterNotesPreset() {
+  const presetEl = document.getElementById('cwb-outbound-notes-preset');
+  const notesEl  = document.getElementById('cwb-outbound-notes');
+  const val = presetEl.value;
+  if(!val) return;
+  if(val === '__other__') { notesEl.value = ''; notesEl.focus(); return; }
+  notesEl.value = val;
+}
+
+function submitGenerateClusterWaybill() {
+  const vehicleId = document.getElementById('cwb-vehicle').value;
+  const driverId = document.getElementById('cwb-driver').value;
+  const distanceKm = parseFloat(document.getElementById('cwb-distance-km').value) || 0;
+  const outboundCondition = document.getElementById('cwb-outbound-condition').value;
+  const outboundAttestedBy = document.getElementById('cwb-outbound-attested-by').value.trim();
+  const outboundNotes = document.getElementById('cwb-outbound-notes').value.trim();
+
+  if(clusterSelectedRefs.length < 2) { showToast('⚠ Tick at least 2 orders for this trip.'); return; }
+  if(!vehicleId) { showToast('⚠ Select a vehicle.'); return; }
+  if(!driverId) { showToast('⚠ Select a driver.'); return; }
+  if(!distanceKm || distanceKm <= 0) { showToast('⚠ Enter a real trip distance (km).'); return; }
+  if(!outboundCondition) { showToast('⚠ Select the outbound condition of the load.'); return; }
+  if(!outboundAttestedBy) { showToast('⚠ Enter who is attesting to the outbound condition.'); return; }
+
+  const fleet = ensureFleet();
+  const vehicle = fleet.vehicles.find(v => v.id === vehicleId);
+  const driver  = fleet.drivers.find(d => d.id === driverId);
+  if(!vehicle?.plate) { showToast('⚠ Selected vehicle has no plate on file — add one in Logistics first.'); return; }
+  if(!driver?.phone)  { showToast('⚠ Selected driver has no phone on file — add one in Logistics first.'); return; }
+
+  // Re-checked here, not just in the dropdown, same reasoning as the
+  // single-waybill flow — another device could have booked this driver
+  // or vehicle in the gap since the modal opened.
+  const busy = getBusyFleetAssignments(clusterSelectedRefs);
+  const vehicleBusyRef = busy.vehicleBusyOrderRef(vehicle);
+  const driverBusyRef  = busy.driverBusyOrderRef(driver);
+  if(vehicleBusyRef) { showToast(`⚠ That vehicle is already out on ${vehicleBusyRef} — pick another.`); return; }
+  if(driverBusyRef)  { showToast(`⚠ That driver is already out on ${driverBusyRef} — pick another.`); return; }
+
+  const ok = generateClusterWaybill(clusterSelectedRefs, { vehicleId, driverId, distanceKm, outboundCondition, outboundAttestedBy, outboundNotes });
+  if(ok) { clusterSelectedRefs = []; closeModal('modal-generate-cluster-waybill'); }
 }
 
 function openConfirmDeliveryModal(orderRef) {
