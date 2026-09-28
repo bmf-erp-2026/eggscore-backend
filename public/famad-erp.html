@@ -3064,6 +3064,15 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
     if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
     if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
+    // Sep 28 2026 fix — this poll already pulled a fresh customerAttestedAt
+    // into local state (syncOrdersFromBackend() above) and fired the
+    // one-time toast for it, but never repainted the In Transit panel
+    // itself — so "Send Confirmation Link" never flipped to "✅ Customer
+    // confirmed", and a Cluster Delivery trip banner's confirmed count
+    // never ticked up, for anyone sitting on the Logistics screen when the
+    // confirmation actually landed. Same currentModule-gated pattern as
+    // renderOrders() just above.
+    if(window.currentModule === 'logistics' && typeof renderInTransitPanel === 'function') renderInTransitPanel();
     // Sep 27 2026 — keeps the Confirm Sale lock readout current for an SR
     // who has a portal-linked sale form sitting open when the customer's
     // confirmation lands, so they see it unlock without needing to leave
@@ -25502,7 +25511,25 @@ function computeTripCosts(orders, distanceKm) {
       ? round2(sharedTotal - sharedAssigned)
       : round2(sharedTotal * (totalCrates > 0 ? (o.crates || 0) / totalCrates : 1 / orders.length));
     sharedAssigned = round2(sharedAssigned + share);
-    perOrder[o.ref] = { packagingCost, sharedShare: share, total: round2(packagingCost + share) };
+    // Sep 28 2026 fix — also break the share down into the same
+    // fuel/labour/maintenance/security/insurance LINES computeWaybillCosts()
+    // produces for a single-order waybill, at this stop's own ratio of the
+    // shared pool. Without these, o.waybill.costs on a cluster stop had only
+    // {packagingCost, sharedShare, total} — every existing reader of a
+    // waybill's costs (viewWaybillDoc(), both PDF exporters, Waybill Log)
+    // reads wb.costs.fuelCost/laborCost/maintenanceCost directly and calls
+    // .toLocaleString() on it; undefined there threw immediately, which is
+    // exactly why "View" silently did nothing on a cluster waybill. `total`
+    // stays the authoritative figure (packagingCost + sharedShare) either
+    // way — these five lines are a display breakdown of that same share,
+    // not a second, competing calculation.
+    const ratio = sharedTotal > 0 ? share / sharedTotal : 0;
+    perOrder[o.ref] = {
+      packagingCost, sharedShare: share, total: round2(packagingCost + share),
+      fuelCost: round2(fuelCost * ratio), laborCost: round2(laborCost * ratio),
+      maintenanceCost: round2(maintenanceCost * ratio), securityCost: round2(securityCost * ratio),
+      insuranceCost: round2(insuranceCost * ratio),
+    };
   });
 
   return { fuelCost, laborCost, maintenanceCost, securityCost, insuranceCost, sharedTotal, packagingTotal,
@@ -25679,7 +25706,16 @@ function generateClusterWaybill(orderRefs, opts) {
           'starting point only and should be reviewed by a qualified professional before ' +
           'being relied on as a binding contract term.',
       },
-      costs: { packagingCost: split.packagingCost, sharedShare: split.sharedShare, total: split.total },
+      // Full shape matches computeWaybillCosts()'s single-order output
+      // exactly (fuelCost/packagingCost/laborCost/maintenanceCost/
+      // securityCost/insuranceCost/total) so every existing reader works
+      // unchanged; sharedShare is the one extra field, used only by the
+      // trip-aware UI added alongside this feature.
+      costs: {
+        fuelCost: split.fuelCost, packagingCost: split.packagingCost, laborCost: split.laborCost,
+        maintenanceCost: split.maintenanceCost, securityCost: split.securityCost, insuranceCost: split.insuranceCost,
+        sharedShare: split.sharedShare, total: split.total,
+      },
       dormant: {
         insurance: 'Not currently insured — self-insured.',
         security: 'No paid escort arranged.',
