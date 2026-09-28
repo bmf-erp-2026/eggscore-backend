@@ -117,6 +117,7 @@ canvas#sigpad{display:block;width:100%;height:150px;touch-action:none;cursor:cro
       <input class="field" id="in-name" type="text" placeholder="Full name"/>
 
       <div class="label">Notes (optional — e.g. how many crates, damage details)</div>
+      <select class="field" id="in-notes-preset" style="display:none;margin-bottom:8px"></select>
       <textarea class="field" id="in-notes" placeholder="Optional"></textarea>
 
       <div class="label">Sign here</div>
@@ -207,11 +208,59 @@ function setupSigPad() {
 }
 
 let selectedCondition = null;
+
+// Sep 28 2026 — same quick-pick idea as the driver-side outbound
+// attestation, in the customer's own words instead of staff/audit
+// language. Nothing here is required — it's just faster than typing for
+// the common cases, and "Other" always falls back to typing freely.
+const CUSTOMER_NOTE_TEMPLATES = {
+  damaged: [
+    'Some eggs arrived cracked or broken',
+    'Crate(s) arrived wet or damaged',
+    'Some eggs arrived dirty or soiled',
+  ],
+  short: [
+    'I received fewer crates than I ordered',
+    'The crate count doesn’t match my order',
+  ],
+};
+
+function renderCustomerNotesPreset(val) {
+  const presetEl = document.getElementById('in-notes-preset');
+  const notesEl  = document.getElementById('in-notes');
+  const templates = CUSTOMER_NOTE_TEMPLATES[val];
+  if(!templates) {
+    presetEl.style.display = 'none';
+    presetEl.innerHTML = '';
+    return;
+  }
+  presetEl.innerHTML = '<option value="">— Pick what happened, or choose Other —</option>' +
+    templates.map(t => `<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('') +
+    '<option value="__other__">Other — type below</option>';
+  presetEl.style.display = '';
+  presetEl.value = '';
+  notesEl.value = '';
+}
+
+document.getElementById('in-notes-preset').addEventListener('change', () => {
+  const presetEl = document.getElementById('in-notes-preset');
+  const notesEl  = document.getElementById('in-notes');
+  const val = presetEl.value;
+  if(!val) return;
+  if(val === '__other__') {
+    notesEl.value = '';
+    notesEl.focus();
+    return;
+  }
+  notesEl.value = val;
+});
+
 document.querySelectorAll('.cond-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.cond-btn').forEach(b => b.classList.remove('sel'));
     btn.classList.add('sel');
     selectedCondition = btn.dataset.val;
+    renderCustomerNotesPreset(selectedCondition);
   });
 });
 

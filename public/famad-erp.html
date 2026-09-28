@@ -3129,6 +3129,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="form-group" style="margin-bottom:16px">
       <label class="form-label">Notes <span class="req">*</span></label>
+      <select class="form-select" id="disp-notes-preset" onchange="applyNotesPreset('disp-notes')" style="margin-bottom:6px"></select>
       <textarea class="form-textarea" id="disp-notes" placeholder="Describe the discrepancy in detail…" style="min-height:70px"></textarea>
     </div>
     <div class="submit-btns">
@@ -3164,6 +3165,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="form-group" style="margin-bottom:16px">
       <label class="form-label">Resolution Notes <span class="req">*</span></label>
+      <select class="form-select" id="res-notes-preset" onchange="applyNotesPreset('res-notes')" style="margin-bottom:6px"></select>
       <textarea class="form-textarea" id="res-notes" placeholder="Explain the resolution decision…" style="min-height:70px"></textarea>
     </div>
     <div class="submit-btns">
@@ -3483,6 +3485,7 @@ input[type=number]{-moz-appearance:textfield;}
 
     <div class="form-group" style="margin-bottom:16px">
       <label class="form-label">Verification Note <span class="req">*</span></label>
+      <select class="form-select" id="av-reason-preset" onchange="applyNotesPreset('av-reason')" style="margin-bottom:6px"></select>
       <textarea class="form-textarea" id="av-reason" placeholder="How this was verified — e.g. &quot;Called customer, confirmed genuine, pre-dates the volume cap&quot;" style="min-height:60px"></textarea>
     </div>
 
@@ -3796,7 +3799,7 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="form-group"><label class="form-label">Fuel Cost (₦)</label><input class="form-input" type="number" id="lt-fuel"/></div>
       <div class="form-group"><label class="form-label">Other Expenses (₦)</label><input class="form-input" type="number" id="lt-expenses"/></div>
     </div>
-    <div class="form-group"><label class="form-label">Expense/Incident Notes</label><textarea class="form-textarea" id="lt-notes" placeholder="Checkpoint fees, breakdown, breakages, complaints…" style="min-height:50px"></textarea></div>
+    <div class="form-group"><label class="form-label">Expense/Incident Notes</label><select class="form-select" id="lt-notes-preset" onchange="applyNotesPreset('lt-notes')" style="margin-bottom:6px"></select><textarea class="form-textarea" id="lt-notes" placeholder="Checkpoint fees, breakdown, breakages, complaints…" style="min-height:50px"></textarea></div>
 
     <div class="sec-title" style="margin-top:14px">Authorization — Digital Sign-Off</div>
     <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-bottom:10px">Draw with mouse or finger. All three needed to complete the log.</div>
@@ -3978,6 +3981,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Notes</label>
+      <select class="form-select" id="wo-notes-preset" onchange="applyNotesPreset('wo-notes')" style="margin-bottom:6px"></select>
       <textarea class="form-textarea" id="wo-notes" placeholder="Any additional detail for the audit record…" style="min-height:50px"></textarea>
     </div>
     <div class="form-group" style="margin-bottom:16px">
@@ -4082,6 +4086,7 @@ input[type=number]{-moz-appearance:textfield;}
     <div id="oa-customer-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.9"></div>
     <div class="form-group" style="margin-bottom:16px">
       <label class="form-label">Verification Note <span class="req">*</span></label>
+      <select class="form-select" id="oa-reason-preset" onchange="applyNotesPreset('oa-reason')" style="margin-bottom:6px"></select>
       <textarea class="form-textarea" id="oa-reason" placeholder="How this was verified — e.g. &quot;Called customer directly, confirmed genuine&quot;" style="min-height:60px"></textarea>
     </div>
     <div class="form-group" style="margin-bottom:16px">
@@ -4109,6 +4114,7 @@ input[type=number]{-moz-appearance:textfield;}
     <div id="sl-exposure-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.9"></div>
     <div class="form-group" style="margin-bottom:16px">
       <label class="form-label">Authorisation Note <span class="req">*</span></label>
+      <select class="form-select" id="sl-reason-preset" onchange="applyNotesPreset('sl-reason')" style="margin-bottom:6px"></select>
       <textarea class="form-textarea" id="sl-reason" placeholder="Why this is being allowed through — e.g. &quot;Loyal customer, honouring locked price, one-off&quot;" style="min-height:60px"></textarea>
     </div>
     <div class="form-group" style="margin-bottom:16px">
@@ -12306,6 +12312,7 @@ function openStopLossGateModal(exposure, crates, sellPrice) {
      Shortfall ₦${exposure.shortfallPerCrate.toLocaleString()}/crate<br>
      <strong style="color:var(--red)">Total exposure: ₦${exposure.totalExposure.toLocaleString()}</strong>
      — above your ₦${ceiling.toLocaleString()} ceiling`;
+  initNotesPreset('sl-reason');
   document.getElementById('sl-reason').value = '';
   document.getElementById('sl-pin').value = '';
   openModal('modal-stop-loss-gate');
@@ -17329,6 +17336,7 @@ function openDisputeModal(repName, commAmount) {
   document.getElementById('disp-amount').value      = '';
   document.getElementById('disp-reason').value      = '';
   document.getElementById('disp-sale-ref').value    = '';
+  initNotesPreset('disp-notes');
   document.getElementById('disp-notes').value       = '';
   openModal('modal-comm-dispute');
 }
@@ -17388,6 +17396,7 @@ function openResolveModal(disputeId) {
 
   document.getElementById('res-disp-id').value  = disputeId;
   document.getElementById('res-outcome').value  = '';
+  initNotesPreset('res-notes');
   document.getElementById('res-notes').value    = '';
   document.getElementById('res-adjusted').value = '';
 
@@ -20408,6 +20417,7 @@ function openWriteOffModal(batchId) {
   document.getElementById('wo-qty').value = batch.remaining;
   document.getElementById('wo-qty').max = batch.remaining;
   document.getElementById('wo-reason').value = 'expired';
+  initNotesPreset('wo-notes');
   document.getElementById('wo-notes').value = '';
   document.getElementById('wo-recorded-by').value = '';
 
@@ -24661,6 +24671,7 @@ function openOrderAbuseOverrideModal(customer, crates, reasons) {
   document.getElementById('oa-customer-summary').innerHTML =
     `<strong style="color:var(--cream)">${escapeHtml(customer)}</strong> · ${crates} crates<br>
      ${reasons.map(r => `⚠ ${escapeHtml(r)}`).join('<br>')}`;
+  initNotesPreset('oa-reason');
   document.getElementById('oa-reason').value = '';
   document.getElementById('oa-pin').value = '';
   openModal('modal-order-abuse-override');
@@ -26545,6 +26556,104 @@ function applyWaybillNotesPreset() {
   notesEl.value = val;
 }
 
+// ── Generic incident/reason quick-pick — Sep 28 2026 ──
+// Same idea as the waybill outbound-notes preset above, generalised for
+// every other single free-text "notes"/"reason" box in the ERP that Bob
+// flagged as recurring-situation fields (Log Trip, Write-Off, the three
+// owner-authorisation notes, and both Commission Dispute boxes).
+// Deliberately NOT applied to modal-cancel-order, modal-reverse-
+// settlement, modal-decline-volreq, or modal-deboard-rep — those four
+// already pair their notes field with a proper categorised <select>
+// (cancel-reason, rev-reason, dv-reason, deboard-reason), so the
+// templating problem there is already solved; adding a second picker on
+// top would just be noise.
+// Each field gets one static list (not conditional on anything else, so
+// unlike the waybill's per-condition lists, these are populated once when
+// their modal opens, via initNotesPreset() called from each open function).
+const NOTES_PRESET_TEMPLATES = {
+  'lt-notes': [
+    'Checkpoint fee paid — no incident, standard stop',
+    'Vehicle breakdown — delayed but completed the trip',
+    'Vehicle breakdown — trip could not be completed, rescheduled',
+    'Traffic/road delay — no other issues',
+    'Crate(s) damaged in transit — see waybill attestation for detail',
+    'Customer complaint raised on delivery',
+    'Minor incident — no injuries, vehicle driveable',
+  ],
+  'wo-notes': [
+    'Expired — past sell-by date, unsold',
+    'Spoiled — cold-chain/storage failure',
+    'Damaged in storage — crates crushed or stacked incorrectly',
+    'Damaged in handling — breakage during internal movement',
+    'Returned by customer, unsellable on resale',
+    'Quality failure — flagged at inspection before sale',
+  ],
+  'sl-reason': [
+    'Loyal/long-term customer — one-off exception to retain relationship',
+    'Clearing near-expiry stock — better to sell below floor than write off',
+    'Matching a competitor’s price to retain this customer',
+    'Large volume order — total margin still acceptable despite per-crate shortfall',
+    'Previously agreed price honoured — locked before a cost increase',
+  ],
+  'oa-reason': [
+    'Called customer directly — confirmed genuine, long-standing contact',
+    'Verified customer’s business address/signage in person',
+    'Pre-arranged bulk order — confirmed in advance by phone/visit',
+    'Existing customer scaling up to a new volume tier',
+    'Referred by an existing trusted customer — verified the referral',
+  ],
+  'av-reason': [
+    'Called customer — confirmed the change directly',
+    'Customer requested the change in writing (WhatsApp/email)',
+    'Correcting a data-entry error from the original reservation',
+    'Stock availability changed — adjusting to what can actually be supplied',
+  ],
+  'disp-notes': [
+    'Commission tier applied doesn’t match actual sale volume',
+    'Commission not credited for a completed sale',
+    'Crate count/price used in the calculation looks wrong',
+    'Commission calculated on the wrong payment status (credit vs. settled)',
+    'Duplicate deduction — already resolved once before',
+  ],
+  'res-notes': [
+    'Approved — correction applied, original figure was wrong',
+    'Approved — partial adjustment made',
+    'Denied — original calculation was correct',
+    'Denied — insufficient evidence provided',
+    'Escalated — needs more information before deciding',
+  ],
+};
+
+// Populates one field's preset <select> and resets it to blank — call this
+// from a modal's own open function, alongside its other field resets.
+function initNotesPreset(fieldId) {
+  const templates = NOTES_PRESET_TEMPLATES[fieldId];
+  const presetEl = document.getElementById(fieldId + '-preset');
+  if(!presetEl || !templates) return;
+  presetEl.innerHTML = '<option value="">— Pick what happened, or choose Other —</option>' +
+    templates.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') +
+    '<option value="__other__">Other — type below</option>';
+  presetEl.value = '';
+}
+
+// Shared onchange handler for every '{fieldId}-preset' select — fills the
+// matching '{fieldId}' textarea verbatim (still freely editable after),
+// or clears+focuses it for "Other". Pass the field id explicitly rather
+// than inferring it, since several of these fire from different modals.
+function applyNotesPreset(fieldId) {
+  const presetEl = document.getElementById(fieldId + '-preset');
+  const notesEl  = document.getElementById(fieldId);
+  if(!presetEl || !notesEl) return;
+  const val = presetEl.value;
+  if(!val) return;
+  if(val === '__other__') {
+    notesEl.value = '';
+    notesEl.focus();
+    return;
+  }
+  notesEl.value = val;
+}
+
 // Fires when the vehicle dropdown changes (and once when the modal opens)
 // to warn — not block — if the selected vehicle has a statutory document
 // that's expired or inside its 3-week renewal window (see
@@ -28170,6 +28279,7 @@ function openLogTripModal(orderRef) {
   document.getElementById('lt-odo-end').value   = existing.odometerEnd ?? '';
   document.getElementById('lt-fuel').value      = existing.fuelCost ?? '';
   document.getElementById('lt-expenses').value  = existing.otherExpenses ?? '';
+  initNotesPreset('lt-notes');
   document.getElementById('lt-notes').value     = existing.notes ?? '';
   document.getElementById('lt-driver-name').value    = existing.signatures?.driver?.name || wb.carrier.driverName || '';
   document.getElementById('lt-dispatch-name').value  = existing.signatures?.dispatch?.name || '';
@@ -28483,6 +28593,7 @@ function openAdjustVolumeModal(orderRef) {
 
   document.getElementById('av-order-ref').value = orderRef;
   document.getElementById('av-additional-crates').value = '';
+  initNotesPreset('av-reason');
   document.getElementById('av-reason').value = '';
   document.getElementById('av-pin').value = '';
   document.getElementById('av-order-summary').innerHTML =
