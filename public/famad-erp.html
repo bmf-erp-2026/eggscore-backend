@@ -6322,6 +6322,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="ph-actions">
       <button class="btn btn-ghost" onclick="renderPnL()">↻ Recalculate</button>
+      <button class="btn btn-primary" onclick="markPnLReviewedToday()">✓ Mark All Reviewed Today</button>
     </div>
   </div>
 
@@ -14631,12 +14632,32 @@ function renderDashAlerts() {
     });
     if(overdue.length)
       alerts.push({cls:'crit', msg:`🔴 ${overdue.length} credit transaction(s) overdue — escalate to customers immediately.`});
+
+    // P&L Calculator manual-parameter staleness reminder — Sep 28 2026,
+    // Bob's request: this list is the lengthiest sidebar panel and its
+    // manual/template fields (Cash Flow, Fixed Assets, Wage Model, etc.)
+    // don't auto-flag themselves anywhere else, unlike stock or expiry
+    // above. Owner-only, same as the credit block above, since 'pnl' is
+    // itself an owner-only module (OWNER_ONLY_MODULES). Placed via
+    // unshift so it always leads the list — "first thing I see when I
+    // log in" per Bob's own words — regardless of what else is due.
+    const pnlDue = computePnLReviewStatus();
+    if(pnlDue.length) {
+      const wayOverdueCount = pnlDue.filter(i => i.wayOverdue).length;
+      const shown = pnlDue.slice(0, 3).map(i => i.label).join(', ');
+      const extra = pnlDue.length > 3 ? ` +${pnlDue.length - 3} more` : '';
+      alerts.unshift({
+        cls: wayOverdueCount ? 'crit' : 'warn',
+        pulse: true,
+        msg: `📊 P&L review due (${pnlDue.length}): ${shown}${extra} — <span style="text-decoration:underline;cursor:pointer" onclick="switchModule('pnl')">open P&amp;L Calculator →</span>`
+      });
+    }
   }
 
   if(!alerts.length)
     alerts.push({cls:'ok', msg:'✓ All systems nominal. No alerts.'});
 
-  el.innerHTML = alerts.map(a => `<div class="alert-banner ${a.cls}">${a.msg}</div>`).join('');
+  el.innerHTML = alerts.map(a => `<div class="alert-banner ${a.cls}"${a.pulse ? ' style="animation:pulse-border 1.5s infinite"' : ''}>${a.msg}</div>`).join('');
 }
 
 function renderDashWeeklyChart() {
@@ -17989,7 +18010,89 @@ function ensurePnLData() {
   if(!STATE.pnl.ownerTime) {
     STATE.pnl.ownerTime = { hoursPerWeek: 0, hourlyRate: 0 };
   }
+  // ── Review-staleness timestamps — Sep 28 2026, Dashboard reminder feature.
+  // Every manual/template input group above gets its own "last touched"
+  // stamp, written whenever Bob actually edits that group (see the save/
+  // update functions further down). These are deliberately separate TOP-
+  // LEVEL fields on STATE.pnl, never attached directly to fixedAssets/
+  // customCostElements/loans as a property on the array itself — a custom
+  // property on a JS array does NOT survive JSON.stringify(), which is how
+  // saveState() persists everything, so it would silently vanish on the
+  // next save/reload if stored that way. Defaulting to null (never
+  // confirmed under this system) rather than "now" is deliberate too, for
+  // the same honesty-over-comfort reason the manual fields themselves
+  // exist: pretending Bob just reviewed data he hasn't would defeat the
+  // point of the reminder. First login after this update will show
+  // everything as due — that's expected. Doing one real pass through the
+  // P&L Calculator and clicking "✓ Mark All Reviewed Today" clears it.
+  if(STATE.pnl.cashFlowUpdatedAt === undefined) STATE.pnl.cashFlowUpdatedAt = null;
+  if(STATE.pnl.workingCapitalUpdatedAt === undefined) STATE.pnl.workingCapitalUpdatedAt = null;
+  if(STATE.pnl.cacLtvUpdatedAt === undefined) STATE.pnl.cacLtvUpdatedAt = null;
+  if(STATE.pnl.customCostElementsUpdatedAt === undefined) STATE.pnl.customCostElementsUpdatedAt = null;
+  if(STATE.pnl.loansUpdatedAt === undefined) STATE.pnl.loansUpdatedAt = null;
+  if(STATE.pnl.wageModelUpdatedAt === undefined) STATE.pnl.wageModelUpdatedAt = null;
+  if(STATE.pnl.fixedAssetsUpdatedAt === undefined) STATE.pnl.fixedAssetsUpdatedAt = null;
+  if(STATE.pnl.totalInvestmentUpdatedAt === undefined) STATE.pnl.totalInvestmentUpdatedAt = null;
+  if(STATE.pnl.ownerTimeUpdatedAt === undefined) STATE.pnl.ownerTimeUpdatedAt = null;
+  if(STATE.pnl.seasonalityUpdatedAt === undefined) STATE.pnl.seasonalityUpdatedAt = null;
+  if(STATE.pnl.lastFullReviewAt === undefined) STATE.pnl.lastFullReviewAt = null;
   return STATE.pnl;
+}
+
+// ── P&L manual-parameter review registry — Sep 28 2026 ──
+// Every field in STATE.pnl that Bob has to keep current himself (nothing
+// here is auto-derived from real Sales Log/Inventory data — see the
+// comments in ensurePnLData() for why each one is deliberately manual),
+// paired with how often it realistically needs a look and which timestamp
+// field tracks its last edit. Nothing needs a DAILY cadence here — that's
+// what the live Dashboard/Inventory/Sales figures are for; these are all
+// slower-moving business-planning inputs. Cadences are a starting
+// recommendation, not a hard rule — Bob can widen/narrow any cadenceDays
+// value below later.
+const PNL_REVIEW_ITEMS = [
+  { key:'cashFlow',           label:'Cash Flow Tracker (Cash on Hand, threshold, salary/fuel/misc)', cadenceDays:7,   tsField:'cashFlowUpdatedAt' },
+  { key:'workingCapital',     label:'Working Capital Monitor (Payables)',                             cadenceDays:7,   tsField:'workingCapitalUpdatedAt' },
+  { key:'cacLtv',             label:'CAC vs LTV (Marketing Spend)',                                    cadenceDays:30,  tsField:'cacLtvUpdatedAt' },
+  { key:'customCostElements', label:'Other Cost Elements',                                             cadenceDays:30,  tsField:'customCostElementsUpdatedAt' },
+  { key:'loans',              label:'Debt Service Monitor (Loans)',                                    cadenceDays:30,  tsField:'loansUpdatedAt', skipIf: pnl => !pnl.loans || !pnl.loans.length },
+  { key:'wageModel',          label:'Contractor Wage Model',                                           cadenceDays:30,  tsField:'wageModelUpdatedAt' },
+  { key:'fixedAssets',        label:'Fixed Assets — Depreciation',                                     cadenceDays:30,  tsField:'fixedAssetsUpdatedAt' },
+  { key:'totalInvestment',    label:'Total Investment (ROI)',                                          cadenceDays:30,  tsField:'totalInvestmentUpdatedAt' },
+  { key:'ownerTime',          label:"Owner's Time Valuation",                                          cadenceDays:30,  tsField:'ownerTimeUpdatedAt' },
+  { key:'seasonality',        label:'Seasonality Festive Calendar',                                    cadenceDays:365, tsField:'seasonalityUpdatedAt' },
+];
+
+// Returns the subset of PNL_REVIEW_ITEMS that are currently due/overdue,
+// each annotated with daysSince (null = never confirmed) and wayOverdue
+// (past 2x its cadence — used to decide amber vs red on the Dashboard).
+function computePnLReviewStatus() {
+  const pnl = ensurePnLData();
+  const now = Date.now();
+  const due = [];
+  PNL_REVIEW_ITEMS.forEach(item => {
+    if(item.skipIf && item.skipIf(pnl)) return;
+    const ts = pnl[item.tsField];
+    const daysSince = ts ? Math.floor((now - ts) / 86400000) : null;
+    const overdue = daysSince === null || daysSince > item.cadenceDays;
+    if(overdue) due.push({ ...item, daysSince, wayOverdue: daysSince === null || daysSince > item.cadenceDays * 2 });
+  });
+  return due;
+}
+
+// Deliberate, explicit "I checked this" action — mirrors the honesty
+// principle already used everywhere else in this module: this never runs
+// automatically, only when Bob actively confirms he's gone through the
+// panel, same spirit as a manual snapshot value itself.
+function markPnLReviewedToday() {
+  if(!confirm('Mark ALL P&L Calculator parameters as reviewed today?\n\nOnly confirm this after actually checking the sections below — this clears every staleness reminder on the Dashboard.')) return;
+  const pnl = ensurePnLData();
+  const now = Date.now();
+  PNL_REVIEW_ITEMS.forEach(item => { pnl[item.tsField] = now; });
+  pnl.lastFullReviewAt = now;
+  saveState();
+  renderPnL();
+  renderDashAlerts();
+  showToast('✓ P&L parameters marked reviewed — Dashboard reminder cleared.');
 }
 
 function getPnLPeriodDates() {
@@ -18076,12 +18179,14 @@ function getCustomElementValueForPeriod(el, from, to) {
 function addPnLFixedAsset() {
   const pnl = ensurePnLData();
   pnl.fixedAssets.push({ id:'fa'+Date.now(), name:'', cost:0, usefulLifeYears:5, purchaseDate: new Date().toISOString().split('T')[0], method:'straight-line' });
+  pnl.fixedAssetsUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
 function removePnLFixedAsset(id) {
   const pnl = ensurePnLData();
   pnl.fixedAssets = pnl.fixedAssets.filter(a => a.id !== id);
+  pnl.fixedAssetsUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -18090,6 +18195,7 @@ function updatePnLFixedAsset(id, field, value) {
   const asset = pnl.fixedAssets.find(a => a.id === id);
   if(!asset) return;
   asset[field] = (field === 'cost' || field === 'usefulLifeYears') ? (parseFloat(value) || 0) : value;
+  pnl.fixedAssetsUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -18097,12 +18203,14 @@ function updatePnLFixedAsset(id, field, value) {
 function addPnLCustomElement() {
   const pnl = ensurePnLData();
   pnl.customCostElements.push({ id:'ce'+Date.now(), label:'', value:0, frequency:'monthly' });
+  pnl.customCostElementsUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
 function removePnLCustomElement(id) {
   const pnl = ensurePnLData();
   pnl.customCostElements = pnl.customCostElements.filter(e => e.id !== id);
+  pnl.customCostElementsUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -18111,6 +18219,7 @@ function updatePnLCustomElement(id, field, value) {
   const el = pnl.customCostElements.find(e => e.id === id);
   if(!el) return;
   el[field] = field === 'value' ? (parseFloat(value) || 0) : value;
+  pnl.customCostElementsUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19098,12 +19207,14 @@ function renderPnL() {
 function addLoan() {
   const pnl = ensurePnLData();
   pnl.loans.push({ id: 'loan_' + Date.now(), name: 'New Loan', outstandingBalance: 0, annualRate: 0, monthlyPayment: 0 });
+  pnl.loansUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
 function removeLoan(id) {
   const pnl = ensurePnLData();
   pnl.loans = pnl.loans.filter(l => l.id !== id);
+  pnl.loansUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19112,6 +19223,7 @@ function updateLoan(id, field, value) {
   const loan = pnl.loans.find(l => l.id === id);
   if(!loan) return;
   loan[field] = field === 'name' ? value : (parseFloat(value) || 0);
+  pnl.loansUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19120,6 +19232,7 @@ function saveCacLtvSettings() {
   const pnl = ensurePnLData();
   pnl.cacLtv.marketingSpend = parseFloat(document.getElementById('pnl-cl-marketing')?.value) || 0;
   pnl.cacLtv.assumedLifespanMonths = parseFloat(document.getElementById('pnl-cl-lifespan')?.value) || 0;
+  pnl.cacLtvUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19127,6 +19240,7 @@ function saveCacLtvSettings() {
 function saveWorkingCapital() {
   const pnl = ensurePnLData();
   pnl.workingCapital.payables = parseFloat(document.getElementById('pnl-wc-payables')?.value) || 0;
+  pnl.workingCapitalUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19138,6 +19252,7 @@ function saveCashFlowSettings() {
   cf.lowCashThreshold = parseFloat(document.getElementById('pnl-low-cash-threshold')?.value) || 0;
   cf.monthlySalary = parseFloat(document.getElementById('pnl-cf-salary')?.value) || 0;
   cf.monthlyMisc = parseFloat(document.getElementById('pnl-cf-misc')?.value) || 0;
+  pnl.cashFlowUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19149,6 +19264,7 @@ function saveWageModel() {
   wm.driverCommissionTarget = parseFloat(document.getElementById('pnl-wage-driver-target')?.value) || 0;
   wm.repBaseFee = parseFloat(document.getElementById('pnl-wage-rep-base')?.value) || 0;
   wm.repCommissionTarget = parseFloat(document.getElementById('pnl-wage-rep-target')?.value) || 0;
+  pnl.wageModelUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19158,6 +19274,7 @@ function saveTotalInvestment() {
   if(!el) return;
   const pnl = ensurePnLData();
   pnl.totalInvestment = parseFloat(el.value) || 0;
+  pnl.totalInvestmentUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19165,12 +19282,14 @@ function saveTotalInvestment() {
 function addFestiveEvent() {
   const pnl = ensurePnLData();
   pnl.seasonality.festiveCalendar.push({ id: 'fc_' + Date.now(), label: 'New Event', month: 1, upliftPct: 0, notes: '' });
+  pnl.seasonalityUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
 function removeFestiveEvent(id) {
   const pnl = ensurePnLData();
   pnl.seasonality.festiveCalendar = pnl.seasonality.festiveCalendar.filter(f => f.id !== id);
+  pnl.seasonalityUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19179,6 +19298,7 @@ function updateFestiveEvent(id, field, value) {
   const ev = pnl.seasonality.festiveCalendar.find(f => f.id === id);
   if(!ev) return;
   ev[field] = (field === 'month' || field === 'upliftPct') ? (parseFloat(value) || 0) : value;
+  pnl.seasonalityUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
@@ -19187,6 +19307,7 @@ function saveOwnerTimeSettings() {
   const pnl = ensurePnLData();
   pnl.ownerTime.hoursPerWeek = parseFloat(document.getElementById('pnl-ot-hours')?.value) || 0;
   pnl.ownerTime.hourlyRate = parseFloat(document.getElementById('pnl-ot-rate')?.value) || 0;
+  pnl.ownerTimeUpdatedAt = Date.now();
   saveState();
   renderPnL();
 }
