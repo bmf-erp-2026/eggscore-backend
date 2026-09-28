@@ -3589,7 +3589,18 @@ input[type=number]{-moz-appearance:textfield;}
       <input type="hidden" id="wb-outbound-condition"/>
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
         <input class="form-input" id="wb-outbound-attested-by" placeholder="Attested by (your name)"/>
-        <input class="form-input" id="wb-outbound-notes" placeholder="Notes (optional)"/>
+        <div>
+          <!-- Sep 28 2026 — incident quick-pick. Populated per condition by
+               renderWaybillNotesPreset() (see INCIDENT_NOTE_TEMPLATES below).
+               Picking an option fills the free-text box beneath it verbatim
+               — fast path for the common cases, still editable/appendable
+               (e.g. to add a crate count) rather than locking staff into
+               canned wording. "Other" just clears the box and focuses it
+               for a fully custom note. Hidden entirely for "Good", since
+               there's nothing to describe there. -->
+          <select class="form-select" id="wb-outbound-notes-preset" onchange="applyWaybillNotesPreset()" style="display:none;margin-bottom:6px"></select>
+          <input class="form-input" id="wb-outbound-notes" placeholder="Notes (optional)"/>
+        </div>
       </div>
     </div>
 
@@ -26444,6 +26455,9 @@ function openGenerateWaybillModal(orderRef) {
   document.getElementById('wb-outbound-condition').value = '';
   document.getElementById('wb-outbound-attested-by').value = '';
   document.getElementById('wb-outbound-notes').value = '';
+  document.getElementById('wb-outbound-notes').placeholder = 'Notes (optional)';
+  document.getElementById('wb-outbound-notes-preset').style.display = 'none';
+  document.getElementById('wb-outbound-notes-preset').innerHTML = '';
   document.querySelectorAll('.wb-outbound-cond').forEach(b => {
     b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
   });
@@ -26465,6 +26479,70 @@ function selectWaybillOutboundCondition(val) {
       b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
     }
   });
+  renderWaybillNotesPreset(val);
+}
+
+// Sep 28 2026 — Bob's ask: DR/SR shouldn't have to compose a description
+// from scratch under time pressure at dispatch. These are the incident
+// shapes that actually recur in a wholesale egg operation like BEL's —
+// crate-handling damage vs. supplier-side shortfalls are genuinely
+// different failure modes, so "Damaged" and "Short" get their own lists.
+// "Good" isn't in here on purpose — there's nothing to template when
+// nothing went wrong. Wording stays specific enough to be useful on a
+// real waybill, not so specific it stops covering real situations —
+// staff can still edit/append after picking one (see applyWaybillNotesPreset()).
+const INCIDENT_NOTE_TEMPLATES = {
+  damaged: [
+    'Cracked eggs — crate(s) dropped during loading',
+    'Cracked eggs — stacked too high / crushed under weight',
+    'Cracked eggs — pre-existing from supplier batch, noted before dispatch',
+    'Crate(s) physically broken (plastic cracked/split)',
+    'Wet/soaked crates — rain or spillage exposure before dispatch',
+  ],
+  short: [
+    'Fewer crates loaded than ordered — shortfall at the farm/supplier',
+    'Miscount at loading — discrepancy vs. order quantity',
+    'Crate(s) held back — quality concern (cracked/dirty eggs excluded)',
+    'Vehicle capacity limit — partial load, remainder to follow separately',
+    'Crate(s) reserved for another customer in error, corrected before dispatch',
+  ],
+};
+
+function renderWaybillNotesPreset(val) {
+  const presetEl = document.getElementById('wb-outbound-notes-preset');
+  const notesEl  = document.getElementById('wb-outbound-notes');
+  const templates = INCIDENT_NOTE_TEMPLATES[val];
+  if(!templates) {
+    // 'good' (or nothing selected yet) — no canned list, plain free text.
+    presetEl.style.display = 'none';
+    presetEl.innerHTML = '';
+    notesEl.placeholder = 'Notes (optional)';
+    return;
+  }
+  presetEl.innerHTML = '<option value="">— Pick what happened, or choose Other —</option>' +
+    templates.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') +
+    '<option value="__other__">Other — type below</option>';
+  presetEl.style.display = '';
+  presetEl.value = '';
+  notesEl.value = '';
+  notesEl.placeholder = 'Pick an option above, or describe it here';
+}
+
+// Picking a template fills the visible notes box verbatim (still editable
+// from there); picking "Other" just clears it and hands focus over for a
+// fully custom note — same field either way, so nothing extra is needed
+// on the submit side in submitGenerateWaybill().
+function applyWaybillNotesPreset() {
+  const presetEl = document.getElementById('wb-outbound-notes-preset');
+  const notesEl  = document.getElementById('wb-outbound-notes');
+  const val = presetEl.value;
+  if(!val) return;
+  if(val === '__other__') {
+    notesEl.value = '';
+    notesEl.focus();
+    return;
+  }
+  notesEl.value = val;
 }
 
 // Fires when the vehicle dropdown changes (and once when the modal opens)
