@@ -3429,6 +3429,16 @@ async function submitReservation() {
     window.scrollTo({top:0,behavior:'smooth'});
     return;
   }
+  // Sep 28 2026 fix — submitOrder() already required a delivery day before
+  // letting a straight purchase through (see its own matching check); this
+  // sibling function never had the same guard, so a reservation could be
+  // (and was) submitted with no day chosen at all, on top of the day never
+  // being carried into the order object below.
+  if(!portalState.preferredDeliveryDay) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent='Please choose a preferred delivery day before reserving.'; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
   if(hasActiveReservation(name, phone)) {
     if(errEl) { errEl.style.display='flex'; errEl.textContent=T().activeReservationBlock().replace(/^⚠ /,''); }
     window.scrollTo({top:0,behavior:'smooth'});
@@ -3508,6 +3518,12 @@ async function submitReservation() {
     promoApplied: promo ? promo.name : null, promoDiscount,
     loyaltyTier: portalState.matchedCustomer?.loyalty || 'New',
     referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, portalState.matchedCustomer?.cid || null, name),
+    // Sep 28 2026 fix — this order-building site was never updated when
+    // preferredDeliveryDay/isSpecialVolumeOrder were added on Sep 27; the
+    // straight-purchase path (submitOrder(), below) got them, this
+    // reservation path didn't. See the matching validation check above.
+    preferredDeliveryDay: portalState.preferredDeliveryDay,
+    isSpecialVolumeOrder: isSpecialVolumeOrder(),
     status: 'reserved',
     source: 'portal',
     reservationCustomerType: customerType,
@@ -3682,6 +3698,15 @@ function initPaystack() {
         paymentMethod: 'paystack', paymentRef: res.reference,
         paymentConfirmed: true, status: 'confirmed', source: 'portal',
         loyaltyTier: portalState.matchedCustomer?.loyalty||'New',
+        // Sep 28 2026 fix — same missed-sibling-function bug as
+        // submitReservation(): this third order-building site (the
+        // Paystack success callback) also never got preferredDeliveryDay/
+        // isSpecialVolumeOrder added. Safe to read here unconditionally —
+        // submitOrder() already validated a day was chosen before this
+        // callback can ever run (initPaystack() is only reached after
+        // that check passes).
+        preferredDeliveryDay: portalState.preferredDeliveryDay,
+        isSpecialVolumeOrder: isSpecialVolumeOrder(),
       };
       await saveOrder(order);
       showSuccess(order, true);
