@@ -3638,6 +3638,11 @@ input[type=number]{-moz-appearance:textfield;}
       <label class="form-label">Stops on this trip <span style="color:var(--mist)">(tick every order going out with this driver)</span></label>
       <div id="cwb-order-list" style="max-height:180px;overflow-y:auto;background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px"></div>
       <div id="cwb-order-summary" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--teal);margin-top:6px"></div>
+      <!-- Sep 29 2026 fix — Bob caught a real cluster (5 nearby orders) that
+           mixed a Wednesday-scheduled customer in with 4 Saturday ones, with
+           nothing flagging it. This warns, but doesn't block — Bob may have
+           a legitimate reason to combine them. -->
+      <div id="cwb-day-mismatch-warn" style="display:none;background:rgba(224,144,48,0.12);border:1px solid var(--amber);border-radius:8px;padding:8px 12px;margin-top:8px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--amber);line-height:1.6"></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -26546,6 +26551,14 @@ function renderNearbyGroups() {
       const names = g.map(o => escapeHtml(o.customerName)).join(', ');
       const totalCrates = g.reduce((sum, o) => sum + (o.crates || 0), 0);
       const navUrl = buildOrdersNavUrl(g);
+      // Sep 29 2026 fix — same mixed-delivery-day check as the Generate
+      // Cluster Waybill modal, surfaced here too so it's visible before Bob
+      // even opens the modal, not only after ticking boxes there.
+      const gWithDay = g.filter(o => o.preferredDeliveryDay && !o.isSpecialVolumeOrder);
+      const gDays = [...new Set(gWithDay.map(o => o.preferredDeliveryDay))];
+      const dayMismatchNote = gDays.length > 1
+        ? `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--amber);margin:0 0 6px 0">⚠ Mixed delivery days: ${gDays.map(day => `${day} (${gWithDay.filter(o=>o.preferredDeliveryDay===day).length})`).join(', ')}</div>`
+        : '';
       // Sep 28 2026 — refs are plain BEL-ORD-YYMMDD-HHMMSS strings, never
       // containing a quote, so building the array literal inline here is
       // safe without JSON-escaping.
@@ -26554,6 +26567,7 @@ function renderNearbyGroups() {
       <div style="padding:8px 10px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.2);border-radius:8px;margin-bottom:6px">
         <div style="font-family:'Syne',sans-serif;font-size:11px;color:var(--cream)">Group ${i + 1} — ${g.length} stops, ${totalCrates} crates</div>
         <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin:3px 0 6px 0">${names}</div>
+        ${dayMismatchNote}
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${navUrl ? `<a href="${navUrl}" target="_blank" class="btn btn-ghost" style="font-size:9px;padding:4px 10px;text-decoration:none;display:inline-block">🧭 Navigate all ${g.length} stops</a>` : ''}
           <button class="btn btn-primary" style="font-size:9px;padding:4px 10px" onclick="openGenerateClusterWaybillModal([${refsArg}])">🚚 Generate Cluster Waybill</button>
@@ -27163,6 +27177,7 @@ function renderClusterOrderList() {
     <label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust)">
       <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleClusterOrderSelection('${o.ref}')"/>
       <span style="color:var(--cream)">${escapeHtml(o.customerName)}</span> — ${o.crates} crates → ${escapeHtml(o.location || '—')}
+      ${o.preferredDeliveryDay ? `<span style="color:var(--teal)">📅 ${escapeHtml(o.preferredDeliveryDay)}${o.isSpecialVolumeOrder ? ' (any-day)' : ''}</span>` : ''}
       ${!o.agreedPaymentTerms ? '<span style="color:var(--amber)">⚠ no Payment Terms</span>' : ''}
       <span style="color:var(--mist);margin-left:auto">${o.ref}</span>
     </label>`;
@@ -27173,6 +27188,26 @@ function renderClusterOrderList() {
   sumEl.textContent = selected.length
     ? `${selected.length} stop${selected.length > 1 ? 's' : ''} selected · ${totalCrates} crates total`
     : 'Tick at least 2 orders to build a trip.';
+
+  // Sep 29 2026 fix — flag a trip that mixes different preferred delivery
+  // days. isSpecialVolumeOrder ("any-day eligible") orders are excluded on
+  // purpose, and so are orders with no preferred day recorded at all —
+  // neither has a real day to conflict with.
+  const dayWarnEl = document.getElementById('cwb-day-mismatch-warn');
+  if(dayWarnEl) {
+    const withDay = selected.filter(o => o.preferredDeliveryDay && !o.isSpecialVolumeOrder);
+    const days = [...new Set(withDay.map(o => o.preferredDeliveryDay))];
+    if(days.length > 1) {
+      const byDay = days.map(day =>
+        `${day}: ${withDay.filter(o => o.preferredDeliveryDay === day).map(o => o.customerName).join(', ')}`
+      ).join(' · ');
+      dayWarnEl.style.display = '';
+      dayWarnEl.innerHTML = `⚠ Mixed delivery days in this trip — ${byDay}. Confirm with the affected customer(s) before dispatching early/late, or untick them and run separately.`;
+    } else {
+      dayWarnEl.style.display = 'none';
+      dayWarnEl.innerHTML = '';
+    }
+  }
 }
 
 // Busy-check excludes every currently-selected ref together (see
