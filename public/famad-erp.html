@@ -3646,6 +3646,24 @@ input[type=number]{-moz-appearance:textfield;}
       <div id="cwb-day-mismatch-warn" style="display:none;background:rgba(224,144,48,0.12);border:1px solid var(--amber);border-radius:8px;padding:8px 12px;margin-top:8px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--amber);line-height:1.6"></div>
     </div>
 
+    <!-- Sep 29 2026 — Dispatch Origin, added after Bob's Port Harcourt test
+         exposed a real gap: distance/route origin always came from Shipper
+         Details' farm address, which is fine while every trip starts at the
+         one registered farm, but breaks (and risks quietly overwriting that
+         real address) the moment a second region starts dispatching, as
+         Bob's business is planning to do. This field is per-trip and never
+         touches Shipper Details — it only feeds this trip's distance calc
+         and its waybills' printed Route origin; the "Shipper" identity block
+         on the document (farm name/address/contact) stays the real
+         registered farm regardless of where a given trip departs from. -->
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Dispatch origin <span style="color:var(--mist)">— where THIS trip actually departs from</span></label>
+      <input class="form-input" id="cwb-dispatch-origin" placeholder="Defaults to the farm address on file"/>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--dust);margin-top:4px">
+        Only affects this trip's distance calc and its waybills' printed route — never changes your Shipper Details farm address.
+      </div>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div><label class="form-label">Vehicle</label><select class="form-select" id="cwb-vehicle"></select></div>
       <div><label class="form-label">Driver</label><select class="form-select" id="cwb-driver"></select></div>
@@ -25751,9 +25769,13 @@ function generateClusterWaybill(orderRefs, opts) {
     o.waybill = {
       waybillNumber: generateWaybillNumber(o.ref), orderRef: o.ref,
       verifyCode: generateVerifyCode(),
+      // shipper stays the real registered farm identity always — see the
+      // Sep 29 2026 Dispatch Origin comment above generateClusterWaybill().
+      // origin is the actual departure point for THIS trip, which may
+      // differ from it.
       shipper: { ...shipper },
       consignee: { name: o.customerName, address: o.location || '—', phone: o.phone || '—' },
-      origin: shipper.address || '—',
+      origin: opts.dispatchOrigin || shipper.address || '—',
       destination: o.location || '—',
       distanceKm: opts.distanceKm || 0, // whole-trip distance — same figure on every stop in this trip, not a per-leg split
       carrier: {
@@ -25823,6 +25845,7 @@ function generateClusterWaybill(orderRefs, opts) {
     id: tripId, driverId: driver?.id || null, vehicleId: vehicle?.id || null,
     driverName: driver?.name || '—', vehiclePlate: vehicle?.plate || '—',
     orderRefs: group.map(o => o.ref), distanceKm: opts.distanceKm || 0,
+    dispatchOrigin: opts.dispatchOrigin || shipper.address || '—',
     totalCrates: tripCosts.totalCrates,
     costs: { sharedTotal: tripCosts.sharedTotal, packagingTotal: tripCosts.packagingTotal, total: tripCosts.total },
     navUrl, createdAt: new Date().toISOString(), status: 'in_transit',
@@ -26663,8 +26686,11 @@ async function autoCalculateClusterDistance() {
     return;
   }
 
-  const shipper = ensureShipperDetails();
-  if(!shipper.address) { showToast('⚠ No farm address on file — set it in Logistics → Shipper Details first.'); return; }
+  // Sep 29 2026 — dispatch origin is per-trip now, not always Shipper
+  // Details. Falls back to the farm address only if the field was
+  // somehow left empty.
+  const dispatchOrigin = (document.getElementById('cwb-dispatch-origin')?.value || '').trim() || ensureShipperDetails().address;
+  if(!dispatchOrigin) { showToast('⚠ No dispatch origin set, and no farm address on file either — enter one above.'); return; }
 
   // Same free nearest-neighbor order already used for the driver's own
   // nav link (orderPointsGreedily()/buildOrdersNavUrl()) — this only
@@ -26673,16 +26699,16 @@ async function autoCalculateClusterDistance() {
   const stopsPayload = ordered.map(o => ({ ref: o.ref, latitude: o.latitude, longitude: o.longitude }));
 
   if(statusEl) statusEl.textContent = '⏳ Calculating real driving distance…';
-  const result = await postClusterDistance(shipper.address, stopsPayload);
+  const result = await postClusterDistance(dispatchOrigin, stopsPayload);
   if(!result) {
     if(statusEl) statusEl.textContent = '⚠ Could not calculate — enter the distance manually below.';
-    showToast('⚠ Could not reach the route service — check your connection, or enter the distance manually.');
+    showToast('⚠ Could not reach the route service — check your connection, the dispatch origin address, or enter the distance manually.');
     return;
   }
 
   document.getElementById('cwb-distance-km').value = result.distanceKm;
   updateClusterCostPreview();
-  if(statusEl) statusEl.textContent = `✓ ${result.distanceKm}km round trip — ${ordered.map(o => o.customerName).join(' → ')} → back to farm.`;
+  if(statusEl) statusEl.textContent = `✓ ${result.distanceKm}km round trip — ${ordered.map(o => o.customerName).join(' → ')} → back to dispatch origin.`;
 }
 
 // Cluster Delivery (Sep 28 2026) — one driver, one message. Instead of
@@ -27288,6 +27314,10 @@ function openGenerateClusterWaybillModal(preselectedRefs) {
   document.getElementById('cwb-distance-km').value = '';
   document.getElementById('cwb-outbound-attested-by').value = '';
   document.getElementById('cwb-distance-status').textContent = '';
+  // Sep 29 2026 — pre-filled from Shipper Details for convenience (most
+  // trips do depart from the registered farm), but this copy is editable
+  // per-trip and never writes back to Shipper Details itself.
+  document.getElementById('cwb-dispatch-origin').value = ensureShipperDetails().address || '';
 
   renderClusterOrderList();
   renderClusterOutboundAttestation();
@@ -27465,11 +27495,15 @@ function submitGenerateClusterWaybill() {
   const driverId = document.getElementById('cwb-driver').value;
   const distanceKm = parseFloat(document.getElementById('cwb-distance-km').value) || 0;
   const outboundAttestedBy = document.getElementById('cwb-outbound-attested-by').value.trim();
+  // Sep 29 2026 — per-trip dispatch origin, falls back to the farm address
+  // on file if left blank. Never writes back to Shipper Details.
+  const dispatchOrigin = (document.getElementById('cwb-dispatch-origin')?.value || '').trim() || ensureShipperDetails().address;
 
   if(clusterSelectedRefs.length < 2) { showToast('⚠ Tick at least 2 orders for this trip.'); return; }
   if(!vehicleId) { showToast('⚠ Select a vehicle.'); return; }
   if(!driverId) { showToast('⚠ Select a driver.'); return; }
   if(!distanceKm || distanceKm <= 0) { showToast('⚠ Enter a real trip distance (km).'); return; }
+  if(!dispatchOrigin) { showToast('⚠ Enter a dispatch origin, or set a farm address in Shipper Details.'); return; }
   if(!outboundAttestedBy) { showToast('⚠ Enter who is attesting to the outbound condition.'); return; }
   // Sep 29 2026 fix — every selected stop needs its own condition now,
   // not one shared value.
@@ -27496,7 +27530,7 @@ function submitGenerateClusterWaybill() {
   if(vehicleBusyRef) { showToast(`⚠ That vehicle is already out on ${vehicleBusyRef} — pick another.`); return; }
   if(driverBusyRef)  { showToast(`⚠ That driver is already out on ${driverBusyRef} — pick another.`); return; }
 
-  const ok = generateClusterWaybill(clusterSelectedRefs, { vehicleId, driverId, distanceKm, outboundAttestedBy, outboundByRef: clusterOutboundByRef });
+  const ok = generateClusterWaybill(clusterSelectedRefs, { vehicleId, driverId, distanceKm, dispatchOrigin, outboundAttestedBy, outboundByRef: clusterOutboundByRef });
   if(ok) { clusterSelectedRefs = []; clusterOutboundByRef = {}; closeModal('modal-generate-cluster-waybill'); }
 }
 
