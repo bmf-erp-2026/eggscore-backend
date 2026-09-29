@@ -1,7 +1,7 @@
 const express = require('express');
 const { db } = require('../db.postgres');
 const { requireAuth, requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
-const { geocodeAddress } = require('../lib/geocode');
+const { geocodeAddress, getRouteDistance } = require('../lib/geocode');
 
 const router = express.Router();
 
@@ -160,6 +160,26 @@ router.post('/geocode-pending', requireSupabaseAuth(), async (req, res) => {
     }
   }
   res.json({ attempted: missing.length, geocoded, failed });
+});
+
+// Sep 29 2026 — Cluster Delivery distance automation, Option 1 (Bob's
+// choice): the client has already decided the stop order for free
+// (orderPointsGreedily(), same logic as the driver's nav link) and sends
+// it here already ordered, plus the farm's own address as originAddress.
+// This makes exactly one Directions API (Basic tier) call per click of
+// "Auto-calculate distance" in the Generate Cluster Waybill modal — never
+// automatic, never on every checkbox toggle, so Bob only spends a call
+// when he actually asks for one.
+router.post('/cluster-distance', requireSupabaseAuth(), async (req, res) => {
+  const { originAddress, stops } = req.body || {};
+  if(!originAddress || !Array.isArray(stops) || stops.length === 0) {
+    return res.status(400).json({ error: 'originAddress and a non-empty stops array are required.' });
+  }
+  const result = await getRouteDistance(originAddress, stops);
+  if(!result) {
+    return res.status(502).json({ error: 'Could not calculate a route — check the farm address and that every stop has a location on file.' });
+  }
+  res.json(result);
 });
 
 router.get('/:ref', requireEitherAuth(), async (req, res) => {
