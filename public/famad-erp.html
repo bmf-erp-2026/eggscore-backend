@@ -3073,6 +3073,7 @@ input[type=number]{-moz-appearance:textfield;}
     // confirmation actually landed. Same currentModule-gated pattern as
     // renderOrders() just above.
     if(window.currentModule === 'logistics' && typeof renderInTransitPanel === 'function') renderInTransitPanel();
+    if(window.currentModule === 'logistics' && typeof renderDeliveryCloseoutsArchive === 'function') renderDeliveryCloseoutsArchive();
     // Sep 27 2026 — keeps the Confirm Sale lock readout current for an SR
     // who has a portal-linked sale form sitting open when the customer's
     // confirmation lands, so they see it unlock without needing to leave
@@ -3661,20 +3662,13 @@ input[type=number]{-moz-appearance:textfield;}
     <div id="cwb-cost-preview" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--teal);margin-bottom:16px"></div>
 
     <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
-      <div class="form-label" style="margin-bottom:8px">📋 Outbound Goods Attestation <span style="color:var(--mist);font-weight:400">(condition of the whole load as it leaves the farm)</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-        <button type="button" class="btn btn-ghost cwb-outbound-cond" data-val="good" onclick="selectClusterOutboundCondition('good')" style="font-size:10px">✅ Good</button>
-        <button type="button" class="btn btn-ghost cwb-outbound-cond" data-val="damaged" onclick="selectClusterOutboundCondition('damaged')" style="font-size:10px">⚠️ Damaged</button>
-        <button type="button" class="btn btn-ghost cwb-outbound-cond" data-val="short" onclick="selectClusterOutboundCondition('short')" style="font-size:10px">📉 Short</button>
-      </div>
-      <input type="hidden" id="cwb-outbound-condition"/>
-      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
-        <input class="form-input" id="cwb-outbound-attested-by" placeholder="Attested by (your name)"/>
-        <div>
-          <select class="form-select" id="cwb-outbound-notes-preset" onchange="applyClusterNotesPreset()" style="display:none;margin-bottom:6px"></select>
-          <input class="form-input" id="cwb-outbound-notes" placeholder="Notes (optional)"/>
-        </div>
-      </div>
+      <div class="form-label" style="margin-bottom:8px">📋 Outbound Goods Attestation <span style="color:var(--mist);font-weight:400">(condition of EACH stop's crates as they leave the farm)</span></div>
+      <input class="form-input" id="cwb-outbound-attested-by" placeholder="Attested by (your name) — applies to every stop below" style="margin-bottom:10px"/>
+      <!-- Sep 29 2026 fix — was one shared Good/Damaged/Short + notes for
+           the whole trip; now built per selected stop by
+           renderClusterOutboundAttestation(), since one stop's crates can
+           genuinely differ in condition from another's on the same truck. -->
+      <div id="cwb-per-stop-attestation"></div>
     </div>
 
     <div class="submit-btns">
@@ -6957,6 +6951,23 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="panel-tag">every waybill generated — in transit and delivered</div>
     </div>
     <div class="panel-body panel-scroll" id="waybill-log-panel"></div>
+  </div>
+
+  <!-- Sep 29 2026 — Bob asked where closed-out deliveries get stored for
+       posterity/service-quality reference. The data was already being kept
+       (every fulfilled order retains its outbound + customer attestation
+       fields), just never surfaced as its own archive — this panel is that
+       view, read-only, over data that already exists. See
+       renderDeliveryCloseoutsArchive(). -->
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">🗃 Delivery Closeouts Archive</div>
+      <div class="panel-hdr-actions">
+        <input class="form-input" id="dca-search" placeholder="Search customer or waybill…" style="width:auto;font-size:10px;padding:5px 8px" oninput="renderDeliveryCloseoutsArchive()"/>
+        <div class="panel-tag">every completed delivery — outbound + customer condition, for service-quality reference</div>
+      </div>
+    </div>
+    <div class="panel-body panel-scroll" id="dca-panel"></div>
   </div>
 </div>
 
@@ -11368,6 +11379,7 @@ function markPortalOrderFulfilledByRef(orderRef) {
   patchOrderStatusOnBackend(orderRef, { status: 'fulfilled' });
   updateOrdersBadge();
   if(currentModule === 'orders') renderOrders();
+  if(typeof renderDeliveryCloseoutsArchive === 'function') renderDeliveryCloseoutsArchive();
 }
 
 function updateRepInfo() {
@@ -25682,7 +25694,7 @@ function generateWaybill(orderRef, opts) {
   logOk('orders', `Waybill generated — ${o.waybill.waybillNumber}`,
     `${o.customerName} · ${o.crates} crates · ${opts.distanceKm || 0}km · est. cost ₦${costs.total.toLocaleString()} · outbound: ${o.outboundCondition} (${o.outboundAttestedBy})`);
   renderOrders();
-  renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog();
+  renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog(); renderDeliveryCloseoutsArchive();
   showToast(`✓ Waybill ${o.waybill.waybillNumber} generated — order now in transit.`);
 }
 
@@ -25692,8 +25704,11 @@ function generateWaybill(orderRef, opts) {
 // token — every customer needs their own document and their own
 // confirm-delivery.html link, since they're each separately signing for
 // their own goods — but all N share one driver, one vehicle, one
-// distance figure, and one outbound attestation (the whole truckload is
-// inspected/loaded together, by the same person, at the same time).
+// distance figure, and one attesting person — but Sep 29 2026 fix, per
+// Bob's live test: each stop's crates get their OWN outbound condition
+// and notes (opts.outboundByRef, keyed by ref), not one shared value
+// forced onto every stop. A stop loaded last, or from a rougher batch,
+// can genuinely leave in worse shape than the others on the same truck.
 // costs.total on each is its fair split from computeTripCosts(), never
 // the whole trip's cost repeated — see that function's header comment.
 function generateClusterWaybill(orderRefs, opts) {
@@ -25778,9 +25793,14 @@ function generateClusterWaybill(orderRefs, opts) {
     };
     o.status = 'in_transit';
     o.deliveryToken = generateDeliveryToken();
-    o.outboundCondition = opts.outboundCondition || null;
+    // Sep 29 2026 fix — per-stop outbound condition/notes instead of one
+    // shared value forced onto every order in the trip. attestedBy stays
+    // shared (same dispatcher signing off on the whole load as it's
+    // loaded, stop by stop).
+    const stopOutbound = (opts.outboundByRef && opts.outboundByRef[o.ref]) || {};
+    o.outboundCondition = stopOutbound.condition || null;
     o.outboundAttestedBy = opts.outboundAttestedBy || null;
-    o.outboundNotes = opts.outboundNotes || null;
+    o.outboundNotes = stopOutbound.notes || null;
     o.outboundAttestedAt = new Date().toISOString();
     patchOrderStatusOnBackend(o.ref, {
       deliveryToken: o.deliveryToken,
@@ -25800,10 +25820,13 @@ function generateClusterWaybill(orderRefs, opts) {
   });
 
   saveOrders(orders);
+  // Sep 29 2026 fix — summarize the per-stop conditions instead of quoting
+  // one shared value that no longer exists.
+  const outboundSummary = group.map(o => `${o.customerName}: ${o.outboundCondition || '—'}`).join(', ');
   logOk('logistics', `Cluster waybill generated — ${driver?.name || 'driver'} · ${group.length} stops`,
-    `${tripId} · ${tripCosts.totalCrates} crates total · ₦${tripCosts.total.toLocaleString()} trip cost · outbound: ${opts.outboundCondition} (${opts.outboundAttestedBy})`);
+    `${tripId} · ${tripCosts.totalCrates} crates total · ₦${tripCosts.total.toLocaleString()} trip cost · attested by ${opts.outboundAttestedBy} · ${outboundSummary}`);
   renderOrders();
-  renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog();
+  renderReadyForWaybill(); renderNearbyGroups(); renderInTransitPanel(); renderWaybillLog(); renderDeliveryCloseoutsArchive();
   showToast(`✓ ${group.length} waybills generated for this trip (${tripId}) — orders now in transit.`);
   return true;
 }
@@ -25948,7 +25971,7 @@ function renderLogistics() {
   renderReadyForWaybill();
   renderNearbyGroups();
   renderInTransitPanel();
-  renderWaybillLog();
+  renderWaybillLog(); renderDeliveryCloseoutsArchive();
 
   // Defensive re-apply (Sep 3 2026, Sales Rep Access) — see renderDashboard().
   applyRoleUI();
@@ -26761,6 +26784,61 @@ function renderDeliveryCloseoutsPanel() {
   }).join('');
 }
 
+// Sep 29 2026 — Delivery Closeouts Archive. Read-only over data already
+// persisted on every fulfilled order (outboundCondition/outboundAttestedBy/
+// outboundNotes set at dispatch, customerCondition/customerAttestedBy/
+// customerNotes/customerAttestedAt set at the customer's confirm-delivery
+// page) — no new storage, just the first place both halves are shown
+// together, for posterity/service-quality reference.
+function renderDeliveryCloseoutsArchive() {
+  const el = document.getElementById('dca-panel');
+  if(!el) return;
+  const search = (document.getElementById('dca-search')?.value || '').trim().toLowerCase();
+  let orders = loadOrders().filter(o => o.status === 'fulfilled' && o.waybill);
+  if(search) {
+    orders = orders.filter(o =>
+      o.customerName.toLowerCase().includes(search) ||
+      (o.waybill.waybillNumber || '').toLowerCase().includes(search));
+  }
+  orders.sort((a, b) => (b.fulfilledAt || b.customerAttestedAt || '').localeCompare(a.fulfilledAt || a.customerAttestedAt || ''));
+
+  if(!orders.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">${
+      search ? 'No closed-out deliveries match that search.' : 'Nothing here yet — this fills in as orders are confirmed delivered and fulfilled through Sales Log.'
+    }</div>`;
+    return;
+  }
+
+  const condColor = { good: 'var(--lime)', damaged: 'var(--red)', short: 'var(--sun)' };
+  const condLabel = { good: '✅ Good', damaged: '⚠️ Damaged', short: '📉 Short' };
+  el.innerHTML = orders.map(o => {
+    const wb = o.waybill;
+    const outCond = o.outboundCondition, inCond = o.customerCondition;
+    return `
+    <div style="padding:9px 12px;background:var(--raised);border-radius:8px;margin-bottom:7px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${escapeHtml(o.customerName)}</strong>
+        <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">
+          ${wb.waybillNumber} · ${o.crates} crates${wb.tripId ? ` · 🚚 ${wb.tripId} stop ${wb.tripStopNumber}/${wb.tripStopCount}` : ''}
+        </span>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:5px;line-height:1.6">
+        <div><span style="color:var(--dust)">Outbound (farm):</span> ${outCond
+          ? `<span style="color:${condColor[outCond]||'var(--mist)'}">${condLabel[outCond]||outCond}</span> — attested by ${escapeHtml(o.outboundAttestedBy||'—')}`
+          : '<span style="color:var(--mist)">not recorded</span>'
+        }${o.outboundNotes ? `<br>📝 ${escapeHtml(o.outboundNotes)}` : ''}</div>
+        <div style="margin-top:4px"><span style="color:var(--dust)">Received (customer):</span> ${inCond
+          ? `<span style="color:${condColor[inCond]||'var(--mist)'}">${condLabel[inCond]||inCond}</span> — signed by ${escapeHtml(o.customerAttestedBy||'—')}${o.customerAttestedAt ? ' ' + new Date(o.customerAttestedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}`
+          : '<span style="color:var(--mist)">not recorded</span>'
+        }${o.customerNotes ? `<br>📝 ${escapeHtml(o.customerNotes)}` : ''}</div>
+      </div>
+      <div style="margin-top:6px">
+        <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="viewWaybillDoc('${o.ref}')">📄 View Waybill</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function renderWaybillLog() {
   const el = document.getElementById('waybill-log-panel');
   if(!el) return;
@@ -27132,6 +27210,9 @@ function submitGenerateWaybill() {
    same assumption every other single-instance modal in this file makes).
 ═══════════════════════════════════════════════════════ */
 let clusterSelectedRefs = [];
+// Sep 29 2026 fix — per-stop outbound condition/notes, keyed by order ref:
+// { [ref]: { condition: 'good'|'damaged'|'short', notes: string } }.
+let clusterOutboundByRef = {};
 
 // preselectedRefs: pass the refs from a "Group Nearby Orders" suggestion
 // to open pre-ticked, or omit/pass [] to open empty for a fully manual
@@ -27141,17 +27222,13 @@ function openGenerateClusterWaybillModal(preselectedRefs) {
   const orders = loadOrders().filter(o => (o.status === 'confirmed' || o.status === 'pending') && !o.waybill);
   if(orders.length < 2) { showToast('⚠ Need at least 2 pending/confirmed orders without a waybill to build a cluster run.'); return; }
   clusterSelectedRefs = (preselectedRefs || []).filter(ref => orders.some(o => o.ref === ref));
+  clusterOutboundByRef = {};
 
   document.getElementById('cwb-distance-km').value = '';
-  document.getElementById('cwb-outbound-condition').value = '';
   document.getElementById('cwb-outbound-attested-by').value = '';
-  document.getElementById('cwb-outbound-notes').value = '';
-  document.getElementById('cwb-outbound-notes').placeholder = 'Notes (optional)';
-  document.getElementById('cwb-outbound-notes-preset').style.display = 'none';
-  document.getElementById('cwb-outbound-notes-preset').innerHTML = '';
-  document.querySelectorAll('.cwb-outbound-cond').forEach(b => { b.style.borderColor = ''; b.style.background = ''; b.style.color = ''; });
 
   renderClusterOrderList();
+  renderClusterOutboundAttestation();
   updateClusterFleetOptions();
   updateClusterCostPreview();
   openModal('modal-generate-cluster-waybill');
@@ -27161,7 +27238,12 @@ function toggleClusterOrderSelection(ref) {
   clusterSelectedRefs = clusterSelectedRefs.includes(ref)
     ? clusterSelectedRefs.filter(r => r !== ref)
     : [...clusterSelectedRefs, ref];
+  // Sep 29 2026 fix — drop any per-stop attestation already entered for a
+  // stop that just got unticked, so it doesn't silently reappear if the
+  // same order is re-ticked later in this same modal session.
+  if(!clusterSelectedRefs.includes(ref)) delete clusterOutboundByRef[ref];
   renderClusterOrderList();
+  renderClusterOutboundAttestation();
   updateClusterFleetOptions();
   updateClusterCostPreview();
 }
@@ -27255,53 +27337,79 @@ function updateClusterCostPreview() {
      <strong style="color:var(--lime)">Total estimated trip cost: ₦${costs.total.toLocaleString()}</strong> — split across ${orders.length} stops by crate share`;
 }
 
-function selectClusterOutboundCondition(val) {
-  document.getElementById('cwb-outbound-condition').value = val;
+// Sep 29 2026 fix — replaces the old single shared
+// selectClusterOutboundCondition()/applyClusterNotesPreset() pair: each
+// stop now gets its own condition/notes, tracked in clusterOutboundByRef
+// and rendered by renderClusterOutboundAttestation() below.
+function renderClusterOutboundAttestation() {
+  const el = document.getElementById('cwb-per-stop-attestation');
+  if(!el) return;
+  const orders = loadOrders().filter(o => clusterSelectedRefs.includes(o.ref));
   const colors = { good: 'var(--lime)', damaged: 'var(--red)', short: 'var(--sun)' };
-  document.querySelectorAll('.cwb-outbound-cond').forEach(b => {
-    if(b.dataset.val === val) {
-      b.style.borderColor = colors[val]; b.style.color = colors[val];
-      b.style.background = val === 'good' ? 'rgba(109,217,109,0.1)' : val === 'damaged' ? 'rgba(224,72,72,0.1)' : 'rgba(240,192,64,0.12)';
-    } else {
-      b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
-    }
-  });
-  const presetEl = document.getElementById('cwb-outbound-notes-preset');
-  const notesEl  = document.getElementById('cwb-outbound-notes');
-  const templates = INCIDENT_NOTE_TEMPLATES[val];
-  if(!templates) { presetEl.style.display = 'none'; presetEl.innerHTML = ''; notesEl.placeholder = 'Notes (optional)'; return; }
-  presetEl.innerHTML = '<option value="">— Pick what happened, or choose Other —</option>' +
-    templates.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('') +
-    '<option value="__other__">Other — type below</option>';
-  presetEl.style.display = '';
-  presetEl.value = '';
-  notesEl.value = '';
-  notesEl.placeholder = 'Pick an option above, or describe it here';
+  const bg     = { good: 'rgba(109,217,109,0.1)', damaged: 'rgba(224,72,72,0.1)', short: 'rgba(240,192,64,0.12)' };
+  const labels = { good: '✅ Good', damaged: '⚠️ Damaged', short: '📉 Short' };
+
+  el.innerHTML = orders.length ? orders.map(o => {
+    const entry = clusterOutboundByRef[o.ref] || {};
+    const templates = entry.condition ? (INCIDENT_NOTE_TEMPLATES[entry.condition] || []) : [];
+    return `
+    <div style="padding:8px 10px;background:var(--raised);border-radius:6px;margin-bottom:6px">
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream);margin-bottom:6px">${escapeHtml(o.customerName)} <span style="color:var(--mist)">— ${o.crates} crates</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px">
+        ${['good','damaged','short'].map(val => `
+          <button type="button" class="btn btn-ghost" style="font-size:9px;${entry.condition===val ? `border-color:${colors[val]};color:${colors[val]};background:${bg[val]}` : ''}"
+            onclick="selectClusterStopCondition('${o.ref}','${val}')">${labels[val]}</button>
+        `).join('')}
+      </div>
+      ${templates.length ? `
+      <select class="form-select" style="font-size:9.5px;margin-bottom:6px" onchange="applyClusterStopNotesPreset('${o.ref}', this.value)">
+        <option value="">— Pick what happened, or choose Other —</option>
+        ${templates.map(t => `<option value="${escapeHtml(t)}" ${entry.notes===t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+        <option value="__other__">Other — type below</option>
+      </select>` : ''}
+      <input class="form-input" style="font-size:9.5px" placeholder="Notes for this stop (optional)" value="${escapeHtml(entry.notes||'')}" oninput="updateClusterStopNotes('${o.ref}', this.value)"/>
+    </div>`;
+  }).join('') : '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">Tick stops above to set each one\'s outbound condition.</div>';
 }
 
-function applyClusterNotesPreset() {
-  const presetEl = document.getElementById('cwb-outbound-notes-preset');
-  const notesEl  = document.getElementById('cwb-outbound-notes');
-  const val = presetEl.value;
+function selectClusterStopCondition(ref, val) {
+  if(!clusterOutboundByRef[ref]) clusterOutboundByRef[ref] = {};
+  clusterOutboundByRef[ref].condition = val;
+  renderClusterOutboundAttestation();
+}
+
+function updateClusterStopNotes(ref, val) {
+  if(!clusterOutboundByRef[ref]) clusterOutboundByRef[ref] = {};
+  clusterOutboundByRef[ref].notes = val;
+}
+
+function applyClusterStopNotesPreset(ref, val) {
   if(!val) return;
-  if(val === '__other__') { notesEl.value = ''; notesEl.focus(); return; }
-  notesEl.value = val;
+  if(!clusterOutboundByRef[ref]) clusterOutboundByRef[ref] = {};
+  clusterOutboundByRef[ref].notes = val === '__other__' ? '' : val;
+  renderClusterOutboundAttestation();
 }
 
 function submitGenerateClusterWaybill() {
   const vehicleId = document.getElementById('cwb-vehicle').value;
   const driverId = document.getElementById('cwb-driver').value;
   const distanceKm = parseFloat(document.getElementById('cwb-distance-km').value) || 0;
-  const outboundCondition = document.getElementById('cwb-outbound-condition').value;
   const outboundAttestedBy = document.getElementById('cwb-outbound-attested-by').value.trim();
-  const outboundNotes = document.getElementById('cwb-outbound-notes').value.trim();
 
   if(clusterSelectedRefs.length < 2) { showToast('⚠ Tick at least 2 orders for this trip.'); return; }
   if(!vehicleId) { showToast('⚠ Select a vehicle.'); return; }
   if(!driverId) { showToast('⚠ Select a driver.'); return; }
   if(!distanceKm || distanceKm <= 0) { showToast('⚠ Enter a real trip distance (km).'); return; }
-  if(!outboundCondition) { showToast('⚠ Select the outbound condition of the load.'); return; }
   if(!outboundAttestedBy) { showToast('⚠ Enter who is attesting to the outbound condition.'); return; }
+  // Sep 29 2026 fix — every selected stop needs its own condition now,
+  // not one shared value.
+  const orders = loadOrders();
+  const missingCondition = clusterSelectedRefs.find(ref => !clusterOutboundByRef[ref]?.condition);
+  if(missingCondition) {
+    const name = orders.find(o => o.ref === missingCondition)?.customerName || missingCondition;
+    showToast(`⚠ Set the outbound condition for ${name} before generating waybills.`);
+    return;
+  }
 
   const fleet = ensureFleet();
   const vehicle = fleet.vehicles.find(v => v.id === vehicleId);
@@ -27318,8 +27426,8 @@ function submitGenerateClusterWaybill() {
   if(vehicleBusyRef) { showToast(`⚠ That vehicle is already out on ${vehicleBusyRef} — pick another.`); return; }
   if(driverBusyRef)  { showToast(`⚠ That driver is already out on ${driverBusyRef} — pick another.`); return; }
 
-  const ok = generateClusterWaybill(clusterSelectedRefs, { vehicleId, driverId, distanceKm, outboundCondition, outboundAttestedBy, outboundNotes });
-  if(ok) { clusterSelectedRefs = []; closeModal('modal-generate-cluster-waybill'); }
+  const ok = generateClusterWaybill(clusterSelectedRefs, { vehicleId, driverId, distanceKm, outboundAttestedBy, outboundByRef: clusterOutboundByRef });
+  if(ok) { clusterSelectedRefs = []; clusterOutboundByRef = {}; closeModal('modal-generate-cluster-waybill'); }
 }
 
 function openConfirmDeliveryModal(orderRef) {
@@ -28906,7 +29014,7 @@ function saveTripLog() {
     `${signedCount}/3 signatures on file · odometer ${o.waybill.tripLog.odometerStart||'—'}→${o.waybill.tripLog.odometerEnd||'—'}km`);
 
   closeModal('modal-log-trip');
-  renderWaybillLog();
+  renderWaybillLog(); renderDeliveryCloseoutsArchive();
   showToast(`✓ Trip log saved — ${signedCount}/3 authorizations on file.`);
 }
 
@@ -29525,6 +29633,7 @@ function fulfillOrder(ref) {
   updateOrdersBadge();
   renderOrders();
   updateAllKPIs();
+  if(typeof renderDeliveryCloseoutsArchive === 'function') renderDeliveryCloseoutsArchive();
   logOk('order',
     `Order fulfilled — ${o.customerName} · ${o.crates} crates · ${o.ref}`,
     `Batch ${primaryBatch?.batchId||'—'} · Price locked ₦${price.toLocaleString()}/crate · Commission ₦${(o.crates*rate).toLocaleString()}`
