@@ -24240,13 +24240,21 @@ function buildOrderCard(o, queueNum) {
         </div>
       </div>`;
     })()}
-    ${(isPending || isConfirmed) ? `
+    ${(isPending || isConfirmed || isInTransit) ? `
+    <!-- Sep 29 2026 fix — this used to only render for isPending/isConfirmed,
+         so an order that reached in_transit with no Payment Terms ever set
+         (Generate Waybill had no gate for it — see generateWaybill()'s own
+         Sep 29 fix) lost the only place to set it: Send to Sales Log stays
+         hard-gated on agreedPaymentTerms, so the order stalled in limbo
+         with no visible way out. Now shown at every stage until it's set,
+         and left visible (editable) after in_transit too, as a standing
+         safety net. -->
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;
       padding:8px 10px;background:${o.agreedPaymentTerms ? 'rgba(61,214,192,0.05)' : 'rgba(224,144,48,0.08)'};
       border:1px solid ${o.agreedPaymentTerms ? 'rgba(61,214,192,0.2)' : 'rgba(224,144,48,0.3)'};border-radius:6px">
       <label style="font-family:'DM Mono',monospace;font-size:9px;color:${o.agreedPaymentTerms ? 'var(--mist)' : 'var(--amber)'};
         letter-spacing:0.5px;text-transform:uppercase;white-space:nowrap">
-        ${o.agreedPaymentTerms ? '💳 Payment Terms' : '⚠ Payment Terms — required before fulfilment'}
+        ${o.agreedPaymentTerms ? '💳 Payment Terms' : (isInTransit ? '⚠ Payment Terms missing — goods already dispatched, set now' : '⚠ Payment Terms — required before fulfilment')}
       </label>
       <select class="form-select" style="width:auto;flex:1;min-width:160px;font-size:11px;padding:5px 8px"
         onchange="setOrderPaymentTerms('${o.ref}', this.value)">
@@ -24269,8 +24277,9 @@ function buildOrderCard(o, queueNum) {
           onclick="sendToSalesLog('${o.ref}')" title="${!o.agreedPaymentTerms ? 'Set Payment Terms above first' : ''}">
           📋 Send to Sales Log
         </button>
-        <button class="btn btn-ghost" style="font-size:10px"
-          onclick="openGenerateWaybillModal('${o.ref}')">🚚 Generate Waybill</button>
+        <button class="btn btn-ghost" style="font-size:10px${!o.agreedPaymentTerms ? ';opacity:0.4;cursor:not-allowed' : ''}"
+          ${!o.agreedPaymentTerms ? 'disabled' : ''}
+          onclick="openGenerateWaybillModal('${o.ref}')" title="${!o.agreedPaymentTerms ? 'Set Payment Terms above first' : ''}">🚚 Generate Waybill</button>
         <button class="btn btn-danger" style="font-size:10px"
           onclick="rejectOrder('${o.ref}')">✕ Reject</button>
         <button class="wa-btn" style="padding:6px 12px;font-size:10px"
@@ -24298,8 +24307,9 @@ function buildOrderCard(o, queueNum) {
           onclick="sendToSalesLog('${o.ref}')" title="${!o.agreedPaymentTerms ? 'Set Payment Terms above first' : ''}">
           📋 Open in Sales Log
         </button>
-        <button class="btn btn-ghost" style="font-size:10px"
-          onclick="openGenerateWaybillModal('${o.ref}')">🚚 Generate Waybill</button>
+        <button class="btn btn-ghost" style="font-size:10px${!o.agreedPaymentTerms ? ';opacity:0.4;cursor:not-allowed' : ''}"
+          ${!o.agreedPaymentTerms ? 'disabled' : ''}
+          onclick="openGenerateWaybillModal('${o.ref}')" title="${!o.agreedPaymentTerms ? 'Set Payment Terms above first' : ''}">🚚 Generate Waybill</button>
         <button class="wa-btn" style="padding:6px 12px;font-size:10px"
           onclick="waReplyOrder('${o.ref}','confirm')">💬 Send Confirmation</button>
         <button class="btn btn-danger" style="font-size:10px"
@@ -24316,6 +24326,17 @@ function buildOrderCard(o, queueNum) {
           onclick="openConfirmDeliveryModal('${o.ref}')">✓ Confirm Delivery</button>
         <button class="btn btn-ghost" style="font-size:10px"
           onclick="viewWaybillDoc('${o.ref}')">📄 View Waybill</button>
+        ${(o.waybill?.status === 'delivered' && o.agreedPaymentTerms) ? `
+        <!-- Sep 29 2026 fix — recovery button for an order that was already
+             delivery-confirmed while Payment Terms was still missing:
+             confirmDeliveryAndProceed() auto-calls sendToSalesLog() once,
+             right after marking the waybill delivered, and that call
+             silently stalled on the agreedPaymentTerms gate with no retry.
+             Now that Payment Terms is set (via the box above), this finishes
+             the job without needing to touch Confirm Delivery again. -->
+        <button class="btn btn-primary" style="font-size:10px"
+          onclick="sendToSalesLog('${o.ref}')">📋 Send to Sales Log</button>
+        ` : ''}
       ` : ''}
 
       ${(()=>{
@@ -25565,6 +25586,18 @@ function generateWaybill(orderRef, opts) {
   if(o.status !== 'confirmed' && o.status !== 'pending') { showToast('⚠ Only pending or confirmed orders can be given a waybill.'); return; }
   if(!checkOrderPaymentVerified(orderRef, o)) return;
 
+  // Sep 29 2026 fix — Generate Waybill had no check for agreedPaymentTerms,
+  // unlike Send to Sales Log's hard gate. That let goods dispatch with no
+  // Payment Terms ever recorded; once in_transit, Confirm Delivery
+  // auto-forwards to sendToSalesLog(), which stalls silently on its own
+  // agreedPaymentTerms gate, with no obvious way back (see Bob's Sep 29
+  // report — 3 real orders got stuck this way). Blocked here now, same as
+  // the button above is disabled in the Orders Inbox card.
+  if(!o.agreedPaymentTerms) {
+    showToast('⚠ Set this order\'s real Payment Terms in Orders Inbox before generating a waybill.');
+    return;
+  }
+
   const shipper = ensureShipperDetails();
   const fleet   = ensureFleet();
   const ls      = ensureLogisticsSettings();
@@ -25666,6 +25699,13 @@ function generateClusterWaybill(orderRefs, opts) {
   if(badStatus) { showToast(`⚠ ${badStatus.ref} is not pending/confirmed — only those can be given a waybill.`); return false; }
   for(const o of group) {
     if(!checkOrderPaymentVerified(o.ref, o)) return false; // stops at the first stop needing verification, same gate as a single waybill
+  }
+  // Sep 29 2026 fix — same Payment Terms gate as generateWaybill()'s single-
+  // order path; this cluster path was missing it entirely.
+  const missingTerms = group.find(o => !o.agreedPaymentTerms);
+  if(missingTerms) {
+    showToast(`⚠ ${missingTerms.customerName} (${missingTerms.ref}) has no Payment Terms set — set it in Orders Inbox before adding it to a cluster run.`);
+    return false;
   }
 
   const shipper = ensureShipperDetails();
@@ -27123,6 +27163,7 @@ function renderClusterOrderList() {
     <label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust)">
       <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleClusterOrderSelection('${o.ref}')"/>
       <span style="color:var(--cream)">${escapeHtml(o.customerName)}</span> — ${o.crates} crates → ${escapeHtml(o.location || '—')}
+      ${!o.agreedPaymentTerms ? '<span style="color:var(--amber)">⚠ no Payment Terms</span>' : ''}
       <span style="color:var(--mist);margin-left:auto">${o.ref}</span>
     </label>`;
   }).join('') || '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">No eligible orders.</div>';
