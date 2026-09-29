@@ -3654,7 +3654,16 @@ input[type=number]{-moz-appearance:textfield;}
 
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Total trip distance (km) <span style="color:var(--mist)">— the whole run, out and back, not one leg</span></label>
-      <input class="form-input" type="number" id="cwb-distance-km" placeholder="Distance (km)" oninput="updateClusterCostPreview()"/>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" type="number" id="cwb-distance-km" placeholder="Distance (km)" oninput="updateClusterCostPreview()" style="flex:1"/>
+        <!-- Sep 29 2026 — Option 1 (Bob's choice): fetches the real
+             driving distance for the stop order already picked for free
+             by orderPointsGreedily() — see autoCalculateClusterDistance().
+             Never automatic; only runs on this click, so it only spends a
+             Directions API call when Bob actually asks for one. -->
+        <button type="button" class="btn btn-ghost" style="font-size:9px;padding:6px 10px;white-space:nowrap" onclick="autoCalculateClusterDistance()">📍 Auto-calculate</button>
+      </div>
+      <div id="cwb-distance-status" style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:4px"></div>
     </div>
     <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:12px">
       Checkpoint fees are handled separately as a reclaimable expense by the driver, not tracked here.
@@ -26624,6 +26633,58 @@ async function groupNearbyOrders() {
     : `✓ ${result.geocoded}/${result.attempted} located` + (result.failed > 0 ? ` — ${result.failed} couldn't be matched (check the address on the order).` : '.'));
 }
 
+// Sep 29 2026 — Cluster Delivery distance automation, Option 1. One
+// Directions API call, only on this explicit request — see
+// routes-postgres/orders.js's /cluster-distance for the server side.
+async function postClusterDistance(originAddress, stops) {
+  const token = await erpGetAuthToken();
+  if(!token) return null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/orders/cluster-distance`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ originAddress, stops }),
+    });
+    if(!resp.ok) return null;
+    return await resp.json();
+  } catch(networkErr) {
+    return null;
+  }
+}
+
+async function autoCalculateClusterDistance() {
+  const statusEl = document.getElementById('cwb-distance-status');
+  const orders = loadOrders().filter(o => clusterSelectedRefs.includes(o.ref));
+  if(orders.length < 2) { showToast('⚠ Tick at least 2 orders first.'); return; }
+
+  const missingLocation = orders.filter(o => o.latitude == null || o.longitude == null);
+  if(missingLocation.length) {
+    showToast(`⚠ ${missingLocation.map(o => o.customerName).join(', ')} ${missingLocation.length > 1 ? "don't" : "doesn't"} have a location on file yet — run "📍 Group Nearby Orders" first, then try again.`);
+    return;
+  }
+
+  const shipper = ensureShipperDetails();
+  if(!shipper.address) { showToast('⚠ No farm address on file — set it in Logistics → Shipper Details first.'); return; }
+
+  // Same free nearest-neighbor order already used for the driver's own
+  // nav link (orderPointsGreedily()/buildOrdersNavUrl()) — this only
+  // measures that route, never picks a different one.
+  const ordered = orderPointsGreedily(orders);
+  const stopsPayload = ordered.map(o => ({ ref: o.ref, latitude: o.latitude, longitude: o.longitude }));
+
+  if(statusEl) statusEl.textContent = '⏳ Calculating real driving distance…';
+  const result = await postClusterDistance(shipper.address, stopsPayload);
+  if(!result) {
+    if(statusEl) statusEl.textContent = '⚠ Could not calculate — enter the distance manually below.';
+    showToast('⚠ Could not reach the route service — check your connection, or enter the distance manually.');
+    return;
+  }
+
+  document.getElementById('cwb-distance-km').value = result.distanceKm;
+  updateClusterCostPreview();
+  if(statusEl) statusEl.textContent = `✓ ${result.distanceKm}km round trip — ${ordered.map(o => o.customerName).join(' → ')} → back to farm.`;
+}
+
 // Cluster Delivery (Sep 28 2026) — one driver, one message. Instead of
 // pinging the same driver N separate times (once per stop's own
 // buildDriverDirectionsWaLink()/buildCustomerConfirmationWaLink() below),
@@ -27226,6 +27287,7 @@ function openGenerateClusterWaybillModal(preselectedRefs) {
 
   document.getElementById('cwb-distance-km').value = '';
   document.getElementById('cwb-outbound-attested-by').value = '';
+  document.getElementById('cwb-distance-status').textContent = '';
 
   renderClusterOrderList();
   renderClusterOutboundAttestation();
@@ -27242,6 +27304,14 @@ function toggleClusterOrderSelection(ref) {
   // stop that just got unticked, so it doesn't silently reappear if the
   // same order is re-ticked later in this same modal session.
   if(!clusterSelectedRefs.includes(ref)) delete clusterOutboundByRef[ref];
+  // Sep 29 2026 — the selection changed, so any distance already
+  // calculated (or typed in) for the OLD stop list no longer describes
+  // this trip; clear both rather than let a stale figure ride along
+  // into the cost preview and the generated waybills.
+  const statusEl = document.getElementById('cwb-distance-status');
+  if(statusEl) statusEl.textContent = '';
+  const distEl = document.getElementById('cwb-distance-km');
+  if(distEl) distEl.value = '';
   renderClusterOrderList();
   renderClusterOutboundAttestation();
   updateClusterFleetOptions();
