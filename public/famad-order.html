@@ -2837,23 +2837,51 @@ function onCrateInputChange(el) {
 const PORTAL_TIER_RANK = { New: -1, Bronze: 0, Silver: 1, Gold: 2, Platinum: 3 };
 
 // Promo "Target Segment" values that map to a loyalty tier requirement.
-// Only these two are enforced right now — "Wholesalers Only",
-// "Inactive (30+ days)", and "High-Volume (200+ crates/mo)" are NOT yet
-// checked here (need customer type / order-history data not confirmed
-// available in the portal — flagged as a follow-up, not silently ignored).
 const PROMO_TIER_SEGMENT = { 'Gold Loyalty': 'Gold', 'Silver Loyalty': 'Silver' };
 
-// Does this specific customer (or an unmatched/anonymous visitor, treated
-// as 'New') actually qualify for this promo's Target Segment? This is the
-// single gate every promo-discount call site below goes through — before
-// this fix, ANY active-by-date promo applied to ANY customer regardless
-// of Target Segment (root cause of the Golden Big / Madam Ruth's Stall bug).
+// Sep 30 2026 — the remaining three segments, previously a known, flagged
+// gap ("Wholesalers Only" / "Inactive (30+ days)" / "High-Volume (200+
+// crates/mo)" applied to everyone) now closed: /customers/search and
+// /customers/by-code (routes-postgres/customers.js) return `type`,
+// `recentCrates30d`, and `daysSinceLastPurchase` alongside the fields
+// already used for tier checks, so portalState.matchedCustomer actually
+// carries what these three segments need. Same "Wholesaler" business-type
+// value the ERP's own Customer type field uses; the crate/date figures are
+// server-computed aggregates over the real sales table, not anything
+// re-derived from local data the portal never had.
 function promoAppliesToCustomer(promo, customer) {
   if(!promo) return false;
-  const requiredTier = PROMO_TIER_SEGMENT[promo.segment];
-  if(!requiredTier) return true; // no tier restriction we currently enforce
-  const custTier = customer?.loyalty || 'New';
-  return PORTAL_TIER_RANK[custTier] >= PORTAL_TIER_RANK[requiredTier];
+  const seg = promo.segment;
+
+  const requiredTier = PROMO_TIER_SEGMENT[seg];
+  if(requiredTier) {
+    const custTier = customer?.loyalty || 'New';
+    return PORTAL_TIER_RANK[custTier] >= PORTAL_TIER_RANK[requiredTier];
+  }
+
+  // Wholesalers Only — the customer's own declared business type.
+  // An unmatched/anonymous visitor (customer is null) never qualifies —
+  // same "protects margin" default Bob set for the tier-based segments.
+  if(seg === 'Wholesalers Only') {
+    return customer?.type === 'Wholesaler';
+  }
+
+  // Inactive (30+ days) — a win-back segment. A recognized customer who
+  // has never bought before counts as inactive too (mirrors the ERP's
+  // own WA Broadcast "inactive" segment logic, getSegmentCustomers(),
+  // exactly), but an unmatched visitor still doesn't qualify — we have
+  // no idea who they are, so there's nothing to "win back" yet.
+  if(seg === 'Inactive (30+ days)') {
+    if(!customer) return false;
+    return customer.daysSinceLastPurchase == null || customer.daysSinceLastPurchase > 30;
+  }
+
+  // High-Volume (200+ crates/mo) — trailing-30-days crate total.
+  if(seg === 'High-Volume (200+ crates/mo)') {
+    return (customer?.recentCrates30d || 0) >= 200;
+  }
+
+  return true; // "All Customers" (or any future segment we don't gate) — no restriction
 }
 
 function updateOrderCalc() {
