@@ -445,7 +445,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
     <!-- PREFER WHATSAPP — a genuine alternative to the form, so it has to
          be visible before any of it, not discovered after finishing it. -->
-    <a href="https://wa.me/2348068371725?text=Hello%20BMF%20EggScore%20Limited%2C%20I%27d%20like%20to%20place%20an%20order%20via%20WhatsApp."
+    <a href="https://wa.me/2349165343020?text=Hello%20BMF%20EggScore%20Limited%2C%20I%27d%20like%20to%20place%20an%20order%20via%20WhatsApp."
       target="_blank" class="wa-fallback" style="max-width:400px;margin:14px auto 0 auto">
       <span>💬</span><span data-i18n="wa.order_here">Prefer WhatsApp? Order here →</span>
     </a>
@@ -1062,7 +1062,7 @@ const PAYSTACK_THRESHOLD = 30; // crates
 ═══════════════════════════════════════════════════════ */
 const BRAND_TRUST = {
   canonicalDomain:  'https://order.eggscore.com.ng',
-  officialWhatsApp: '2348068371725', // BMF EggScore's established public WhatsApp line
+  officialWhatsApp: '2349165343020', // BMF EggScore's established public WhatsApp line
   verifyPathPrefix: '/verify/'
 };
 
@@ -1699,8 +1699,11 @@ async function saveOrder(order) {
   return result.ok;
 }
 
-// Self-healing retry (Sep 30 2026) — runs once per page load, same
-// "retry-on-load" shape the ERP already uses for Sales/Wallet/etc. Any
+// Self-healing retry (Sep 30 2026) — runs on page load AND the instant
+// this browser's connection comes back (the 'online' listener below),
+// same "retry-on-load" shape the ERP already uses for Sales/Wallet/etc,
+// extended so a customer doesn't have to reopen/reload the page just to
+// get an order that already sat ready off their spotty connection. Any
 // order still flagged backendSynced === false means its original POST
 // never confirmed success (offline, backend hiccup, tab closed mid-
 // request) — retried here using the exact same clientRef, so a request
@@ -1710,25 +1713,40 @@ async function saveOrder(order) {
 // same reasoning as "remember me on this device" above. Silent by
 // design: nothing for the customer to see or do either way, and a
 // second consecutive failure just leaves the flag standing for next time.
+let retryOrdersInFlight = false;
 async function retryFailedOrders() {
-  const orders = loadOrders();
-  const stuck = orders.filter(o => o.backendSynced === false);
-  if(stuck.length === 0) return;
+  // Guards against page-load and 'online' firing close together (or a
+  // flappy connection firing 'online' repeatedly) piling up overlapping
+  // runs — the one already in progress covers whatever's stuck; nothing
+  // is ever left unretried, since it just gets picked up next time.
+  if(retryOrdersInFlight) return;
+  retryOrdersInFlight = true;
+  try {
+    const orders = loadOrders();
+    const stuck = orders.filter(o => o.backendSynced === false);
+    if(stuck.length === 0) return;
 
-  let changed = false;
-  for(const order of stuck) {
-    const result = await postOrderToBackend(order);
-    if(result.ok) {
-      order.ref            = result.realOrder.ref;
-      order.customerCid    = result.realOrder.customerCid || null;
-      order.isNewCustomer  = !!result.realOrder.isNewCustomer;
-      order.backendSynced  = true;
-      changed = true;
+    let changed = false;
+    for(const order of stuck) {
+      const result = await postOrderToBackend(order);
+      if(result.ok) {
+        order.ref            = result.realOrder.ref;
+        order.customerCid    = result.realOrder.customerCid || null;
+        order.isNewCustomer  = !!result.realOrder.isNewCustomer;
+        order.backendSynced  = true;
+        changed = true;
+      }
     }
+    if(changed) localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+  } finally {
+    retryOrdersInFlight = false;
   }
-  if(changed) localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
 }
 document.addEventListener('DOMContentLoaded', retryFailedOrders);
+// Fires the moment the browser regains connectivity — the actual "back
+// online, retry now" behavior, rather than waiting for the customer to
+// reopen the page. Standard browser event; needs no permission/polling.
+window.addEventListener('online', retryFailedOrders);
 
 /* ── Init ── */
 /* ═══════════════════════════════════════════════════════
@@ -3329,7 +3347,7 @@ function updateWAFallback() {
     (notes ? `\n📝 *Notes:* ${notes}\n` : '') +
     `\nPlease confirm availability and proceed.\n\nThank you!`;
 
-  const link = `https://wa.me/2348068371725?text=${encodeURIComponent(msg)}`;
+  const link = `https://wa.me/2349165343020?text=${encodeURIComponent(msg)}`;
   const el   = document.getElementById('wa-fallback-link');
   if(el) el.href = link;
 }
@@ -3912,7 +3930,7 @@ function showSuccess(order, paid) {
       `💰 *Total:* ${total}\n🏦 *Payment method:* ${order.paymentMethod}\n\n` +
       `Please assist. Thank you!\n${order.customerName}`;
   const waEl = document.getElementById('success-wa-link');
-  if(waEl) waEl.href = `https://wa.me/2348068371725?text=${encodeURIComponent(waMsg)}`;
+  if(waEl) waEl.href = `https://wa.me/2349165343020?text=${encodeURIComponent(waMsg)}`;
 
   window.scrollTo({top:0,behavior:'smooth'});
 }
