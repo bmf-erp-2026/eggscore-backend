@@ -5221,7 +5221,7 @@ input[type=number]{-moz-appearance:textfield;}
         <!-- Payment method — large tap tiles -->
         <div class="form-group" style="margin-bottom:16px">
           <label class="form-label" style="font-size:11px;letter-spacing:1px">PAYMENT</label>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
             <div id="qe-pay-cash" onclick="qeSelectPayment('cash')"
               style="padding:14px 8px;text-align:center;border:2px solid var(--border);
               border-radius:8px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;
@@ -5238,6 +5238,10 @@ input[type=number]{-moz-appearance:textfield;}
               style="padding:14px 8px;text-align:center;border:2px solid var(--border);
               border-radius:8px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;
               color:var(--dust);transition:all .15s">Credit 30d</div>
+            <div id="qe-pay-part" onclick="qeSelectPayment('part')"
+              style="padding:14px 8px;text-align:center;border:2px solid var(--border);
+              border-radius:8px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;
+              color:var(--dust);transition:all .15s">Part Pay</div>
           </div>
         </div>
 
@@ -11480,7 +11484,7 @@ function qeUpdateStock() {
 
 function qeSelectPayment(p) {
   qeState.payment = p;
-  ['cash','transfer','credit7','credit30'].forEach(key => {
+  ['cash','transfer','credit7','credit30','part'].forEach(key => {
     const el = document.getElementById('qe-pay-'+key);
     if(!el) return;
     const sel = key === p;
