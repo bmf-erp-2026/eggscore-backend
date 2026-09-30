@@ -107,12 +107,35 @@ router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
 // client-side JS, so anything it can call is effectively public —
 // these three routes are designed with that in mind.
 
+// Sep 30 2026 — three more small, derived facts added on top of the
+// original narrow set, so the portal's promoAppliesToCustomer() can
+// finally check the "Wholesalers Only" / "Inactive (30+ days)" /
+// "High-Volume (200+ crates/mo)" promo segments (previously a known,
+// flagged gap — those segments applied to everyone because the portal
+// had no way to know a customer's type or purchase history at all).
+// Each one is computed server-side rather than handing over raw sales
+// rows — `type` is the customer's own declared business type (same
+// "Wholesaler"/"Depot"/etc. field the ERP already shows them), and the
+// two crate/date figures are single aggregates, not a history dump —
+// same "narrow, portal-facing" principle the rest of this section
+// already follows.
+const SEGMENT_FIELDS_SQL = `
+    type,
+    (SELECT COALESCE(SUM(s.crates), 0) FROM sales s
+      WHERE s.customer_id = customers.id AND s.sale_date::date >= (CURRENT_DATE - INTERVAL '30 days')
+    ) AS "recentCrates30d",
+    (SELECT (CURRENT_DATE - MAX(s.sale_date::date)) FROM sales s
+      WHERE s.customer_id = customers.id
+    ) AS "daysSinceLastPurchase"`;
+
 // Partial name/contact match, for lookupCustomer()'s as-you-type check.
 router.get('/search', requireEitherAuth(), async (req, res) => {
   const q = (req.query.q || '').trim();
   if(q.length < 3) return res.json(null);
   const rows = await db.prepare(
-    `SELECT name, cid, phone, location, referral_code AS "referralCode", loyalty_tier AS "loyalty" FROM customers
+    `SELECT name, cid, phone, location, referral_code AS "referralCode", loyalty_tier AS "loyalty",
+    ${SEGMENT_FIELDS_SQL}
+     FROM customers
      WHERE LOWER(name) LIKE ? OR LOWER(contact) LIKE ? LIMIT 1`
   ).all(`%${q.toLowerCase()}%`, `%${q.toLowerCase()}%`);
   res.json(rows[0] || null);
@@ -123,7 +146,9 @@ router.get('/by-code', requireEitherAuth(), async (req, res) => {
   const code = (req.query.code || '').trim();
   if(!code) return res.json(null);
   const row = await db.prepare(
-    `SELECT name, cid, phone, location, referral_code AS "referralCode", loyalty_tier AS "loyalty" FROM customers WHERE cid = ?`
+    `SELECT name, cid, phone, location, referral_code AS "referralCode", loyalty_tier AS "loyalty",
+    ${SEGMENT_FIELDS_SQL}
+     FROM customers WHERE cid = ?`
   ).get(code);
   res.json(row || null);
 });
