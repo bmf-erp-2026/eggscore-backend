@@ -21,8 +21,8 @@ function genCustomerCid() {
   return `BEL-CID-${yy}${p(now.getMonth()+1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
 }
 
-// Matches purely on digits, so "0806 837 1725", "+234 806-837-1725", and
-// "08068371725" all resolve to the same customer instead of creating a
+// Matches purely on digits, so "0916 534 3020", "+234 916-534-3020", and
+// "09165343020" all resolve to the same customer instead of creating a
 // near-duplicate record for the same person.
 function normalisePhone(phone) {
   return (phone || '').replace(/\D/g, '');
