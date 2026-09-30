@@ -1595,13 +1595,30 @@ function toggleCoverageMap() {
   if(label) label.textContent = coverageMapExpanded ? 'Hide' : 'Tap to view';
 }
 
-async function saveOrder(order) {
-  let backendSucceeded = false;
+// Sep 30 2026 — pulled out of saveOrder() so the retry-on-load flow below
+// (retryFailedOrders()) can call the exact same POST logic a second time,
+// same "postXToBackend()" shape already used everywhere in the ERP for
+// this (postSaleToBackend, postCustomerToBackend, etc). Root cause of the
+// Aug 17 stuck-sale incident this closes: a failed POST /orders here used
+// to just fall through to a LOCAL-ONLY save, in the customer's own
+// browser, with nothing to ever retry it — staff had no way to even know
+// the order existed unless the customer mentioned it themselves.
+//
+// order.ref is sent as `clientRef` — generated once in submitOrder(),
+// unchanged across every retry of that same order — so a retry after a
+// lost RESPONSE (the order actually landed the first time, only the
+// confirmation never made it back to this browser) can't create a
+// genuine duplicate order. routes-postgres/orders.js now checks for an
+// existing order with that ref before inserting and, if found, just
+// returns it — same idempotency pattern already proven for commission
+// payouts/credit overrides/system events.
+async function postOrderToBackend(order) {
   try {
     const resp = await fetch(`${BACKEND_URL}/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
       body: JSON.stringify({
+        clientRef: order.ref,
         customerName: order.customerName,
         phone: order.phone,
         location: order.location,
@@ -1646,18 +1663,29 @@ async function saveOrder(order) {
     });
     if(resp.ok) {
       const realOrder = await resp.json();
-      order.ref = realOrder.ref; // the backend's ref is now the authoritative one
-      order.customerCid    = realOrder.customerCid || null;
-      order.isNewCustomer  = !!realOrder.isNewCustomer;
-      backendSucceeded = true;
+      return { ok: true, realOrder };
     }
+    return { ok: false, realOrder: null };
   } catch(networkErr) {
-    // Real network failure — this device may be offline, or the
-    // backend momentarily unreachable. Falling through to the local
-    // save below rather than losing the order outright; the customer
-    // still gets their reference number and a working confirmation
-    // screen, same as always.
+    // Real network failure — this device may be offline, or the backend
+    // momentarily unreachable. Caller falls through to a local-only save
+    // (first attempt) or leaves the retry flag standing (retry attempt).
+    return { ok: false, realOrder: null };
   }
+}
+
+async function saveOrder(order) {
+  const result = await postOrderToBackend(order);
+  if(result.ok) {
+    order.ref = result.realOrder.ref; // the backend's ref is now the authoritative one
+    order.customerCid    = result.realOrder.customerCid || null;
+    order.isNewCustomer  = !!result.realOrder.isNewCustomer;
+  }
+  // Flags whether this order still needs retryFailedOrders() to pick it
+  // up on a future page load — the single source of truth for "did this
+  // actually reach the backend yet", checked instead of guessing from
+  // the presence of a ref (every order has one, backend-confirmed or not).
+  order.backendSynced = result.ok;
 
   // Kept as a local cache regardless of backend success — this
   // session's own stock/reservation checks still read from here until
@@ -1668,8 +1696,39 @@ async function saveOrder(order) {
   try { new BroadcastChannel(ORDERS_CH).postMessage({type:'new_order',ref:order.ref}); }
   catch(e){}
 
-  return backendSucceeded;
+  return result.ok;
 }
+
+// Self-healing retry (Sep 30 2026) — runs once per page load, same
+// "retry-on-load" shape the ERP already uses for Sales/Wallet/etc. Any
+// order still flagged backendSynced === false means its original POST
+// never confirmed success (offline, backend hiccup, tab closed mid-
+// request) — retried here using the exact same clientRef, so a request
+// that actually landed the first time just gets its existing order
+// handed back rather than duplicated. Only fires on THIS browser/device,
+// since that's the only place a locally-stuck order is visible at all —
+// same reasoning as "remember me on this device" above. Silent by
+// design: nothing for the customer to see or do either way, and a
+// second consecutive failure just leaves the flag standing for next time.
+async function retryFailedOrders() {
+  const orders = loadOrders();
+  const stuck = orders.filter(o => o.backendSynced === false);
+  if(stuck.length === 0) return;
+
+  let changed = false;
+  for(const order of stuck) {
+    const result = await postOrderToBackend(order);
+    if(result.ok) {
+      order.ref            = result.realOrder.ref;
+      order.customerCid    = result.realOrder.customerCid || null;
+      order.isNewCustomer  = !!result.realOrder.isNewCustomer;
+      order.backendSynced  = true;
+      changed = true;
+    }
+  }
+  if(changed) localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+}
+document.addEventListener('DOMContentLoaded', retryFailedOrders);
 
 /* ── Init ── */
 /* ═══════════════════════════════════════════════════════
