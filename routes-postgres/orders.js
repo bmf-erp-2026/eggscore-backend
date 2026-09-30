@@ -45,9 +45,34 @@ router.post('/', requireEitherAuth(), async (req, res) => {
           // all, so even though famad-order.html now sends them, they'd
           // have been silently dropped on the floor. See
           // migration-order-delivery-day.sql for the matching columns.
-          preferredDeliveryDay, isSpecialVolumeOrder } = req.body;
+          preferredDeliveryDay, isSpecialVolumeOrder,
+          // Sep 30 2026 — idempotency key for the portal's retry-on-load
+          // fix (postOrderToBackend()/retryFailedOrders() in
+          // famad-order.html): the same ref that browser generated
+          // locally the first time it hit Submit, resent unchanged on
+          // every retry of that same order.
+          clientRef } = req.body;
   if(!customerName || !crates || crates < 1) {
     return res.status(400).json({ error: 'customerName and a positive crates value are required.' });
+  }
+
+  // Idempotent replay — this exact clientRef was already accepted,
+  // almost certainly by an earlier attempt whose response never made it
+  // back to the browser (the order landed, only the confirmation was
+  // lost). Hand back that existing order rather than inserting a second
+  // one — skips customer resolution entirely below, since it already
+  // ran the first time. Root cause this closes: orders that failed to
+  // POST had no retry at all before this, and a naive retry would have
+  // just created a genuine duplicate for any case where the first
+  // attempt actually succeeded server-side.
+  if(clientRef) {
+    const already = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(clientRef);
+    if(already) {
+      const cust = already.customer_id
+        ? await db.prepare('SELECT cid FROM customers WHERE id = ?').get(already.customer_id)
+        : null;
+      return res.status(200).json({ ...already, customerCid: cust?.cid || null, isNewCustomer: false });
+    }
   }
 
   // Silent housekeeping — every order now resolves to a real customer
@@ -104,7 +129,12 @@ router.post('/', requireEitherAuth(), async (req, res) => {
     }
   }
 
-const ref = genOrderRef();
+// Reuse the browser's own clientRef when it sent one — same convention/
+// format as genOrderRef() already produces (BEL-ORD-YYMMDD-HHMMSS), just
+// generated a moment earlier on the customer's device. Only falls back
+// to generating one here for a caller that doesn't send one at all
+// (older cached page, or any future non-portal caller).
+const ref = clientRef || genOrderRef();
   const info = await db.prepare(`
     INSERT INTO orders (ref, customer_id, customer_name, phone, location, crates, egg_price_per_crate, delivery_per_crate, notes, payment_method, referred_by_customer_name, reservation_customer_type, reserved_at, reservation_window_hours, reservation_expires_at, status, theme, preferred_delivery_day, is_special_volume_order)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
