@@ -2585,6 +2585,96 @@ input[type=number]{-moz-appearance:textfield;}
     saveState();
   }
 
+  // Command Centre Notice Board (Oct 1 2026) — same post/patch/sync
+  // trio as promotions above, reused almost verbatim. Visible to every
+  // staff member via GET, but only an owner session can ever reach the
+  // POST/PATCH routes (enforced server-side in notices.js) — the client
+  // additionally only ever shows the Add/Edit/Dismiss controls to
+  // ERP_ROLE==='owner' (see renderNoticeBoard()), so a rep never sees a
+  // button that would just 403 anyway.
+  async function postNoticeToBackend(notice) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/notices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          title: notice.title, note: notice.note, category: notice.category,
+          link: notice.link, revisit: notice.revisit,
+        }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
+  }
+
+  async function patchNoticeToBackend(backendId, fields) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/notices/${backendId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(fields),
+      });
+    } catch(networkErr) {
+      // Fire-and-forget, same as everywhere else.
+    }
+  }
+
+  // No stable code for a notice either, so first-sync merge is keyed on
+  // title (case-insensitive) — same fragile-but-workable tradeoff as
+  // promotions/suppliers, and just as low-stakes here: nothing financial
+  // rides on a notice merging imperfectly on a first sync.
+  async function syncNoticesFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let backendNotices;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/notices`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if(!resp.ok) return;
+      backendNotices = await resp.json();
+    } catch(networkErr) {
+      return;
+    }
+
+    if(!STATE.notices) STATE.notices = [];
+    const byBackendId = new Map(STATE.notices.filter(n => n.backendId).map(n => [n.backendId, n]));
+    const byTitle      = new Map(STATE.notices.filter(n => !n.backendId).map(n => [(n.title || '').trim().toLowerCase(), n]));
+
+    backendNotices.forEach(row => {
+      let existing = byBackendId.get(row.id) || byTitle.get((row.title || '').trim().toLowerCase());
+      if(existing) {
+        existing.title      = row.title;
+        existing.note       = row.note;
+        existing.category   = row.category;
+        existing.link       = row.link;
+        existing.revisit    = row.revisit;
+        existing.status     = row.status;
+        existing.created    = row.created_at;
+        existing.backendId  = row.id;
+      } else {
+        STATE.notices.push({
+          id: 'sync-' + row.id, title: row.title, note: row.note, category: row.category,
+          link: row.link, revisit: row.revisit, status: row.status, created: row.created_at,
+          backendId: row.id,
+        });
+      }
+    });
+    saveState();
+    // The Notice Board renders on Command Centre, the very first screen
+    // shown at boot — renderDashboard() almost always runs before this
+    // fetch resolves, so without this call the board would silently
+    // stay on its empty state until something else happened to
+    // re-render it. Cheap no-op if the panel isn't on screen.
+    renderNoticeBoard();
+  }
+
   // Suppliers have no CID-equivalent stable code, so first-sync merge
   // is keyed on name (case-insensitive) — same fragile-but-workable
   // tradeoff the old customer-matching used before CIDs existed. Once
@@ -4903,6 +4993,35 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 </div>
 
+<!-- Add/Edit Notice Modal — Command Centre Notice Board -->
+<div class="modal-overlay" id="modal-notice">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title" id="notice-modal-title">Add Notice</div>
+      <button class="modal-close" onclick="closeModal('modal-notice')">✕</button>
+    </div>
+    <input type="hidden" id="nb-edit-id" value="">
+    <div class="form-row cols-2">
+      <div class="form-group"><label class="form-label">Title <span class="req">*</span></label><input class="form-input" id="nb-title" placeholder="e.g. Google Ads $300 credit"/></div>
+      <div class="form-group"><label class="form-label">Category</label>
+        <select class="form-select" id="nb-category">
+          <option value="">— None —</option>
+          <option>Growth</option><option>Finance</option><option>Ops</option><option>Tech</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:16px"><label class="form-label">Note <span class="req">*</span></label><textarea class="form-textarea" id="nb-note" placeholder="What this is, the catch, why we're parking it…"></textarea></div>
+    <div class="form-row cols-2">
+      <div class="form-group"><label class="form-label">Link (optional)</label><input class="form-input" id="nb-link" placeholder="https://…"/></div>
+      <div class="form-group"><label class="form-label">Revisit when (optional)</label><input class="form-input" id="nb-revisit" placeholder="e.g. '500 crates/mo' or 'March 2027'"/></div>
+    </div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-notice')">Cancel</button>
+      <button class="btn btn-teal" onclick="saveNotice()">✓ Save Notice</button>
+    </div>
+  </div>
+</div>
+
 <div class="shell">
 
 <!-- PRINT LETTERHEAD — hidden on screen, appears at top of every print -->
@@ -5011,6 +5130,22 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 
   <div id="dash-alerts"></div>
+
+  <!-- COMMAND CENTRE NOTICE BOARD (Oct 1 2026) — owner-authored "revisit
+       this later" reminders, visible to every staff member who opens
+       Command Centre. Always on — deliberately NOT in the Customise
+       Dashboard toggle list below, since a reminder board that can be
+       hidden defeats its own purpose. -->
+  <div class="panel" id="dash-notice-board" style="margin-bottom:14px">
+    <div class="panel-hdr">
+      <div class="panel-title">📌 Notice Board</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="panel-tag">park it, revisit later</div>
+        <button class="btn btn-ghost" id="notice-board-add-btn" style="font-size:9px;padding:3px 10px;display:none" onclick="openAddNoticeModal()">+ Add Notice</button>
+      </div>
+    </div>
+    <div class="panel-body" id="notice-board-body"></div>
+  </div>
 
   <!-- PORTAL THEME USAGE — light vs dark traffic on the customer portal -->
   <div class="panel" style="margin-bottom:14px">
@@ -14425,6 +14560,7 @@ function renderDashboard() {
   updateAllKPIs();
   applyWidgetVisibility(); // apply saved widget show/hide preferences
   renderMarginWatch();
+  renderNoticeBoard();
   renderBatchCostTrendChart();
   renderDashLeaderboard();
   renderDashRecentSales();
@@ -16934,6 +17070,143 @@ function deactivatePromo(id) {
     if(currentModule === 'promotions') renderPromotions();
     showToast('Promotion ended.');
   }
+}
+
+/* ═══════════════════════════════════════════════════════
+   COMMAND CENTRE NOTICE BOARD (Oct 1 2026)
+   Owner-authored, all-staff-visible reminders for things worth
+   parking rather than acting on today — e.g. "revisit the Google
+   Ads $300 credit once order volume justifies managing ad spend."
+   Everyone sees the board on Command Centre; only ERP_ROLE==='owner'
+   ever sees the Add/Edit/Dismiss controls (the backend independently
+   enforces the same split via requireRole('owner') in notices.js, so
+   this client-side gate is UX only, not the real security boundary —
+   same philosophy as applyRoleUI() elsewhere in this file).
+═══════════════════════════════════════════════════════ */
+function ensureNotices() {
+  if(!STATE.notices) STATE.notices = [];
+}
+
+const NOTICE_CATEGORY_BADGE = {
+  Growth:  'badge-teal',
+  Finance: 'badge-gold',
+  Ops:     'badge-blue',
+  Tech:    'badge-silver', // reused for a 4th color — Tech has no dedicated badge class yet; avoiding badge-red since that reads as "warning" elsewhere in this app
+};
+
+function renderNoticeBoard() {
+  ensureNotices();
+  const el = document.getElementById('notice-board-body');
+  if(!el) return;
+
+  const addBtn = document.getElementById('notice-board-add-btn');
+  if(addBtn) addBtn.style.display = ERP_ROLE === 'owner' ? '' : 'none';
+
+  const open = STATE.notices
+    .filter(n => n.status !== 'dismissed')
+    .sort((a,b) => new Date(b.created || 0) - new Date(a.created || 0));
+
+  if(open.length === 0) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">
+      Nothing parked right now.${ERP_ROLE==='owner' ? ' Click "+ Add Notice" to save something for later.' : ''}
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = open.map(n => {
+    const badgeCls  = NOTICE_CATEGORY_BADGE[n.category] || '';
+    const catBadge  = n.category ? `<span class="badge ${badgeCls}">${escapeHtml(n.category)}</span>` : '';
+    const linkHtml  = n.link ? `<a href="${escapeHtml(n.link)}" target="_blank" rel="noopener" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--blue)">🔗 Open link</a>` : '';
+    const revisitHtml = n.revisit ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">↻ Revisit: ${escapeHtml(n.revisit)}</span>` : '';
+    const ownerControls = ERP_ROLE === 'owner' ? `
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-ghost" style="font-size:9px;padding:2px 8px" onclick="openAddNoticeModal('${n.id}')">Edit</button>
+        <button class="btn btn-ghost" style="font-size:9px;padding:2px 8px" onclick="dismissNotice('${n.id}')">✓ Done</button>
+      </div>` : '';
+
+    return `<div class="notice-card" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;background:var(--raised)">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+          <strong style="font-family:'Syne',sans-serif;font-size:12px;color:var(--cream)">${escapeHtml(n.title)}</strong>
+          ${catBadge}
+        </div>
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.6;white-space:pre-wrap">${escapeHtml(n.note)}</div>
+        <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">${linkHtml}${revisitHtml}</div>
+      </div>
+      ${ownerControls}
+    </div>`;
+  }).join('');
+}
+
+// id omitted → add mode; id present → edit mode, fields prefilled from
+// the existing notice. Reached only via a button that's already hidden
+// from non-owners, but the backend's requireRole('owner') is the real
+// gate — see the section banner above.
+function openAddNoticeModal(id) {
+  ensureNotices();
+  const existing = id ? STATE.notices.find(n => n.id === id) : null;
+
+  document.getElementById('notice-modal-title').textContent = existing ? 'Edit Notice' : 'Add Notice';
+  document.getElementById('nb-edit-id').value    = existing ? existing.id : '';
+  document.getElementById('nb-title').value      = existing ? existing.title    || '' : '';
+  document.getElementById('nb-category').value   = existing ? existing.category || '' : '';
+  document.getElementById('nb-note').value       = existing ? existing.note     || '' : '';
+  document.getElementById('nb-link').value       = existing ? existing.link     || '' : '';
+  document.getElementById('nb-revisit').value    = existing ? existing.revisit  || '' : '';
+
+  openModal('modal-notice');
+}
+
+function saveNotice() {
+  const editId   = document.getElementById('nb-edit-id')?.value || '';
+  const title    = document.getElementById('nb-title')?.value.trim();
+  const category = document.getElementById('nb-category')?.value || '';
+  const note     = document.getElementById('nb-note')?.value.trim();
+  const link     = document.getElementById('nb-link')?.value.trim();
+  const revisit  = document.getElementById('nb-revisit')?.value.trim();
+
+  if(!title) { showToast('⚠ Title required.'); return; }
+  if(!note)  { showToast('⚠ Note required.'); return; }
+
+  ensureNotices();
+
+  if(editId) {
+    const existing = STATE.notices.find(n => n.id === editId);
+    if(!existing) { showToast('⚠ Notice not found — it may have been dismissed elsewhere.'); closeModal('modal-notice'); return; }
+    existing.title = title; existing.category = category; existing.note = note;
+    existing.link = link; existing.revisit = revisit;
+    if(existing.backendId) patchNoticeToBackend(existing.backendId, { title, category, note, link, revisit });
+    showToast('✓ Notice updated: ' + title);
+  } else {
+    const newNotice = {
+      id: 'nb' + Date.now(), title, category, note, link, revisit,
+      status: 'open', created: new Date().toISOString(),
+    };
+    STATE.notices.unshift(newNotice);
+    postNoticeToBackend(newNotice).then(row => { if(row) newNotice.backendId = row.id; saveState(); });
+    showToast('✓ Notice saved: ' + title);
+  }
+
+  saveState();
+  closeModal('modal-notice');
+  renderNoticeBoard();
+}
+
+// "Dismiss" rather than delete — same spirit as deactivatePromo() above:
+// a soft status flip, not a destructive remove. No confirm() prompt,
+// matching the rest of this file's low-stakes actions (End Promotion
+// works the same way) — a dismissed notice isn't recoverable from the
+// UI, but nothing financial or irreversible-in-the-real-world rides on it.
+function dismissNotice(id) {
+  ensureNotices();
+  const n = STATE.notices.find(x => x.id === id);
+  if(!n) return;
+  n.status = 'dismissed';
+  n.dismissedAt = new Date().toISOString();
+  if(n.backendId) patchNoticeToBackend(n.backendId, { status: 'dismissed' });
+  saveState();
+  renderNoticeBoard();
+  showToast('Notice dismissed: ' + n.title);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -33069,6 +33342,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncShipperDetailsFromBackend();
   syncSuppliersFromBackend();
   syncPromotionsFromBackend();
+  syncNoticesFromBackend();
   syncVehiclesFromBackend();
   syncDriversFromBackend();
   syncDestinationsFromBackend();
