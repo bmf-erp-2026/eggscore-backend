@@ -3666,8 +3666,19 @@ input[type=number]{-moz-appearance:textfield;}
       <select class="form-select" id="wb-destination-ref" onchange="applyDestinationRef()" style="margin-bottom:8px"><option value="">— Type a custom destination —</option></select>
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
         <input class="form-input" id="wb-destination-name" placeholder="Destination name/address"/>
-        <input class="form-input" type="number" id="wb-distance-km" placeholder="Distance (km)" oninput="previewWaybillCost()"/>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input class="form-input" type="number" id="wb-distance-km" placeholder="Distance (km)" oninput="previewWaybillCost()" style="flex:1"/>
+          <!-- Oct 1 2026 — single-waybill parity fix: this reuses the exact
+               same /orders/cluster-distance call Cluster Waybill already
+               uses (postClusterDistance()), just with a one-stop array.
+               getRouteDistance() on the backend never required 2+
+               waypoints — only the Cluster UI's own "tick at least 2"
+               rule did — so no backend change was needed, only this
+               button and autoCalculateWaybillDistance(). -->
+          <button type="button" class="btn btn-ghost" style="font-size:9px;padding:6px 10px;white-space:nowrap" onclick="autoCalculateWaybillDistance()">📍 Auto-calculate</button>
+        </div>
       </div>
+      <div id="wb-distance-status" style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:4px"></div>
     </div>
     <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:12px">
       Checkpoint fees are handled separately as a reclaimable expense by the driver, not tracked here.
@@ -12129,6 +12140,14 @@ function renderPricePanel() {
   checkBatchPriceStaleness();
 }
 
+// Oct 1 2026 — Price History grows every time a price changes, with no way
+// to see past the first 8 entries before this. Now shows just the most
+// recent ones (newest-first, since both update sites below unshift) with a
+// "Show older" toggle — the full history is kept either way, just tucked
+// away for posterity until Bob wants to look back further.
+const PRICE_HISTORY_SHOWN_DEFAULT = 6;
+let priceHistoryShowAll = false;
+
 function renderPriceHistory() {
   const el = document.getElementById('pm-price-history');
   if(!el) return;
@@ -12137,7 +12156,9 @@ function renderPriceHistory() {
     el.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">No price changes recorded yet.</div>';
     return;
   }
-  el.innerHTML = hist.slice(0,8).map((h, i) => `
+  const hiddenCount = Math.max(0, hist.length - PRICE_HISTORY_SHOWN_DEFAULT);
+  const shown = priceHistoryShowAll ? hist : hist.slice(0, PRICE_HISTORY_SHOWN_DEFAULT);
+  el.innerHTML = shown.map((h, i) => `
     <div style="display:flex;justify-content:space-between;align-items:center;
       padding:6px 0;border-bottom:1px solid rgba(74,158,255,0.05)">
       <div>
@@ -12150,7 +12171,15 @@ function renderPriceHistory() {
         ${h.setBy||'Admin'} · ${h.setAt||'—'}
         ${i===0?'<span style="margin-left:6px;color:var(--teal)">CURRENT</span>':''}
       </div>
-    </div>`).join('');
+    </div>`).join('') + (hiddenCount > 0 ? `
+    <button class="btn btn-ghost" style="width:100%;font-size:9px;padding:6px;margin-top:4px" onclick="togglePriceHistoryShowAll()">
+      ${priceHistoryShowAll ? '▲ Show less' : `▼ Show ${hiddenCount} older`}
+    </button>` : '');
+}
+
+function togglePriceHistoryShowAll() {
+  priceHistoryShowAll = !priceHistoryShowAll;
+  renderPriceHistory();
 }
 
 function previewPriceChange() {
@@ -23692,6 +23721,13 @@ function saveFeedbackSubmissions(subs) {
 const ORDERS_CH  = 'feds_orders_channel';
 const VOLREQ_KEY = 'feds_volume_requests';
 const VOLREQ_CH  = 'feds_volreq_channel';
+// Oct 1 2026 — Volume Requests has no cap at all and only grows as volume
+// demand increases, so by default it now shows just the most recent entries
+// (newest-first, since saveVolumeRequest() in famad-order.html unshifts)
+// with a "Show older" toggle to reveal the rest in place — nothing is
+// dropped, just tucked away for posterity until Bob wants to see it.
+const VOLREQ_SHOWN_DEFAULT = 6;
+let volReqShowAll = false;
 const ORD_STATUS = {
   reserved:  { chip:'chip-violet',label:'RESERVED' },
   pending:   { chip:'chip-amber', label:'PENDING' },
@@ -23739,7 +23775,10 @@ function renderVolumeRequests() {
   const newCount = reqs.filter(r => r.status === 'new').length;
   if(countEl) countEl.textContent = `${newCount} new`;
 
-  list.innerHTML = reqs.map(r => {
+  const hiddenCount = Math.max(0, reqs.length - VOLREQ_SHOWN_DEFAULT);
+  const shown = volReqShowAll ? reqs : reqs.slice(0, VOLREQ_SHOWN_DEFAULT);
+
+  list.innerHTML = shown.map(r => {
     const statusChip = r.status === 'new'
       ? '<span class="chip chip-amber">NEW</span>'
       : r.status === 'contacted'
@@ -23812,7 +23851,15 @@ function renderVolumeRequests() {
         }
       </div>
     </div>`;
-  }).join('');
+  }).join('') + (hiddenCount > 0 ? `
+    <button class="btn btn-ghost" style="width:100%;font-size:9px;padding:6px;margin-top:2px" onclick="toggleVolReqShowAll()">
+      ${volReqShowAll ? '▲ Show less' : `▼ Show ${hiddenCount} older`}
+    </button>` : '');
+}
+
+function toggleVolReqShowAll() {
+  volReqShowAll = !volReqShowAll;
+  renderVolumeRequests();
 }
 
 function markVolReqStatus(ref, status) {
@@ -27514,6 +27561,36 @@ function applyDestinationRef() {
     document.getElementById('wb-distance-km').value = d.distanceKm;
     previewWaybillCost();
   }
+}
+
+// Oct 1 2026 — single-waybill parity fix: mirrors autoCalculateClusterDistance()
+// for the one-order case reached from the Pending Inbox. Reuses the exact same
+// /orders/cluster-distance route and postClusterDistance() helper with a
+// one-element stops array — getRouteDistance() on the backend never required
+// 2+ waypoints, only the Cluster UI's own "tick at least 2" rule did, so no
+// backend change was needed, only this function and its button.
+async function autoCalculateWaybillDistance() {
+  const statusEl = document.getElementById('wb-distance-status');
+  const ref = document.getElementById('wb-order-ref').value;
+  const order = loadOrders().find(o => o.ref === ref);
+  if(!order) { showToast('⚠ Order not found.'); return; }
+  if(order.latitude == null || order.longitude == null) {
+    showToast(`⚠ ${order.customerName} doesn't have a location on file yet — run "📍 Group Nearby Orders" in Logistics first, then try again.`);
+    return;
+  }
+  const dispatchOrigin = (ensureShipperDetails().address || '').trim();
+  if(!dispatchOrigin) { showToast('⚠ No farm address on file — set one in Shipper Details first.'); return; }
+  const stopsPayload = [{ ref: order.ref, latitude: order.latitude, longitude: order.longitude }];
+  if(statusEl) statusEl.textContent = '⏳ Calculating real driving distance…';
+  const result = await postClusterDistance(dispatchOrigin, stopsPayload);
+  if(!result) {
+    if(statusEl) statusEl.textContent = '⚠ Could not calculate — enter the distance manually below.';
+    showToast('⚠ Could not reach the route service — check your connection, the farm address on file, or enter the distance manually.');
+    return;
+  }
+  document.getElementById('wb-distance-km').value = result.distanceKm;
+  previewWaybillCost();
+  if(statusEl) statusEl.textContent = `✓ ${result.distanceKm}km round trip to ${order.customerName} and back.`;
 }
 
 function previewWaybillCost() {
