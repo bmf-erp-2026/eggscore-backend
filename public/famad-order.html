@@ -1063,6 +1063,14 @@ const PAYSTACK_THRESHOLD = 30; // crates
 const BRAND_TRUST = {
   canonicalDomain:  'https://order.eggscore.com.ng',
   officialWhatsApp: '2349165343020', // BMF EggScore's established public WhatsApp line
+  // Oct 1 2026 — X handle, added once the account existed and had a
+  // complete (if still content-light) profile. Deliberately NOT
+  // including TikTok here yet — see /areas/eggscore-social-media.md:
+  // that one stays unlinked from anything customer-facing until it has
+  // real content, so a curious customer never lands on an empty-looking
+  // video profile. Bare handle, not a full URL — buildXUrl() below
+  // assembles the link so there's one less place to get it wrong.
+  officialX:        'order_eggScore',
   verifyPathPrefix: '/verify/'
 };
 
@@ -1874,9 +1882,20 @@ function markWizardStopReached(n) {
 function renderTrustFooter() {
   const footerEl = document.getElementById('portal-footer');
   if(footerEl) {
+    // Social row (Oct 1 2026) — WhatsApp was already named in the trust
+    // line above as plain text; it's now also a real tap-to-chat link,
+    // alongside X. Kept as a separate line under the trust copy rather
+    // than merged into it, so the anti-spoof message stays the clear,
+    // unadorned thing a nervous first-time customer reads first.
+    const waLink = `https://wa.me/${BRAND_TRUST.officialWhatsApp}?text=${encodeURIComponent('Hello BMF EggScore Limited, I have a question.')}`;
+    const xLink  = `https://x.com/${BRAND_TRUST.officialX}`;
     footerEl.innerHTML = `BMF EggScore Limited · Nigeria 🇳🇬 · Orders processed securely<br>
       <span style="opacity:0.8">Only trust orders at <a href="${escapeHtmlPortal(BRAND_TRUST.canonicalDomain)}" style="color:var(--blue);font-weight:700;">${escapeHtmlPortal(BRAND_TRUST.canonicalDomain)}</a> —
-      unsure about a link? WhatsApp us: ${escapeHtmlPortal(BRAND_TRUST.officialWhatsApp)}</span>`;
+      unsure about a link? WhatsApp us: ${escapeHtmlPortal(BRAND_TRUST.officialWhatsApp)}</span><br>
+      <span style="display:inline-flex;gap:14px;align-items:center;margin-top:6px;opacity:0.85">
+        <a href="${waLink}" target="_blank" rel="noopener" style="color:var(--wa);font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">💬 WhatsApp</a>
+        <a href="${xLink}" target="_blank" rel="noopener" style="color:inherit;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">𝕏 @${escapeHtmlPortal(BRAND_TRUST.officialX)}</a>
+      </span>`;
   }
   const successTrustEl = document.getElementById('success-trust-line');
   if(successTrustEl) {

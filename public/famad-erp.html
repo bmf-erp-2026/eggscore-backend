@@ -7847,6 +7847,12 @@ function getBiosecurityScore(supplier) {
 const BRAND_TRUST = {
   canonicalDomain:  'https://order.eggscore.com.ng',
   officialWhatsApp: '2349165343020', // BMF EggScore's established public WhatsApp line
+  // Oct 1 2026 — kept in sync with the same addition in famad-order.html
+  // (see the comment there). Not currently rendered anywhere in the ERP
+  // itself — this file doesn't have a customer-facing footer — but kept
+  // identical per this block's own "single source of truth" convention,
+  // so a future ERP-side use of BRAND_TRUST doesn't have to go add it.
+  officialX:        'order_eggScore',
   verifyPathPrefix: '/verify/'
 };
 
