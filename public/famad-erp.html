@@ -2504,6 +2504,56 @@ input[type=number]{-moz-appearance:textfield;}
     }
   }
 
+  // Dispatch Origins (Oct 2 2026) — same fetch-with-fallback pattern as
+  // Destination Reference above, deliberately without any geocoding step:
+  // see routes-postgres/dispatch-origins.js's header comment for why.
+  async function postDispatchOriginToBackend(origin) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/dispatch-origins`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ name: origin.name, address: origin.address }),
+      });
+      if(!resp.ok) return null;
+      return await resp.json();
+    } catch(networkErr) {
+      return null;
+    }
+  }
+  async function deleteDispatchOriginFromBackend(backendId) {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    try {
+      await fetch(`${BACKEND_URL}/dispatch-origins/${backendId}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch(networkErr) {}
+  }
+  async function syncDispatchOriginsFromBackend() {
+    const token = await erpGetAuthToken();
+    if(!token) return;
+    let rows;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/dispatch-origins`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      rows = await resp.json();
+    } catch(networkErr) { return; }
+
+    if(!STATE.dispatchOrigins) STATE.dispatchOrigins = [];
+    const byBackendId = new Map(STATE.dispatchOrigins.filter(o => o.backendId).map(o => [o.backendId, o]));
+    rows.forEach(row => {
+      const existing = byBackendId.get(row.id);
+      if(existing) {
+        existing.name = row.name; existing.address = row.address; existing.backendId = row.id;
+      } else {
+        STATE.dispatchOrigins.push({ id: 'sync-' + row.id, name: row.name, address: row.address, backendId: row.id });
+      }
+    });
+    saveState();
+  }
+
   async function postPromoToBackend(promo) {
     const token = await erpGetAuthToken();
     if(!token) return null;
@@ -3671,6 +3721,10 @@ input[type=number]{-moz-appearance:textfield;}
          override at all — this closes that gap too. -->
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Dispatch origin <span style="color:var(--mist)">— where this trip actually departs from</span></label>
+      <!-- Oct 2 2026 — saved-origin dropdown, same "pick a saved one, or
+           type a new one below" pattern as Destination above, backed by
+           ensureDispatchOrigins()/applyDispatchOriginRef(). -->
+      <select class="form-select" id="wb-origin-ref" onchange="applyDispatchOriginRef('wb')" style="margin-bottom:8px"><option value="">— Type a custom origin —</option></select>
       <input class="form-input" id="wb-dispatch-origin" placeholder="Defaults to the farm address on file"/>
       <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--dust);margin-top:4px">
         Only affects this waybill's distance calc and its printed route — never changes your Shipper Details farm address.
@@ -3777,6 +3831,9 @@ input[type=number]{-moz-appearance:textfield;}
          registered farm regardless of where a given trip departs from. -->
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Dispatch origin <span style="color:var(--mist)">— where THIS trip actually departs from</span></label>
+      <!-- Oct 2 2026 — same saved-origin dropdown as Generate Waybill's
+           wb-origin-ref, see its comment. -->
+      <select class="form-select" id="cwb-origin-ref" onchange="applyDispatchOriginRef('cwb')" style="margin-bottom:8px"><option value="">— Type a custom origin —</option></select>
       <input class="form-input" id="cwb-dispatch-origin" placeholder="Defaults to the farm address on file"/>
       <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--dust);margin-top:4px">
         Only affects this trip's distance calc and its waybills' printed route — never changes your Shipper Details farm address.
@@ -6915,6 +6972,31 @@ input[type=number]{-moz-appearance:textfield;}
       </div>
       <div class="form-group" style="margin-bottom:12px"><label class="form-label">Address</label><input class="form-input" id="lg-farm-address"/></div>
       <button class="btn btn-primary" onclick="saveShipperDetails()">Save Shipper Details</button>
+    </div>
+  </div>
+
+  <!-- DISPATCH ORIGINS — Oct 2 2026. A saved, reusable list of departure
+       points, separate from the single registered farm address above:
+       Shipper Details is the one fixed legal/identity address that
+       appears on every waybill's "Shipper" block regardless of where a
+       trip departs from, while a Dispatch Origin is just a convenience
+       pick for the "where does THIS trip leave from" field on Generate
+       Waybill / Generate Cluster Waybill — see their own Dispatch Origin
+       field comments. Bob's reason for asking: so expanding into a new
+       region (Bayelsa was his example) only ever needs one new row added
+       here, not a fresh typed address on every waybill from that point. -->
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">📍 Dispatch Origins</div>
+      <div class="panel-tag">saved departure points for waybills — add one per region as coverage grows</div>
+    </div>
+    <div class="panel-body">
+      <div id="lg-origin-list" style="margin-bottom:10px"></div>
+      <div class="rep-hide-finance" style="display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:end">
+        <div><label class="form-label">Label</label><input class="form-input" id="lg-origin-name" placeholder="e.g. Total Camp PH"/></div>
+        <div><label class="form-label">Address</label><input class="form-input" id="lg-origin-address" placeholder="Full address used for distance calc"/></div>
+        <button class="btn btn-primary" onclick="addDispatchOrigin()">Add</button>
+      </div>
     </div>
   </div>
 
@@ -25760,6 +25842,8 @@ function saveVehicleDocuments() {
 }
 function ensureShipperDetails() { if(!STATE.shipperDetails) STATE.shipperDetails = { farmName: '', address: '', contact: '' }; return STATE.shipperDetails; }
 function ensureDestinationReference() { if(!STATE.destinationReference) STATE.destinationReference = []; return STATE.destinationReference; }
+// Dispatch Origins (Oct 2 2026) — see migration-dispatch-origins.sql header.
+function ensureDispatchOrigins() { if(!STATE.dispatchOrigins) STATE.dispatchOrigins = []; return STATE.dispatchOrigins; }
 function ensureServiceAreas() { if(!STATE.serviceAreas) STATE.serviceAreas = []; return STATE.serviceAreas; }
 // Preferred Delivery Day (Sep 27 2026) — see routes-postgres/delivery-days.js
 // and the panel below for why this is a configurable list, not a hardcoded
@@ -26325,6 +26409,17 @@ function renderLogistics() {
           <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDriver('${d.id}')">Remove</button>
         </div>`).join('');
   }
+  const originEl = document.getElementById('lg-origin-list');
+  if(originEl) {
+    const origins = ensureDispatchOrigins();
+    originEl.innerHTML = origins.length === 0
+      ? `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">No saved dispatch origins yet — Generate Waybill and Generate Cluster Waybill both fall back to typing an address in by hand until at least one is added here.</div>`
+      : origins.map(o => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--raised);border-radius:6px;margin-bottom:5px;gap:8px;flex-wrap:wrap">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--cream)">${escapeHtml(o.name)} — ${escapeHtml(o.address)}</span>
+          <button class="btn btn-ghost" style="font-size:8px;padding:2px 8px" onclick="removeDispatchOrigin('${o.id}')">Remove</button>
+        </div>`).join('');
+  }
   const destEl = document.getElementById('lg-destination-list');
   if(destEl) {
     const destSearch = (document.getElementById('lg-dest-search')?.value || '').trim().toLowerCase();
@@ -26605,6 +26700,35 @@ function removeDestination(id) {
   const d = STATE.destinationReference.find(x => x.id === id);
   if(d?.backendId) deleteDestinationFromBackend(d.backendId);
   STATE.destinationReference = STATE.destinationReference.filter(d => d.id !== id);
+  saveState(); renderLogistics();
+}
+
+// Dispatch Origins (Oct 2 2026) — a saved, reusable list of departure
+// points for waybills, same add/remove shape as Drivers above. Bob's own
+// reason for asking: "if and when we start in Bayelsa State, our Dispatch
+// Origin should easily be keyed in as a new location" — so a new region's
+// departure point only ever needs adding here once, not retyping on every
+// waybill from then on. Both Generate Waybill and Generate Cluster Waybill
+// pick from this list via a dropdown (see applyDispatchOriginRef()) while
+// still allowing a one-off typed address that never gets saved, same
+// "pick a saved one, or type a new one below" pattern as Destination
+// Reference.
+function addDispatchOrigin() {
+  const name = document.getElementById('lg-origin-name').value.trim();
+  const address = document.getElementById('lg-origin-address').value.trim();
+  if(!name || !address) { showToast('⚠ Enter both a label and an address.'); return; }
+  const newOrigin = { id: 'orig' + Date.now(), name, address };
+  ensureDispatchOrigins().push(newOrigin);
+  postDispatchOriginToBackend(newOrigin).then(row => { if(row) newOrigin.backendId = row.id; saveState(); });
+  saveState();
+  document.getElementById('lg-origin-name').value = ''; document.getElementById('lg-origin-address').value = '';
+  renderLogistics();
+  showToast('✓ Dispatch origin added.');
+}
+function removeDispatchOrigin(id) {
+  const o = ensureDispatchOrigins().find(x => x.id === id);
+  if(o?.backendId) deleteDispatchOriginFromBackend(o.backendId);
+  STATE.dispatchOrigins = ensureDispatchOrigins().filter(x => x.id !== id);
   saveState(); renderLogistics();
 }
 
@@ -27388,6 +27512,11 @@ function openGenerateWaybillModal(orderRef) {
   destRefSel.innerHTML = '<option value="">— Type a custom destination —</option>' +
     dests.map(d => `<option value="${d.id}">${escapeHtml(d.name)} (${d.distanceKm}km)</option>`).join('');
 
+  const originRefSel = document.getElementById('wb-origin-ref');
+  const origins = ensureDispatchOrigins();
+  originRefSel.innerHTML = '<option value="">— Type a custom origin —</option>' +
+    origins.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
+
   document.getElementById('wb-dispatch-origin').value = ensureShipperDetails().address || '';
   document.getElementById('wb-destination-name').value = o.location || '';
   document.getElementById('wb-distance-km').value = '';
@@ -27626,6 +27755,17 @@ function applyDestinationRef() {
   }
 }
 
+// Oct 2 2026 — shared by both wb-origin-ref (Generate Waybill) and
+// cwb-origin-ref (Generate Cluster Waybill), same "select populates the
+// plain input, which stays the actual source of truth" relationship as
+// applyDestinationRef() above. prefix is 'wb' or 'cwb'.
+function applyDispatchOriginRef(prefix) {
+  const id = document.getElementById(`${prefix}-origin-ref`).value;
+  if(!id) return;
+  const o = ensureDispatchOrigins().find(x => x.id === id);
+  if(o) document.getElementById(`${prefix}-dispatch-origin`).value = o.address;
+}
+
 // Oct 1 2026 — single-waybill parity fix: mirrors autoCalculateClusterDistance()
 // for the one-order case reached from the Pending Inbox. Reuses the exact same
 // /orders/cluster-distance route and postClusterDistance() helper with a
@@ -27743,6 +27883,11 @@ function openGenerateClusterWaybillModal(preselectedRefs) {
   // trips do depart from the registered farm), but this copy is editable
   // per-trip and never writes back to Shipper Details itself.
   document.getElementById('cwb-dispatch-origin').value = ensureShipperDetails().address || '';
+  // Oct 2 2026 — saved-origin dropdown, same pattern as wb-origin-ref.
+  const cwbOriginRefSel = document.getElementById('cwb-origin-ref');
+  const cwbOrigins = ensureDispatchOrigins();
+  cwbOriginRefSel.innerHTML = '<option value="">— Type a custom origin —</option>' +
+    cwbOrigins.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
 
   renderClusterOrderList();
   renderClusterOutboundAttestation();
@@ -33494,6 +33639,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncVehiclesFromBackend();
   syncDriversFromBackend();
   syncDestinationsFromBackend();
+  syncDispatchOriginsFromBackend();
   syncServiceAreasFromBackend();
   syncDeliveryDaysFromBackend();
   syncDeliveryBatchesFromBackend();

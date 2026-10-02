@@ -670,7 +670,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
              re-run every time crates change so crossing the special-volume
              threshold updates the choices live. -->
         <div class="form-group" id="delivery-day-field">
-          <label class="form-label"><span data-i18n="s2.delivery_day_label">Preferred Delivery Day</span> <span class="req">*</span></label>
+          <label class="form-label"><span data-i18n="s2.delivery_day_label">Next-Delivery Day</span> <span class="req">*</span></label>
           <select class="form-input" id="preferred-delivery-day" onchange="onPreferredDeliveryDayChange(this)"></select>
           <div id="delivery-day-note" style="font-family:'DM Mono',monospace"></div>
         </div>
@@ -707,7 +707,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
             <div class="ob-val" id="ob-crates">—</div>
           </div>
           <div class="ob-row">
-            <div class="ob-label" data-i18n="s3.delivery_day">Preferred delivery day</div>
+            <div class="ob-label" data-i18n="s3.delivery_day">Next delivery day</div>
             <div class="ob-val" id="ob-delivery-day">—</div>
           </div>
           <div class="ob-row">
@@ -1245,10 +1245,10 @@ const UI_STRINGS = {
     's2.min_hint': 'Min: 1 crate · type a number directly for large orders',
     's2.stock_warn': 'Requested quantity exceeds available stock.',
     's2.promo_applied': 'Promo discount applied —', 's2.notes_label': 'Delivery Notes',
-    's2.delivery_day_label': 'Preferred Delivery Day',
+    's2.delivery_day_label': 'Next-Delivery Day',
     's2.continue': 'Continue to Review →',
     's3.title': 'Order Breakdown', 's3.tag': 'before payment', 's3.egg_price': 'Egg price',
-    's3.crates_ordered': 'Crates ordered', 's3.delivery_day': 'Preferred delivery day', 's3.egg_subtotal': 'Egg subtotal',
+    's3.crates_ordered': 'Crates ordered', 's3.delivery_day': 'Next delivery day', 's3.egg_subtotal': 'Egg subtotal',
     's3.promo_discount': 'Promo discount', 's3.wallet_applied': 'Wallet credit applied',
     's3.total_payable': 'Total Payable', 's3.balance_to_pay': 'Balance to pay', 's3.you_saved': 'You saved',
     's3.wallet_covers': 'Wallet covers this order',
@@ -1315,10 +1315,10 @@ const UI_STRINGS = {
     's2.min_hint': 'Minimum: 1 crate · type number sef for big orders',
     's2.stock_warn': 'The number wey you want pass wetin dey available.',
     's2.promo_applied': 'Promo awoof don land —', 's2.notes_label': 'Delivery Notes',
-    's2.delivery_day_label': 'Which Day You Want Am',
+    's2.delivery_day_label': 'Next Day Wey We Go Deliver',
     's2.continue': 'Go Check Am →',
     's3.title': 'Breakdown', 's3.tag': 'as money mata be', 's3.egg_price': 'Egg price',
-    's3.crates_ordered': 'Crates wey you order', 's3.delivery_day': 'Day wey you want am', 's3.egg_subtotal': 'Egg subtotal',
+    's3.crates_ordered': 'Crates wey you order', 's3.delivery_day': 'Next day wey we go deliver', 's3.egg_subtotal': 'Egg subtotal',
     's3.promo_discount': 'Promo Awoof', 's3.wallet_applied': 'Wallet credit wey we use',
     's3.total_payable': 'Total Wey You Go Pay', 's3.balance_to_pay': 'How Much Remain', 's3.you_saved': 'Wetin you save',
     's3.wallet_covers': 'Wallet don cover this order',
@@ -1518,6 +1518,34 @@ let SPECIAL_VOLUME_THRESHOLD_CRATES = 250;
 function isSpecialVolumeOrder() {
   return (portalState.crates || 0) >= SPECIAL_VOLUME_THRESHOLD_CRATES;
 }
+
+// Oct 2 2026 — Bob's own catch: "Preferred Delivery Day" read as a free
+// pick with no timing attached, while "next-day delivery" (the usual
+// e-commerce term) wrongly implies literally the calendar day after
+// ordering. Neither is right for a fixed weekly batch slot — a customer
+// booking on a Monday and picking "Wednesday" means THIS week's Wednesday,
+// but nothing on screen ever said so; a customer booking right after that
+// week's Wednesday run already left could just as easily have read the
+// same bare day name and assumed it meant the same thing. Renamed to
+// "Next-Delivery Day" (see the i18n keys above) and now paired with the
+// actual upcoming date for each option, so there's no date left to guess
+// at. Always resolves to today-or-later — booking ON a batch day still
+// shows that day's own date, never skips ahead a full week.
+function getNextOccurrenceDate(dayName) {
+  const DAY_INDEX = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
+  const target = DAY_INDEX[dayName];
+  if(target === undefined) return null;
+  const today = new Date();
+  const diff = (target - today.getDay() + 7) % 7;
+  const result = new Date(today);
+  result.setDate(today.getDate() + diff);
+  return result;
+}
+function formatNextOccurrence(dayName) {
+  const d = getNextOccurrenceDate(dayName);
+  if(!d) return dayName;
+  return `${dayName} (${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`;
+}
 function paintDeliveryDayOptions() {
   const wrap = document.getElementById('delivery-day-field');
   const select = document.getElementById('preferred-delivery-day');
@@ -1534,13 +1562,13 @@ function paintDeliveryDayOptions() {
     // Special-volume orders can be delivered any day — offer the full week
     // and say so, rather than restricting to the batch-delivery days.
     const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    select.innerHTML = ALL_DAYS.map(d => `<option value="${d}">${d}</option>`).join('');
-    if(note) note.textContent = `🎉 Special-volume order (${portalState.crates} crates) — any day works for us, pick what suits you.`;
+    select.innerHTML = ALL_DAYS.map(d => `<option value="${d}">${formatNextOccurrence(d)}</option>`).join('');
+    if(note) note.textContent = `🎉 Special-volume order (${portalState.crates} crates) — any day works for us, pick whichever date above suits you.`;
     if(portalState.preferredDeliveryDay && !ALL_DAYS.includes(portalState.preferredDeliveryDay)) {
       portalState.preferredDeliveryDay = null;
     }
   } else {
-    select.innerHTML = DELIVERY_DAYS.map(d => `<option value="${d}">${d}</option>`).join('');
+    select.innerHTML = DELIVERY_DAYS.map(d => `<option value="${d}">${formatNextOccurrence(d)}</option>`).join('');
     // Sep 27 2026 — Bob asked for two more things in this note: tell
     // customers other weekdays may open up as demand grows (so today's
     // fixed list doesn't read as permanent), and nudge early booking
@@ -1548,8 +1576,14 @@ function paintDeliveryDayOptions() {
     // here rather than named literally, since the whole point of this
     // feature is that the list isn't hardcoded — this note has to stay
     // true if a third day gets added later without a code change.
+    //
+    // Oct 2 2026 — added the explicit "not next-day shipping" disclaimer
+    // per Bob's feedback, since "batch-delivered on Wed/Sat" alone never
+    // ruled out a customer assuming ordinary next-day courier timing. The
+    // actual date for each option now shows right in the dropdown above,
+    // so this note no longer needs to carry that disambiguation itself.
     const dayList = DELIVERY_DAYS.length ? DELIVERY_DAYS.join(' and ') : 'our scheduled run days';
-    if(note) note.textContent = `Orders under ${SPECIAL_VOLUME_THRESHOLD_CRATES} crates are batch-delivered on ${dayList} to keep costs down — book early, as slots between runs fill up fast. More delivery days may open up as demand grows.`;
+    if(note) note.textContent = `📅 This is your next delivery day, not next-day shipping — orders under ${SPECIAL_VOLUME_THRESHOLD_CRATES} crates are batch-delivered on ${dayList} only, so pick whichever date above suits you. Book early, as slots between runs fill up fast. More delivery days may open up as demand grows.`;
     if(!portalState.preferredDeliveryDay || !DELIVERY_DAYS.includes(portalState.preferredDeliveryDay)) {
       portalState.preferredDeliveryDay = DELIVERY_DAYS[0] || null;
     }
@@ -3060,7 +3094,7 @@ function updateOrderCalc() {
   // separate delivery line ──
   setText('ob-egg-price',    '₦' + blendedPricePerCrate.toLocaleString() + '/crate');
   setText('ob-crates',       crates + (crates === 1 ? ' crate' : ' crates'));
-  setText('ob-delivery-day', portalState.preferredDeliveryDay || '—');
+  setText('ob-delivery-day', portalState.preferredDeliveryDay ? formatNextOccurrence(portalState.preferredDeliveryDay) : '—');
   setText('ob-egg-subtotal', '₦' + eggSubtotal.toLocaleString());
   setText('ob-total',        '₦' + grandTotal.toLocaleString());
 
