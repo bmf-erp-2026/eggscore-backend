@@ -128,6 +128,43 @@ input[type=number]{-moz-appearance:textfield;}
 .coverage-side-list.right{left:calc(100% + 26px);}
 @media (min-width:1000px){.coverage-side-list{display:block;}}
 
+/* Widescreen content rails (Oct 2 2026) — Bob: "maximize the space and
+   deploy it aesthetically to sell EggScore" in the margins either side of
+   the centered 580px column, while his non-WhatsApp/X social accounts and
+   product photography aren't ready yet. Deliberately text/data-first for
+   this first pass — nothing here depends on an unfinished asset. Every
+   fact in both rails is pulled live from data that already exists
+   elsewhere on this page (payment methods, delivery days, coverage areas,
+   the security/loyalty copy) via renderWidescreenRails() — see that
+   function — so there's nothing here Bob has to remember to keep in sync.
+
+   Anchored to .ws-rail-host (wraps everything from the Coverage card
+   down) rather than a magic pixel offset from the very top of the page,
+   so the rails always line up with the Coverage card regardless of
+   header height (PWA install banner, language switcher wrap, etc.). Same
+   absolute/non-sticky/hidden-below-a-breakpoint approach as
+   .coverage-side-list just above — this is that mechanism's bigger
+   sibling, running the height of the page instead of one card. Breakpoint
+   is wider (1300px vs. 1000px) since two 220px rails need more spare room
+   than one 138px list. */
+.ws-rail-host{position:relative;}
+.ws-rail{display:none;position:absolute;top:0;width:220px;}
+.ws-rail.left{right:calc(100% + 36px);}
+.ws-rail.right{left:calc(100% + 36px);}
+.ws-rail .panel{margin-bottom:14px;}
+.ws-rail-title{font-family:'Syne',sans-serif;font-weight:700;font-size:12.5px;color:var(--cream);padding:12px 14px 2px;}
+.ws-rail-sub{font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);padding:0 14px 10px;line-height:1.6;}
+.ws-badge{display:flex;gap:9px;align-items:flex-start;padding:8px 14px;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust);line-height:1.55;}
+.ws-badge:not(:last-child){border-bottom:1px solid var(--border);}
+.ws-badge .wsb-icon{font-size:13px;flex-shrink:0;margin-top:1px;}
+.ws-faq-item{padding:9px 14px;}
+.ws-faq-item:not(:last-child){border-bottom:1px solid var(--border);}
+.ws-faq-q{font-family:'Syne',sans-serif;font-weight:700;font-size:10.5px;color:var(--cream);margin-bottom:3px;}
+.ws-faq-a{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.55;}
+.ws-chat-row{display:flex;flex-direction:column;gap:6px;padding:4px 14px 12px;}
+.ws-chat-link{display:flex;align-items:center;gap:7px;font-family:'DM Mono',monospace;font-size:10.5px;font-weight:600;text-decoration:none;color:var(--cream);padding:7px 9px;border-radius:7px;background:var(--raised);}
+@media (min-width:1300px){.ws-rail{display:block;}}
+
 .coverage-tag{display:inline-block;padding:3px 10px;border-radius:20px;background:rgba(91,168,240,0.15);color:var(--blue);font-family:'DM Mono',monospace;font-size:9.5px;font-weight:700;}
 
 /* Static backdrop behind the "Where We Deliver" text — Sep 26 2026.
@@ -450,6 +487,15 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       <span>💬</span><span data-i18n="wa.order_here">Prefer WhatsApp? Order here →</span>
     </a>
   </div>
+
+  <!-- WIDESCREEN RAILS (Oct 2 2026) — wraps everything from here down so
+       the two rails below can anchor to the top of THIS element (not the
+       page top) via position:relative/absolute. Hidden under 1300px wide,
+       see .ws-rail in the <style> above. Filled by renderWidescreenRails()
+       — search that name — never hand-edited here. -->
+  <div class="ws-rail-host">
+  <div class="ws-rail left" id="ws-rail-trust"></div>
+  <div class="ws-rail right" id="ws-rail-faq"></div>
 
   <!-- CUSTOMER PORTAL COVERAGE CARD — "Where We Deliver". Collapsed
        trust panel, sits in the normal single-column flow rather than
@@ -986,6 +1032,8 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     </div>
   </div>
 
+  </div><!-- /ws-rail-host -->
+
   <div class="portal-footer" id="portal-footer">BMF EggScore Limited · Nigeria 🇳🇬 · Orders processed securely</div>
 </div><!-- /portal-wrap -->
 
@@ -1073,6 +1121,31 @@ const BRAND_TRUST = {
   officialX:        'order_eggScore',
   verifyPathPrefix: '/verify/'
 };
+
+// Oct 2 2026 — channel list for the widescreen "Chat with us" rail (see
+// renderWidescreenRails()). Deliberately keyed off BRAND_TRUST fields
+// rather than hardcoded: only a channel whose field actually exists above
+// renders, in this fixed order, so Facebook/Instagram once the Community
+// Standards flag clears, and TikTok once it has real content (per
+// /areas/eggscore-social-media.md), each go live site-wide the moment a
+// field is added above — no HTML/CSS touched here or in the footer.
+const WS_CHANNELS = [
+  { key: 'officialWhatsApp', icon: '💬', color: 'var(--wa)',
+    label: () => 'WhatsApp',
+    url: v => `https://wa.me/${v}?text=${encodeURIComponent('Hello BMF EggScore Limited, I have a question.')}` },
+  { key: 'officialX', icon: '𝕏', color: 'var(--cream)',
+    label: v => `@${v}`,
+    url: v => `https://x.com/${v}` },
+  { key: 'officialFacebook', icon: '📘', color: 'var(--blue)',
+    label: () => 'Facebook',
+    url: v => `https://facebook.com/${v}` },
+  { key: 'officialInstagram', icon: '📷', color: 'var(--violet)',
+    label: v => `@${v}`,
+    url: v => `https://instagram.com/${v}` },
+  { key: 'officialTikTok', icon: '🎵', color: 'var(--cream)',
+    label: v => `@${v}`,
+    url: v => `https://tiktok.com/@${v}` },
+];
 
 let portalState = {
   crates: 10,
@@ -1476,6 +1549,7 @@ function paintServiceAreas() {
     const list = document.getElementById(id);
     if(list) list.innerHTML = SERVICE_AREAS.map(a => `<li>${escapeHtmlPortal(a)}</li>`).join('');
   });
+  renderWidescreenRails(); // keeps the FAQ rail's area list/count in sync once the real list loads
 }
 async function loadServiceAreas() {
   try {
@@ -1590,6 +1664,7 @@ function paintDeliveryDayOptions() {
   }
   if(select && portalState.preferredDeliveryDay) select.value = portalState.preferredDeliveryDay;
   if(wrap) wrap.style.display = (DELIVERY_DAYS.length > 0 || isSpecialVolumeOrder()) ? '' : 'none';
+  renderWidescreenRails(); // keeps the FAQ rail's delivery-day/threshold wording in sync
 }
 function onPreferredDeliveryDayChange(el) {
   portalState.preferredDeliveryDay = el.value;
@@ -1939,6 +2014,68 @@ function renderTrustFooter() {
   }
 }
 
+// Widescreen rails (Oct 2 2026) — fills the two side panels added beside
+// the centered column on wide screens (≥1300px — see .ws-rail in the
+// <style> above). Every line here is read live from data this page
+// already tracks (SERVICE_AREAS, DELIVERY_DAYS, SPECIAL_VOLUME_THRESHOLD_
+// CRATES, BRAND_TRUST/WS_CHANNELS) rather than typed once and left to go
+// stale, same "ONE place to edit" convention as paintServiceAreas() and
+// paintDeliveryDayOptions(). Safe to call repeatedly/early — SERVICE_AREAS
+// etc. all have sensible FALLBACK_* values before their first fetch
+// resolves, so this never renders blank, just updates in place once real
+// data arrives (called again at the end of each of those fetches).
+//
+// Deliberately no photography here yet — Bob doesn't have shots to use,
+// and an empty placeholder frame would look like a broken image rather
+// than "intentional". Easy to add as a third block once there's a real
+// photo to put in it.
+function renderWidescreenRails() {
+  const trustEl = document.getElementById('ws-rail-trust');
+  if(trustEl) {
+    const badges = [
+      { icon: '🔒', text: 'Secure, verified ordering — every order gets a reference code; payment details only ever come from our verified number.' },
+      { icon: '📦', text: 'Volume discount pricing — the more crates you order, the less you pay per crate, automatically.' },
+      { icon: '📍', text: `We currently deliver across ${SERVICE_AREAS.length} named area${SERVICE_AREAS.length === 1 ? '' : 's'} and nearby.` },
+      { icon: '⭐', text: 'Earn loyalty points on every order — consistent, respectful ordering builds your score over time.' },
+      { icon: '🌐', text: `Only trust orders placed at ${BRAND_TRUST.canonicalDomain}.` },
+    ];
+    const chatLinks = WS_CHANNELS
+      .filter(ch => BRAND_TRUST[ch.key])
+      .map(ch => {
+        const v = BRAND_TRUST[ch.key];
+        return `<a href="${ch.url(v)}" target="_blank" rel="noopener" class="ws-chat-link" style="color:${ch.color}">${ch.icon} ${escapeHtmlPortal(ch.label(v))}</a>`;
+      }).join('');
+    trustEl.innerHTML = `
+      <div class="panel">
+        <div class="ws-rail-title">Why order with EggScore</div>
+        ${badges.map(b => `<div class="ws-badge"><span class="wsb-icon">${b.icon}</span><span>${b.text}</span></div>`).join('')}
+      </div>
+      <div class="panel">
+        <div class="ws-rail-title">Chat with us</div>
+        <div class="ws-chat-row">${chatLinks}</div>
+      </div>`;
+  }
+
+  const faqEl = document.getElementById('ws-rail-faq');
+  if(faqEl) {
+    const dayList = DELIVERY_DAYS.length ? DELIVERY_DAYS.join(' and ') : 'our scheduled run days';
+    const areaList = SERVICE_AREAS.map(a => escapeHtmlPortal(a)).join(', ');
+    const faqs = [
+      { q: "What's the minimum order?", a: '1 crate — pricing drops automatically the more crates you add.' },
+      { q: 'How do I pay?', a: 'Bank transfer, cash on delivery, or USSD/card for orders up to 30 crates.' },
+      { q: 'When will my order arrive?', a: `Orders under ${SPECIAL_VOLUME_THRESHOLD_CRATES} crates are batch-delivered on ${escapeHtmlPortal(dayList)} — pick your date in Step 2. ${SPECIAL_VOLUME_THRESHOLD_CRATES}+ crates can be delivered any day.` },
+      { q: 'Where do you deliver?', a: `${areaList}, and nearby areas.` },
+      { q: 'Is this site official?', a: `Yes — only trust orders at ${escapeHtmlPortal(BRAND_TRUST.canonicalDomain)}. Unsure about a link? WhatsApp us.` },
+    ];
+    faqEl.innerHTML = `
+      <div class="panel">
+        <div class="ws-rail-title">Quick answers</div>
+        <div class="ws-rail-sub">before you start — straight from the form itself</div>
+        ${faqs.map(f => `<div class="ws-faq-item"><div class="ws-faq-q">${f.q}</div><div class="ws-faq-a">${f.a}</div></div>`).join('')}
+      </div>`;
+  }
+}
+
 // Minimal local escaper — kept separate from any ERP-side helper since
 // this file has no dependency on famad-erp.html.
 function escapeHtmlPortal(str) {
@@ -2052,6 +2189,7 @@ async function initPortal() {
 
   renderPortalPolicies();
   renderTrustFooter();
+  renderWidescreenRails();
 
   // ── Read current selling price from ERP (local fallback) ──
   const erpPrice = erp.currentSellingPrice;
