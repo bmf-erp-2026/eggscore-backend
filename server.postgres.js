@@ -37,6 +37,7 @@ app.use('/promotions', require('./routes-postgres/promotions'));
 app.use('/vehicles', require('./routes-postgres/vehicles'));
 app.use('/drivers', require('./routes-postgres/drivers'));
 app.use('/destinations', require('./routes-postgres/destinations'));
+app.use('/dispatch-origins', require('./routes-postgres/dispatch-origins'));
 app.use('/service-areas', require('./routes-postgres/service-areas'));
 app.use('/delivery-days', require('./routes-postgres/delivery-days'));
 app.use('/delivery-batches', require('./routes-postgres/delivery-batches'));
