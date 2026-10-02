@@ -3661,22 +3661,40 @@ input[type=number]{-moz-appearance:textfield;}
          out on another order are disabled in the dropdowns above instead, which
          IS enforced (see submitGenerateWaybill()). -->
     <div id="wb-availability-warn" style="display:none;background:rgba(255,90,90,0.12);border:1px solid var(--red);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--red);line-height:1.6"></div>
+    <!-- Oct 1 2026 — Dispatch Origin, same field/rationale as Cluster
+         Waybill's cwb-dispatch-origin (see its comment above): per-waybill,
+         defaults to the farm address on file, never touches Shipper
+         Details. Added while fixing the Auto-calculate layout below, since
+         autoCalculateWaybillDistance() needed somewhere other than a
+         hardcoded farm address to read its origin from, and
+         generateWaybill() was hardcoding origin:shipper.address with no
+         override at all — this closes that gap too. -->
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Dispatch origin <span style="color:var(--mist)">— where this trip actually departs from</span></label>
+      <input class="form-input" id="wb-dispatch-origin" placeholder="Defaults to the farm address on file"/>
+      <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--dust);margin-top:4px">
+        Only affects this waybill's distance calc and its printed route — never changes your Shipper Details farm address.
+      </div>
+    </div>
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Destination <span style="color:var(--mist)">(pick a saved one, or type a new one below)</span></label>
       <select class="form-select" id="wb-destination-ref" onchange="applyDestinationRef()" style="margin-bottom:8px"><option value="">— Type a custom destination —</option></select>
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
-        <input class="form-input" id="wb-destination-name" placeholder="Destination name/address"/>
-        <div style="display:flex;gap:6px;align-items:center">
-          <input class="form-input" type="number" id="wb-distance-km" placeholder="Distance (km)" oninput="previewWaybillCost()" style="flex:1"/>
-          <!-- Oct 1 2026 — single-waybill parity fix: this reuses the exact
-               same /orders/cluster-distance call Cluster Waybill already
-               uses (postClusterDistance()), just with a one-stop array.
-               getRouteDistance() on the backend never required 2+
-               waypoints — only the Cluster UI's own "tick at least 2"
-               rule did — so no backend change was needed, only this
-               button and autoCalculateWaybillDistance(). -->
-          <button type="button" class="btn btn-ghost" style="font-size:9px;padding:6px 10px;white-space:nowrap" onclick="autoCalculateWaybillDistance()">📍 Auto-calculate</button>
-        </div>
+      <input class="form-input" id="wb-destination-name" placeholder="Destination name/address" style="margin-bottom:8px"/>
+      <!-- Oct 1 2026 — single-waybill parity fix, restructured: this used to
+           share a 2fr/1fr grid row with the destination-name input above,
+           which squeezed the distance field down to almost nothing once the
+           Auto-calculate button was added next to it (Bob caught this live
+           — the field showed only "Di…" of its own placeholder). Now a
+           full-width row of its own, same pattern as Cluster Waybill's
+           "Total trip distance" row, so the input and button both have
+           room. Reuses the exact same /orders/cluster-distance call Cluster
+           Waybill already uses (postClusterDistance()), just with a
+           one-stop array — getRouteDistance() on the backend never required
+           2+ waypoints, only the Cluster UI's own "tick at least 2" rule
+           did, so no backend change was needed. -->
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" type="number" id="wb-distance-km" placeholder="Distance (km)" oninput="previewWaybillCost()" style="flex:1"/>
+        <button type="button" class="btn btn-ghost" style="font-size:9px;padding:6px 10px;white-space:nowrap" onclick="autoCalculateWaybillDistance()">📍 Auto-calculate</button>
       </div>
       <div id="wb-distance-status" style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:4px"></div>
     </div>
@@ -6221,7 +6239,7 @@ input[type=number]{-moz-appearance:textfield;}
         <div class="panel-title">Customer Segmentation</div>
         <div class="panel-hdr-actions">
           <input class="form-input" id="seg-churn-search" placeholder="🔍 Search customer…" style="padding:4px 8px;font-size:10px;height:28px;width:150px" oninput="renderSegmentation()"/>
-          <div class="panel-tag">churn risk · value tier · LTV</div>
+          <div class="panel-tag" id="seg-panel-tag">churn risk · value tier · LTV</div>
         </div>
       </div>
       <div class="panel-body" id="seg-churn-list"></div>
@@ -17642,15 +17660,46 @@ function renderSegmentation() {
     return;
   }
 
-  // Sort by churn risk score descending (highest risk first)
-  const ranked = searchedCusts.map(c => ({
-    c,
-    churn: computeChurnRisk(c.name),
-    ltv:   computeCustomerLTV(c.name),
-    cs:    computeCreditScore(c.name),
-  })).sort((a,b) => b.churn.score - a.churn.score);
+  const ranked = searchedCusts.map(c => {
+    const churn = computeChurnRisk(c.name);
+    return {
+      c, churn,
+      ltv: computeCustomerLTV(c.name),
+      cs:  computeCreditScore(c.name),
+      // Same flat 14-calendar-day flag getAbsentCustomers14Day() uses for
+      // the Customers nav badge — kept as its own field so the sort below
+      // can front these regardless of churn.score.
+      isAbsent14: churn.daysSince !== null && churn.daysSince >= 14,
+    };
+  });
 
-  el.innerHTML = (churnSearch ? ranked : ranked.slice(0, 12)).map(({ c, churn, ltv, cs }) => {
+  // Oct 1 2026 — previously sorted purely by churn.score (cadence-relative:
+  // days-since-last-order ÷ that customer's own average gap), which is a
+  // different thing from the flat 14-day absence the sidebar badge counts.
+  // A customer who orders every 2 days and has gone quiet 6 days scores
+  // "Churned" here (far above row 12) despite not being absent 14 days at
+  // all, while one who normally orders every 11 days and has gone quiet 16
+  // — genuinely past the 14-day mark, counted in the badge — could still
+  // read as merely "At Risk" and sort well down the list. Bob's live catch:
+  // the badge said a number, but nothing on screen said who. Every 14-day-
+  // lapsed customer is now fronted ahead of everyone else, longest-silent
+  // first; the rest keep the original churn-score ranking below them.
+  ranked.sort((a, b) => {
+    if(a.isAbsent14 !== b.isAbsent14) return a.isAbsent14 ? -1 : 1;
+    return a.isAbsent14 ? (b.churn.daysSince - a.churn.daysSince) : (b.churn.score - a.churn.score);
+  });
+
+  const lapsedCount = ranked.filter(r => r.isAbsent14).length;
+  const tagEl = document.getElementById('seg-panel-tag');
+  if(tagEl) tagEl.innerHTML = lapsedCount > 0
+    ? `<span style="color:var(--red)">⏰ ${lapsedCount} lapsed 14d+ — fronted below</span>`
+    : 'churn risk · value tier · LTV';
+
+  // Never let the display cap cut off a lapsed customer — that's the exact
+  // problem being fixed. Searching already shows every match regardless.
+  const visible = churnSearch ? ranked : ranked.slice(0, Math.max(12, lapsedCount));
+
+  el.innerHTML = visible.map(({ c, churn, ltv, cs, isAbsent14 }, i) => {
     const churnBadge = churn.level === 'high'
       ? `<span class="churn-high">🔴 ${churn.label}</span>`
       : churn.level === 'med'
@@ -17664,14 +17713,20 @@ function renderSegmentation() {
     // The actual outreach action this whole panel exists to enable —
     // a pre-filled check-in message, one tap to WhatsApp, right where
     // the churn signal that prompted it is sitting on screen.
-    const isAbsent14 = churn.daysSince !== null && churn.daysSince >= 14;
     const checkinMsg = `Hello ${c.name}, this is BMF EggScore Limited. We noticed it's been a while since your last order and wanted to check in — is everything okay, and is there anything we can help with or improve on our end?`;
     const waBtn = c.phone && c.phone !== '—'
       ? `<a class="btn ${isAbsent14?'btn-primary':'btn-ghost'}" style="font-size:9px;padding:3px 8px" href="https://wa.me/${c.phone.replace(/\D/g,'')}?text=${encodeURIComponent(checkinMsg)}" target="_blank">💬 ${isAbsent14?'Check in':'WhatsApp'}</a>`
       : `<span style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist)" title="No phone on file">no phone</span>`;
 
+    // Divider right after the last fronted lapsed card, so it's obvious at
+    // a glance which customers are the ones the sidebar badge is counting,
+    // vs. everyone else ranked below them by ordinary churn score.
+    const divider = (lapsedCount > 0 && i === lapsedCount - 1 && i < visible.length - 1)
+      ? `<div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist);text-transform:uppercase;letter-spacing:1px;text-align:center;margin:10px 0 6px;border-top:1px solid var(--border);padding-top:8px">— rest of customers, by churn score —</div>`
+      : '';
+
     return `
-    <div class="seg-card">
+    <div class="seg-card"${isAbsent14 ? ' style="border-left:2px solid var(--red)"' : ''}>
       <div class="seg-left">
         <div class="seg-name">${c.name}</div>
         <div class="seg-meta">${c.location} · ${ltv.orderCount} orders · ${lastNote}</div>
@@ -17682,7 +17737,7 @@ function renderSegmentation() {
         <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--blue)">${fmtK(ltv.ltv)} LTV</span>
         ${waBtn}
       </div>
-    </div>`;
+    </div>${divider}`;
   }).join('');
 }
 
@@ -25984,7 +26039,13 @@ function generateWaybill(orderRef, opts) {
     verifyCode: generateVerifyCode(),
     shipper: { ...shipper },
     consignee: { name: o.customerName, address: o.location || '—', phone: o.phone || '—' },
-    origin: shipper.address || '—',
+    // Oct 1 2026 — was hardcoded to shipper.address with no override at
+    // all; now accepts opts.dispatchOrigin same as generateClusterWaybill()
+    // already does, for the same reason (see its Sep 29 2026 comment) —
+    // Bob's shipper block above still always stays the real registered
+    // farm identity regardless of where this particular waybill departs
+    // from.
+    origin: opts.dispatchOrigin || shipper.address || '—',
     destination: opts.destinationName || o.location || '—',
     distanceKm: opts.distanceKm || 0,
     carrier: {
@@ -27327,8 +27388,10 @@ function openGenerateWaybillModal(orderRef) {
   destRefSel.innerHTML = '<option value="">— Type a custom destination —</option>' +
     dests.map(d => `<option value="${d.id}">${escapeHtml(d.name)} (${d.distanceKm}km)</option>`).join('');
 
+  document.getElementById('wb-dispatch-origin').value = ensureShipperDetails().address || '';
   document.getElementById('wb-destination-name').value = o.location || '';
   document.getElementById('wb-distance-km').value = '';
+  document.getElementById('wb-distance-status').textContent = '';
   document.getElementById('wb-cost-preview').innerHTML = '';
   // Reset the outbound attestation fields every time this modal opens —
   // each waybill needs its own fresh check, never inherited from whatever
@@ -27578,8 +27641,8 @@ async function autoCalculateWaybillDistance() {
     showToast(`⚠ ${order.customerName} doesn't have a location on file yet — run "📍 Group Nearby Orders" in Logistics first, then try again.`);
     return;
   }
-  const dispatchOrigin = (ensureShipperDetails().address || '').trim();
-  if(!dispatchOrigin) { showToast('⚠ No farm address on file — set one in Shipper Details first.'); return; }
+  const dispatchOrigin = (document.getElementById('wb-dispatch-origin')?.value || '').trim() || ensureShipperDetails().address;
+  if(!dispatchOrigin) { showToast('⚠ No dispatch origin set, and no farm address on file either — enter one above.'); return; }
   const stopsPayload = [{ ref: order.ref, latitude: order.latitude, longitude: order.longitude }];
   if(statusEl) statusEl.textContent = '⏳ Calculating real driving distance…';
   const result = await postClusterDistance(dispatchOrigin, stopsPayload);
@@ -27609,6 +27672,7 @@ function submitGenerateWaybill() {
   const orderRef = document.getElementById('wb-order-ref').value;
   const vehicleId = document.getElementById('wb-vehicle').value;
   const driverId = document.getElementById('wb-driver').value;
+  const dispatchOrigin = (document.getElementById('wb-dispatch-origin')?.value || '').trim() || ensureShipperDetails().address;
   const destinationName = document.getElementById('wb-destination-name').value.trim();
   const distanceKm = parseFloat(document.getElementById('wb-distance-km').value) || 0;
   const outboundCondition = document.getElementById('wb-outbound-condition').value;
@@ -27622,6 +27686,7 @@ function submitGenerateWaybill() {
   // ── silently paper over a missing one. ──
   if(!vehicleId) { showToast('⚠ Select a vehicle.'); return; }
   if(!driverId) { showToast('⚠ Select a driver.'); return; }
+  if(!dispatchOrigin) { showToast('⚠ Enter a dispatch origin, or set a farm address in Shipper Details.'); return; }
   if(!destinationName) { showToast('⚠ Enter a destination.'); return; }
   if(!distanceKm || distanceKm <= 0) { showToast('⚠ Enter a real distance (km).'); return; }
   // Outbound attestation is the first half of the two-attestation close-out
@@ -27645,7 +27710,7 @@ function submitGenerateWaybill() {
   if(vehicleBusyRef) { showToast(`⚠ That vehicle is already out on ${vehicleBusyRef} — pick another.`); return; }
   if(driverBusyRef)  { showToast(`⚠ That driver is already out on ${driverBusyRef} — pick another.`); return; }
 
-  generateWaybill(orderRef, { vehicleId, driverId, destinationName, distanceKm, outboundCondition, outboundAttestedBy, outboundNotes });
+  generateWaybill(orderRef, { vehicleId, driverId, dispatchOrigin, destinationName, distanceKm, outboundCondition, outboundAttestedBy, outboundNotes });
   closeModal('modal-generate-waybill');
 }
 
