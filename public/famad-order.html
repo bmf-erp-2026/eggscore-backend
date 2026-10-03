@@ -1610,7 +1610,8 @@ function getNextOccurrenceDate(dayName) {
   const target = DAY_INDEX[dayName];
   if(target === undefined) return null;
   const today = new Date();
-  const diff = (target - today.getDay() + 7) % 7;
+  let diff = (target - today.getDay() + 7) % 7;
+  if(diff === 0) diff = 7; // never offer today itself — always roll to next week
   const result = new Date(today);
   result.setDate(today.getDate() + diff);
   return result;
