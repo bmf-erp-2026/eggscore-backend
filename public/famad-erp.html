@@ -3941,10 +3941,35 @@ input[type=number]{-moz-appearance:textfield;}
       <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="crf-phone"/></div>
     </div>
     <div class="form-row cols-2">
-      <div class="form-group"><label class="form-label">Location</label><input class="form-input" id="crf-location"/></div>
-      <div class="form-group"><label class="form-label">Business Type</label><input class="form-input" id="crf-business-type" placeholder="e.g. Retailer, Bakery, Depot"/></div>
+      <div class="form-group"><label class="form-label">Delivery Location</label><input class="form-input" id="crf-location"/></div>
+      <div class="form-group">
+        <label class="form-label">Business Type <span style="color:var(--mist)">(pick one, or type a custom one below)</span></label>
+        <select class="form-select" id="crf-business-type-ref" onchange="applyCrfPreset('business-type')" style="margin-bottom:8px">
+          <option value="">— Type a custom business type —</option>
+          <option value="Retailer">Retailer</option>
+          <option value="Supermarket">Supermarket</option>
+          <option value="Bakery">Bakery</option>
+          <option value="Hotel/Restaurant">Hotel/Restaurant</option>
+          <option value="Caterer">Caterer</option>
+          <option value="Depot">Depot</option>
+          <option value="Wholesaler">Wholesaler</option>
+        </select>
+        <input class="form-input" id="crf-business-type" placeholder="e.g. Retailer, Bakery, Depot"/>
+      </div>
     </div>
-    <div class="form-group"><label class="form-label">Referral Source</label><input class="form-input" id="crf-referral" placeholder="How did they hear about us"/></div>
+    <div class="form-group">
+      <label class="form-label">Referral Source <span style="color:var(--mist)">(pick one, or type a custom one below)</span></label>
+      <select class="form-select" id="crf-referral-ref" onchange="applyCrfPreset('referral')" style="margin-bottom:8px">
+        <option value="">— Type a custom source —</option>
+        <option value="Walk-in">Walk-in</option>
+        <option value="Word of Mouth">Word of Mouth</option>
+        <option value="Returning Customer">Returning Customer</option>
+        <option value="Sales Rep Visit">Sales Rep Visit</option>
+        <option value="WhatsApp">WhatsApp</option>
+        <option value="Social Media">Social Media</option>
+      </select>
+      <input class="form-input" id="crf-referral" placeholder="How did they hear about us"/>
+    </div>
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Customer ID</label>
       <div class="computed" style="font-family:'DM Mono',monospace;color:var(--mist);font-weight:700">Left blank on this form — filled in by hand once assigned</div>
@@ -29006,10 +29031,23 @@ function generateMarketIntelReportPDF() {
 
 /* ── 5. CUSTOMER REGISTRATION FORM ── */
 function openCustomerRegFormModal() {
-  ['crf-name','crf-phone','crf-location','crf-business-type','crf-referral','crf-notes'].forEach(id => {
+  ['crf-name','crf-phone','crf-location','crf-business-type','crf-business-type-ref','crf-referral','crf-referral-ref','crf-notes'].forEach(id => {
     const el = document.getElementById(id); if(el) el.value = '';
   });
   openModal('modal-customer-reg-form');
+}
+// Oct 3 2026 — Customer Registration Form's Business Type and Referral
+// Source fields: same "pick a saved one, or type a new one below"
+// dropdown+freetext pattern used for Destination Reference/Dispatch
+// Origins elsewhere in Logistics, just with a short hand-picked list of
+// common answers instead of a backend-synced one — these are generic
+// categories, not a growing list Bob manages, so a few predictive
+// examples baked into the dropdown is all this needs. One shared
+// handler for both fields: `crf-${field}-ref` always feeds
+// `crf-${field}`.
+function applyCrfPreset(field) {
+  const sel = document.getElementById(`crf-${field}-ref`);
+  if(sel && sel.value) document.getElementById(`crf-${field}`).value = sel.value;
 }
 function generateCustomerRegFormPDF() {
   const v = id => document.getElementById(id)?.value.trim() || '';
@@ -29020,7 +29058,7 @@ function generateCustomerRegFormPDF() {
     ['Date:', new Date().toLocaleDateString('en-GB')],
     ['Customer/Business Name:', v('crf-name')||'________________________'],
     ['Phone Number:', v('crf-phone')||'________________________'],
-    ['Location/Address:', v('crf-location')||'________________________'],
+    ['Delivery Location/Address:', v('crf-location')||'________________________'],
     ['Business Type:', v('crf-business-type')||'________________________'],
     ['How did you hear about us:', v('crf-referral')||'________________________'],
     ['Customer ID (CID):', '________________________  (fill in once entered in the CRM)'],
