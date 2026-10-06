@@ -18728,9 +18728,91 @@ function markPnLReviewedToday() {
   PNL_REVIEW_ITEMS.forEach(item => { pnl[item.tsField] = now; });
   pnl.lastFullReviewAt = now;
   saveState();
+  postPnLToBackend();
   renderPnL();
   renderDashAlerts();
   showToast('✓ P&L parameters marked reviewed — Dashboard reminder cleared.');
+}
+
+// ── P&L Calculator parameters → backend — Oct 6 2026 ──────────────────
+// STATE.pnl used to live only in each browser's local storage, so every
+// edit — and "✓ Mark All Reviewed Today" — had to be repeated on every
+// device before the Command Centre reminder cleared there. Now it syncs
+// like the other owner-only settings (GET/PATCH /settings/pnl-data), with
+// one difference: instead of one device overwriting the whole blob, each
+// SECTION carries its own "...UpdatedAt" stamp and the newer one wins
+// (the backend applies the same rule when merging, so a device holding a
+// stale copy can never clobber a newer edit made elsewhere).
+const PNL_SYNC_SECTIONS = PNL_REVIEW_ITEMS.map(i => ({ key: i.key, ts: i.tsField }));
+
+// Folds a server copy into local STATE.pnl. A section is only adopted when
+// the server's stamp is STRICTLY newer than this device's — equal stamps
+// (including two never-edited defaults) leave local values alone. Returns
+// { changed, localNewer }: changed = something was adopted, localNewer =
+// this device holds an edit the server hasn't seen yet (needs pushing).
+function applyRemotePnL(remote) {
+  const result = { changed: false, localNewer: false };
+  if(!remote || typeof remote !== 'object') return result;
+  const pnl = ensurePnLData();
+  PNL_SYNC_SECTIONS.forEach(({ key, ts }) => {
+    const localTs = pnl[ts] || 0, remoteTs = remote[ts] || 0;
+    if(remoteTs > localTs && remote[key] !== undefined) {
+      pnl[key] = remote[key];
+      pnl[ts]  = remoteTs;
+      result.changed = true;
+    } else if(localTs > remoteTs) {
+      result.localNewer = true;
+    }
+  });
+  const localReview = pnl.lastFullReviewAt || 0, remoteReview = remote.lastFullReviewAt || 0;
+  if(remoteReview > localReview) { pnl.lastFullReviewAt = remoteReview; result.changed = true; }
+  else if(localReview > remoteReview) { result.localNewer = true; }
+  if(result.changed) saveState();
+  return result;
+}
+
+function refreshPnLViews() {
+  try {
+    if(typeof renderDashAlerts === 'function') renderDashAlerts();
+    if(window.currentModule === 'pnl' && typeof renderPnL === 'function') renderPnL();
+  } catch(e) { /* a view refresh must never break a sync */ }
+}
+
+async function syncPnLFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token || ERP_ROLE !== 'owner') return; // owner-only data, owner-only route
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/pnl-data`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.settings) { postPnLToBackend(); return; } // nothing on the server yet — this device seeds it
+    const r = applyRemotePnL(data.settings);
+    if(r.localNewer) postPnLToBackend(); // self-healing: an edit made offline gets sent now
+    if(r.changed) refreshPnLViews();
+  } catch(networkErr) {
+    // Fire-and-forget — same as the other settings syncs.
+  }
+}
+
+async function postPnLToBackend() {
+  const token = await erpGetAuthToken();
+  if(!token || ERP_ROLE !== 'owner') return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/pnl-data`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: ensurePnLData(), updatedBy: 'Admin' }),
+    });
+    if(!resp.ok) return;
+    // The server returns the merged result — adopt anything another device
+    // saved that is newer than what we just sent.
+    const data = await resp.json();
+    if(data.settings && applyRemotePnL(data.settings).changed) refreshPnLViews();
+  } catch(networkErr) {
+    // Offline — the next load's sync sees local is newer and retries.
+  }
 }
 
 function getPnLPeriodDates() {
@@ -18819,6 +18901,7 @@ function addPnLFixedAsset() {
   pnl.fixedAssets.push({ id:'fa'+Date.now(), name:'', cost:0, usefulLifeYears:5, purchaseDate: new Date().toISOString().split('T')[0], method:'straight-line' });
   pnl.fixedAssetsUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function removePnLFixedAsset(id) {
@@ -18826,6 +18909,7 @@ function removePnLFixedAsset(id) {
   pnl.fixedAssets = pnl.fixedAssets.filter(a => a.id !== id);
   pnl.fixedAssetsUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function updatePnLFixedAsset(id, field, value) {
@@ -18835,6 +18919,7 @@ function updatePnLFixedAsset(id, field, value) {
   asset[field] = (field === 'cost' || field === 'usefulLifeYears') ? (parseFloat(value) || 0) : value;
   pnl.fixedAssetsUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -18843,6 +18928,7 @@ function addPnLCustomElement() {
   pnl.customCostElements.push({ id:'ce'+Date.now(), label:'', value:0, frequency:'monthly' });
   pnl.customCostElementsUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function removePnLCustomElement(id) {
@@ -18850,6 +18936,7 @@ function removePnLCustomElement(id) {
   pnl.customCostElements = pnl.customCostElements.filter(e => e.id !== id);
   pnl.customCostElementsUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function updatePnLCustomElement(id, field, value) {
@@ -18859,6 +18946,7 @@ function updatePnLCustomElement(id, field, value) {
   el[field] = field === 'value' ? (parseFloat(value) || 0) : value;
   pnl.customCostElementsUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19847,6 +19935,7 @@ function addLoan() {
   pnl.loans.push({ id: 'loan_' + Date.now(), name: 'New Loan', outstandingBalance: 0, annualRate: 0, monthlyPayment: 0 });
   pnl.loansUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function removeLoan(id) {
@@ -19854,6 +19943,7 @@ function removeLoan(id) {
   pnl.loans = pnl.loans.filter(l => l.id !== id);
   pnl.loansUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function updateLoan(id, field, value) {
@@ -19863,6 +19953,7 @@ function updateLoan(id, field, value) {
   loan[field] = field === 'name' ? value : (parseFloat(value) || 0);
   pnl.loansUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19872,6 +19963,7 @@ function saveCacLtvSettings() {
   pnl.cacLtv.assumedLifespanMonths = parseFloat(document.getElementById('pnl-cl-lifespan')?.value) || 0;
   pnl.cacLtvUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19880,6 +19972,7 @@ function saveWorkingCapital() {
   pnl.workingCapital.payables = parseFloat(document.getElementById('pnl-wc-payables')?.value) || 0;
   pnl.workingCapitalUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19892,6 +19985,7 @@ function saveCashFlowSettings() {
   cf.monthlyMisc = parseFloat(document.getElementById('pnl-cf-misc')?.value) || 0;
   pnl.cashFlowUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19904,6 +19998,7 @@ function saveWageModel() {
   wm.repCommissionTarget = parseFloat(document.getElementById('pnl-wage-rep-target')?.value) || 0;
   pnl.wageModelUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19914,6 +20009,7 @@ function saveTotalInvestment() {
   pnl.totalInvestment = parseFloat(el.value) || 0;
   pnl.totalInvestmentUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19922,6 +20018,7 @@ function addFestiveEvent() {
   pnl.seasonality.festiveCalendar.push({ id: 'fc_' + Date.now(), label: 'New Event', month: 1, upliftPct: 0, notes: '' });
   pnl.seasonalityUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function removeFestiveEvent(id) {
@@ -19929,6 +20026,7 @@ function removeFestiveEvent(id) {
   pnl.seasonality.festiveCalendar = pnl.seasonality.festiveCalendar.filter(f => f.id !== id);
   pnl.seasonalityUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 function updateFestiveEvent(id, field, value) {
@@ -19938,6 +20036,7 @@ function updateFestiveEvent(id, field, value) {
   ev[field] = (field === 'month' || field === 'upliftPct') ? (parseFloat(value) || 0) : value;
   pnl.seasonalityUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -19947,6 +20046,7 @@ function saveOwnerTimeSettings() {
   pnl.ownerTime.hourlyRate = parseFloat(document.getElementById('pnl-ot-rate')?.value) || 0;
   pnl.ownerTimeUpdatedAt = Date.now();
   saveState();
+  postPnLToBackend();
   renderPnL();
 }
 
@@ -33705,6 +33805,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncPriceRampSettingsFromBackend();
   syncCommissionTierSettingsFromBackend();
   syncShipperDetailsFromBackend();
+  syncPnLFromBackend(); // Oct 6 2026 — P&L parameters + review stamps now server-side
   syncSuppliersFromBackend();
   syncPromotionsFromBackend();
   syncNoticesFromBackend();
