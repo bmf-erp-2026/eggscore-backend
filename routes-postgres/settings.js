@@ -545,4 +545,60 @@ router.patch('/shipper-details', requireSupabaseAuth(), requireRole('owner'), as
   res.json({ ok: true, settings });
 });
 
+// Oct 6 2026 — P&L Calculator parameters, server-side. Until now STATE.pnl
+// lived only in each browser's local storage, so "✓ Mark All Reviewed Today"
+// (and every Cash Flow / Working Capital / Loans / Wage Model edit) had to be
+// repeated on every device for the Command Centre reminder to clear. Same
+// singleton-blob pattern as the other owner-only settings above, with one
+// addition: PATCH MERGES per section instead of overwriting the whole blob.
+// Each section carries its own "...UpdatedAt" timestamp, and whichever side
+// has the newer one wins — so a device holding a stale copy can never clobber
+// a newer edit another device already saved.
+const PNL_SECTIONS = [
+  ['fixedAssets',        'fixedAssetsUpdatedAt'],
+  ['customCostElements', 'customCostElementsUpdatedAt'],
+  ['loans',              'loansUpdatedAt'],
+  ['cacLtv',             'cacLtvUpdatedAt'],
+  ['workingCapital',     'workingCapitalUpdatedAt'],
+  ['cashFlow',           'cashFlowUpdatedAt'],
+  ['wageModel',          'wageModelUpdatedAt'],
+  ['totalInvestment',    'totalInvestmentUpdatedAt'],
+  ['seasonality',        'seasonalityUpdatedAt'],
+  ['ownerTime',          'ownerTimeUpdatedAt'],
+];
+
+router.get('/pnl-data', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'pnl_data'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+
+router.patch('/pnl-data', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  if(!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return res.status(400).json({ error: 'settings object is required.' });
+  }
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'pnl_data'").get();
+  let existing = null;
+  if(row) { try { existing = JSON.parse(row.value); } catch(e) { existing = null; } }
+
+  const merged = { ...settings };
+  if(existing && typeof existing === 'object') {
+    PNL_SECTIONS.forEach(([dataKey, tsKey]) => {
+      if((existing[tsKey] || 0) > (settings[tsKey] || 0)) {
+        merged[dataKey] = existing[dataKey];
+        merged[tsKey]   = existing[tsKey];
+      }
+    });
+    merged.lastFullReviewAt = Math.max(existing.lastFullReviewAt || 0, settings.lastFullReviewAt || 0) || null;
+  }
+
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('pnl_data', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(merged), updatedBy || null);
+  res.json({ ok: true, settings: merged });
+});
+
 module.exports = router;
