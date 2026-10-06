@@ -1844,7 +1844,23 @@ input[type=number]{-moz-appearance:textfield;}
     if(currentModule === 'eventlog') renderEventLog();
   }
 
+  // Oct 6 2026 — the 8 built-in demo sales (BEL-INV-0001..0008, dated 4–15 May 2026)
+  // used to ship in DEFAULT_STATE and were re-posted to the LIVE backend by the
+  // self-healing retry in syncSalesFromBackend() — found in Supabase twice each
+  // (Jul 25 and Sep 3), linked to real customers, with no batch cost. Matching is
+  // deliberately narrow (exact invoice ref + the demo date window + no batch cost)
+  // so a genuine sale can never be mistaken for one.
+  const DEMO_SEED_INVOICE_REFS = ['BEL-INV-0001','BEL-INV-0002','BEL-INV-0003','BEL-INV-0004',
+                                  'BEL-INV-0005','BEL-INV-0006','BEL-INV-0007','BEL-INV-0008'];
+  function isDemoSeedSale(s) {
+    if(!s || !DEMO_SEED_INVOICE_REFS.includes(s.inv)) return false;
+    const d = String(s.date || '').slice(0, 10);
+    if(d < '2026-05-04' || d > '2026-05-15') return false;
+    return !s.batchCost;
+  }
+
   async function postSaleToBackend(sale) {
+    if(isDemoSeedSale(sale)) return; // never send demo data to production
     const token = await erpGetAuthToken();
     if(!token) return;
     try {
@@ -1986,6 +2002,14 @@ input[type=number]{-moz-appearance:textfield;}
       return;
     }
 
+    // Keep the demo sales out of local state in both directions — drop any
+    // local copy, and ignore the copies already sitting in the backend until
+    // they've been deleted there (they'd otherwise be pulled straight back in).
+    STATE.sales = STATE.sales.filter(s => !isDemoSeedSale(s));
+    backendSales = backendSales.filter(row => !isDemoSeedSale({
+      inv: row.invoice_ref, date: row.sale_date, batchCost: row.batch_cost,
+    }));
+
     const byInv = new Map(STATE.sales.filter(s => s.inv).map(s => [s.inv, s]));
 
     backendSales.forEach(row => {
@@ -2058,7 +2082,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(ERP_ROLE === 'owner') {
       const backendRefs = new Set(backendSales.map(r => r.invoice_ref).filter(Boolean));
       STATE.sales
-        .filter(s => s.inv && !backendRefs.has(s.inv))
+        .filter(s => s.inv && !isDemoSeedSale(s) && !backendRefs.has(s.inv))
         .forEach(s => postSaleToBackend(s));
     }
   }
@@ -10727,16 +10751,12 @@ const DEFAULT_STATE = {
     { tier: 3, max: 499,  rate: 250 },
     { tier: 4, max: null, rate: 300 },
   ],
-  sales: [
-    { id:'s001', date:'2026-05-07', rep:'Chukwu A.', repZone:'Lagos', customer:'Mushin Open Market', location:'Lagos', crates:80, price:5750, gross:460000, transport:8000, net:452000, commRate:150, comm:12000, payment:'cash', inv:'BEL-INV-0001', batchId:'B001' },
-    { id:'s002', date:'2026-05-07', rep:'Tunde B.', repZone:'Ogun', customer:'Sango-Ota Retailer', location:'Ogun', crates:45, price:5700, gross:256500, transport:4000, net:252500, commRate:150, comm:6750, payment:'cash', inv:'BEL-INV-0002', batchId:'B001' },
-    { id:'s003', date:'2026-05-06', rep:'Kemi O.', repZone:'Ibadan', customer:'Dugbe Market', location:'Ibadan', crates:60, price:5800, gross:348000, transport:6000, net:342000, commRate:150, comm:9000, payment:'credit7', inv:'BEL-INV-0003', batchId:'B001' },
-    { id:'s004', date:'2026-05-05', rep:'Chukwu A.', repZone:'Lagos', customer:'Mile 12 Wholesaler', location:'Lagos', crates:120, price:5700, gross:684000, transport:10000, net:674000, commRate:200, comm:24000, payment:'transfer', inv:'BEL-INV-0004', batchId:'B001' },
-    { id:'s005', date:'2026-05-04', rep:'Direct', repZone:'Farm Gate', customer:'Farm Gate Sale', location:'Ogun', crates:20, price:5900, gross:118000, transport:0, net:118000, commRate:0, comm:0, payment:'cash', inv:'BEL-INV-0005', batchId:'B001' },
-    { id:'s006', date:'2026-05-12', rep:'Tunde B.', repZone:'Ogun', customer:'Sagamu Junction Depot', location:'Ogun', crates:90, price:5700, gross:513000, transport:7000, net:506000, commRate:150, comm:13500, payment:'credit30', inv:'BEL-INV-0006', batchId:'B001' },
-    { id:'s007', date:'2026-05-14', rep:'Kemi O.', repZone:'Ibadan', customer:'Ojoo Depot', location:'Ibadan', crates:75, price:5750, gross:431250, transport:5000, net:426250, commRate:150, comm:11250, payment:'transfer', inv:'BEL-INV-0007', batchId:'B001' },
-    { id:'s008', date:'2026-05-15', rep:'Chukwu A.', repZone:'Lagos', customer:'Alaba Market Depot', location:'Lagos', crates:150, price:5700, gross:855000, transport:12000, net:843000, commRate:200, comm:30000, payment:'cash', inv:'BEL-INV-0008', batchId:'B001' },
-  ],
+  // Oct 6 2026 — the 8 demo sales (BEL-INV-0001..0008, May 2026) that used to sit here were
+  // being re-posted to the LIVE backend by syncSalesFromBackend()'s retry step (found doubled in
+  // Supabase: Jul 25 + Sep 3). Starting data is now empty; any copy already saved in a browser is
+  // cleared by purgeDemoSeedSalesFromState() right after STATE loads, and isDemoSeedSale() keeps
+  // them out of sync in both directions.
+  sales: [],
   // FIFO batch registry — each receipt is a batch with its own cost
   batches: [
     { id:'B001', date:'2026-05-01', supplier:'David Elkamis Farm', supplierId:'sup001', cost:5200,
@@ -10899,14 +10919,7 @@ const DEFAULT_STATE = {
   brandingReadinessSettings: { watchThreshold: 5000, actionThreshold: 10000 },
   invLog: [
     { date:'2026-05-01', type:'receive', qty:1000, supplier:'David Elkamis Farm', cost:5200, notes:'Batch A — May' },
-    { date:'2026-05-07', type:'sell', qty:80, ref:'BEL-INV-0001' },
-    { date:'2026-05-07', type:'sell', qty:45, ref:'BEL-INV-0002' },
-    { date:'2026-05-06', type:'sell', qty:60, ref:'BEL-INV-0003' },
-    { date:'2026-05-05', type:'sell', qty:120, ref:'BEL-INV-0004' },
-    { date:'2026-05-04', type:'sell', qty:20, ref:'BEL-INV-0005' },
-    { date:'2026-05-12', type:'sell', qty:90, ref:'BEL-INV-0006' },
-    { date:'2026-05-14', type:'sell', qty:75, ref:'BEL-INV-0007' },
-    { date:'2026-05-15', type:'sell', qty:150, ref:'BEL-INV-0008' },
+    // Demo 'sell' entries for BEL-INV-0001..0008 removed Oct 6 2026 along with the demo sales they referred to.
     { date:'2026-05-10', type:'damaged', qty:12, notes:'Crate breakage in transit' },
   ],
   reps: [
@@ -11026,6 +11039,27 @@ const DEFAULT_STATE = {
 };
 
 let STATE = loadState() || JSON.parse(JSON.stringify(DEFAULT_STATE));
+
+// Oct 6 2026 — one-time cleanup of the demo sales for browsers that already
+// saved them (see isDemoSeedSale() near postSaleToBackend). Runs before any
+// sync, so the retry step never gets the chance to re-post them. Touches only
+// local data — nothing is deleted from the backend here.
+function purgeDemoSeedSalesFromState() {
+  let changed = false;
+  if(Array.isArray(STATE.sales)) {
+    const kept = STATE.sales.filter(s => !isDemoSeedSale(s));
+    if(kept.length !== STATE.sales.length) { STATE.sales = kept; changed = true; }
+  }
+  if(Array.isArray(STATE.invLog)) {
+    const keptLog = STATE.invLog.filter(e => !(e && e.type === 'sell'
+      && DEMO_SEED_INVOICE_REFS.includes(e.ref)
+      && String(e.date || '').slice(0, 10) >= '2026-05-04'
+      && String(e.date || '').slice(0, 10) <= '2026-05-15'));
+    if(keptLog.length !== STATE.invLog.length) { STATE.invLog = keptLog; changed = true; }
+  }
+  if(changed) saveState();
+}
+purgeDemoSeedSalesFromState();
 
 /* ═══════════════════════════════════════════════════════
    CLOCK & DATE
