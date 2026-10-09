@@ -2,6 +2,7 @@ const express = require('express');
 const { db } = require('../db.postgres');
 const { requireAuth, requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
 const { geocodeAddress, getRouteDistance } = require('../lib/geocode');
+const { notifyOrderChange } = require('../lib/push');
 
 const router = express.Router();
 
@@ -257,7 +258,17 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
 
   console.log(`[audit] Order ${req.params.ref} updated by ${req.user?.email || 'portal key'}`);
 
-  res.json(await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref));
+  const updatedOrder = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
+
+  // Oct 9 2026 — push notifications. Tells the customer's phone when the
+  // order is paid / confirmed / on its way / delivered. Deliberately NOT
+  // awaited and wrapped so that a notification problem can never slow down
+  // or break a staff member's order update — the order PATCH has already
+  // succeeded by this point. `order` is the row as it was BEFORE this
+  // PATCH, `updatedOrder` the row after, so only real changes notify.
+  notifyOrderChange(order, updatedOrder).catch(e => console.error('[push] order notify failed:', e.message));
+
+  res.json(updatedOrder);
 });
 
 // ── Customer delivery attestation — Sep 27 2026 ──────────────────────

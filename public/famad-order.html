@@ -438,6 +438,10 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       <span style="width:1px;height:14px;background:var(--border);display:inline-block"></span>
       <span id="theme-toggle" onclick="toggleTheme()"
         style="cursor:pointer;padding:4px 10px;border-radius:12px;border:1px solid var(--border);color:var(--mist)">🌙 Dark Mode</span>
+      <!-- Oct 9 2026 — push notification switch. Hidden until the page knows
+           this device can do push AND the customer is already identifiable
+           (has ordered, or is currently subscribed). paintPushBell() decides. -->
+      <span id="push-bell" onclick="togglePush()" style="display:none;cursor:pointer;padding:4px 10px;border-radius:12px;border:1px solid var(--border);color:var(--mist)"></span>
     </div>
     <style>
       .lang-opt-active{background:var(--blue);color:var(--bg);border-color:var(--blue) !important;font-weight:600;}
@@ -964,6 +968,13 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div id="enrollment-card" style="display:none;max-width:400px;margin:14px auto 0 auto;
       background:rgba(61,214,192,0.07);border:1px solid rgba(61,214,192,0.25);border-radius:10px;padding:14px 16px;text-align:center"></div>
 
+    <!-- PUSH OPT-IN CARD — Oct 9 2026. Shown once the order is placed, when
+         the customer can see exactly why it is useful. Filled in by
+         maybeShowPushOptIn(). Never shown if this device cannot do push or
+         the customer already said no. -->
+    <div id="push-optin-card" style="display:none;max-width:400px;margin:14px auto 0 auto;
+      background:rgba(91,168,240,0.07);border:1px solid rgba(91,168,240,0.28);border-radius:10px;padding:14px 16px;text-align:center"></div>
+
     <div class="payment-instructions" id="success-payment"></div>
 
     <a id="success-wa-link" href="#" class="wa-fallback" target="_blank" style="margin-top:0">
@@ -1302,6 +1313,16 @@ const UI_STRINGS = {
     'pwa.btn': '📲 Install App',
     'pwa.ios': 'Tap the Share icon <strong>⬆</strong> below, then <strong>"Add to Home Screen"</strong>',
     'pwa.notnow': 'Not now',
+    'push.title': '🔔 Get updates on this order',
+    'push.sub': "We'll tell you when it's confirmed, on its way and delivered. No spam.",
+    'push.btn': 'Turn on order updates',
+    'push.notnow': 'Not now',
+    'push.on': '✓ Order updates are on for this device',
+    'push.bell_on': '🔔 Updates: On',
+    'push.bell_off': '🔕 Updates: Off',
+    'push.blocked': 'Notifications are blocked in your phone settings. Allow them for EggScore there to get updates.',
+    'push.ios': 'To get order updates on iPhone, first tap the Share icon <strong>⬆</strong> and choose <strong>"Add to Home Screen"</strong>, then open EggScore from your home screen.',
+    'push.failed': "We couldn't switch updates on just now. Please try again later.",
     'wa.order_here': 'Prefer WhatsApp? Order here →',
     'stock.available': 'Stock Available', 'stock.ready': 'crates ready to order',
     'stock.price_note': 'Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.',
@@ -1372,6 +1393,16 @@ const UI_STRINGS = {
     'pwa.btn': '📲 Install App',
     'pwa.ios': 'Tap the Share icon <strong>⬆</strong> wey dey below, then tap <strong>"Add to Home Screen"</strong>',
     'pwa.notnow': 'Not now',
+    'push.title': '🔔 Make we tell you wetin dey happen to this order',
+    'push.sub': 'We go tell you when e confirm, when e dey road, and when e land. No spam.',
+    'push.btn': 'Turn on order updates',
+    'push.notnow': 'Not now',
+    'push.on': '✓ Order updates don on for this phone',
+    'push.bell_on': '🔔 Updates: On',
+    'push.bell_off': '🔕 Updates: Off',
+    'push.blocked': 'Notification dey blocked for your phone settings. Allow am for EggScore there make you dey get updates.',
+    'push.ios': 'To get order updates for iPhone, first tap the Share icon <strong>⬆</strong> then tap <strong>"Add to Home Screen"</strong>, after that open EggScore from your home screen.',
+    'push.failed': 'We no fit on updates now. Abeg try again later.',
     'wa.order_here': 'You prefer WhatsApp? Order here →',
     'stock.available': 'Stock Wey Dey', 'stock.ready': 'crates ready make you order',
     'stock.price_note': 'Price dey follow how stock dey cost now, e fit shift small between orders. You get question about price? Buzz us anytime.',
@@ -1446,6 +1477,8 @@ function setLanguage(lang) {
     el.classList.toggle('lang-opt-active', el.dataset.lang === lang);
   });
   applyUIStrings();
+  if(typeof syncPushLanguage === 'function') syncPushLanguage();
+  if(typeof paintPushBell === 'function') paintPushBell();
   // Re-run whichever live message currently on screen needs refreshing.
   updatePaymentCommitmentBox();
   renderAvailableStockDisplay();
@@ -4046,6 +4079,7 @@ function showSuccess(order, paid) {
     enrollCard.style.display = 'block';
   }
   markWizardStopReached(7); // reached regardless of the "remember me" tap itself
+  if(typeof maybeShowPushOptIn === 'function') maybeShowPushOptIn(order);
   document.getElementById('success-ref').textContent = order.ref;
   document.getElementById('bank-narration').textContent = order.ref;
 
@@ -4241,6 +4275,232 @@ function dismissPwaBanner() {
   localStorage.setItem('pwaBannerDismissed', '1');
   document.getElementById('pwa-install-banner').style.display = 'none';
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   PUSH NOTIFICATIONS — Oct 9 2026
+   After an order is placed the customer is offered order updates
+   (confirmed / on its way / delivered) as notifications on THIS phone.
+   Flow: ask permission -> phone creates a subscription -> we send it to
+   the backend (POST /push/subscribe) tagged with the order + phone so the
+   backend can tie the phone to the right customer. All of it is optional
+   and silent if anything fails — ordering never depends on it.
+   ═══════════════════════════════════════════════════════════════════ */
+const PUSH_STATE_KEY = 'feds_push_state';          // 'declined:<timestamp>' once they say Not now
+const PUSH_PENDING_KEY = 'feds_push_pending_link'; // link attempt that failed (e.g. offline) -> retried on next load
+const PUSH_DECLINE_DAYS = 14;
+
+function pushSupported() {
+  return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+}
+function pushIsIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+function pushIsStandalone() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+}
+function pushUrlBase64ToUint8Array(b64) {
+  const padding = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(raw.length);
+  for(let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+function pushStr(key) {
+  const dict = UI_STRINGS[portalState.language] || UI_STRINGS.en;
+  return dict[key] !== undefined ? dict[key] : (UI_STRINGS.en[key] || '');
+}
+function pushRecentlyDeclined() {
+  try {
+    const v = localStorage.getItem(PUSH_STATE_KEY) || '';
+    if(v.indexOf('declined:') !== 0) return false;
+    const t = parseInt(v.slice(9), 10);
+    return t && (Date.now() - t) < PUSH_DECLINE_DAYS * 86400000;
+  } catch(e) { return false; }
+}
+async function pushGetSubscription() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    return await reg.pushManager.getSubscription();
+  } catch(e) { return null; }
+}
+
+// Who is this? Prefers the order just placed; falls back to the
+// "remember me" details saved on this device.
+function pushIdentity(order) {
+  if(order && order.ref && order.phone) return { orderRef: order.ref, phone: order.phone };
+  const me = loadMyDetails();
+  if(me && me.cid && me.phone) return { cid: me.cid, phone: me.phone };
+  return null;
+}
+
+async function pushLinkToBackend(sub, identity) {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({ subscription: sub.toJSON(), language: portalState.language, ...identity }),
+    });
+    if(resp.ok) { try { localStorage.removeItem(PUSH_PENDING_KEY); } catch(e) {} return true; }
+    // 404 = the order has not reached the backend yet; keep it to retry.
+    if(resp.status === 404 || resp.status >= 500) {
+      try { localStorage.setItem(PUSH_PENDING_KEY, JSON.stringify(identity)); } catch(e) {}
+    }
+    return false;
+  } catch(e) {
+    try { localStorage.setItem(PUSH_PENDING_KEY, JSON.stringify(identity)); } catch(e2) {}
+    return false;
+  }
+}
+
+async function pushEnable(identity) {
+  if(!pushSupported()) return 'unsupported';
+  if(!identity) return 'noidentity';
+  const perm = await Notification.requestPermission();
+  if(perm === 'denied') return 'blocked';
+  if(perm !== 'granted') return 'dismissed';
+  try {
+    const keyResp = await fetch(`${BACKEND_URL}/push/public-key`, { headers: { 'x-api-key': PORTAL_API_KEY } });
+    const keyJson = keyResp.ok ? await keyResp.json() : null;
+    if(!keyJson || !keyJson.enabled || !keyJson.publicKey) return 'failed';
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: pushUrlBase64ToUint8Array(keyJson.publicKey),
+      });
+    }
+    await pushLinkToBackend(sub, identity);
+    return 'ok';
+  } catch(e) {
+    return 'failed';
+  }
+}
+
+async function pushDisable() {
+  const sub = await pushGetSubscription();
+  if(!sub) return;
+  try {
+    await fetch(`${BACKEND_URL}/push/unsubscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+    });
+  } catch(e) {}
+  try { await sub.unsubscribe(); } catch(e) {}
+}
+
+// Keeps the customer's notification language in step with the portal toggle.
+async function syncPushLanguage() {
+  try {
+    const sub = await pushGetSubscription();
+    if(!sub) return;
+    await fetch(`${BACKEND_URL}/push/language`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({ endpoint: sub.endpoint, language: portalState.language }),
+    });
+  } catch(e) {}
+}
+
+// The card shown on the order-confirmation screen.
+async function maybeShowPushOptIn(order) {
+  const card = document.getElementById('push-optin-card');
+  if(!card) return;
+  card.style.display = 'none';
+  try {
+    if(!pushSupported()) {
+      // iPhone Safari outside the installed app can't do push at all —
+      // show the one-line "add to home screen first" hint instead.
+      if(pushIsIOS() && !pushIsStandalone()) {
+        card.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">🔔 ${pushStr('push.ios')}</div>`;
+        card.style.display = 'block';
+      }
+      return;
+    }
+    if(Notification.permission === 'denied') return;
+    const identity = pushIdentity(order);
+    const existing = await pushGetSubscription();
+    if(existing && Notification.permission === 'granted') {
+      // Already on for this phone — just make sure it is linked to this
+      // customer, and say so quietly.
+      if(identity) pushLinkToBackend(existing, identity);
+      card.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--teal)">${pushStr('push.on')}</div>`;
+      card.style.display = 'block';
+      paintPushBell();
+      return;
+    }
+    if(pushRecentlyDeclined()) return;
+    card.innerHTML = `
+      <div style="font-size:14px;margin-bottom:4px">${pushStr('push.title')}</div>
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);margin-bottom:10px">${pushStr('push.sub')}</div>
+      <button id="push-optin-btn" class="submit-btn" style="width:auto;padding:8px 16px;font-size:12px;margin-top:0">${pushStr('push.btn')}</button>
+      <div style="margin-top:8px"><a href="#" id="push-optin-no" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);text-decoration:underline">${pushStr('push.notnow')}</a></div>`;
+    card.style.display = 'block';
+    document.getElementById('push-optin-btn').onclick = async function() {
+      this.disabled = true;
+      const r = await pushEnable(identity);
+      if(r === 'ok') {
+        card.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--teal)">${pushStr('push.on')}</div>`;
+      } else if(r === 'blocked') {
+        card.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">${pushStr('push.blocked')}</div>`;
+      } else if(r === 'dismissed') {
+        card.style.display = 'none';
+      } else {
+        card.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust)">${pushStr('push.failed')}</div>`;
+      }
+      paintPushBell();
+    };
+    document.getElementById('push-optin-no').onclick = function(e) {
+      e.preventDefault();
+      try { localStorage.setItem(PUSH_STATE_KEY, 'declined:' + Date.now()); } catch(err) {}
+      card.style.display = 'none';
+    };
+  } catch(e) { /* push is a nice-to-have; never disturb the confirmation screen */ }
+}
+
+// The little switch in the header: shows "Updates: On" (tap to turn off)
+// when subscribed, or "Updates: Off" (tap to turn on) when this device is
+// capable and the customer is known from "Remember me".
+async function paintPushBell() {
+  const el = document.getElementById('push-bell');
+  if(!el) return;
+  try {
+    if(!pushSupported() || Notification.permission === 'denied') { el.style.display = 'none'; return; }
+    const sub = await pushGetSubscription();
+    if(sub && Notification.permission === 'granted') {
+      el.textContent = pushStr('push.bell_on'); el.style.display = 'inline-block'; el.style.color = 'var(--teal)';
+    } else if(pushIdentity(null)) {
+      el.textContent = pushStr('push.bell_off'); el.style.display = 'inline-block'; el.style.color = 'var(--mist)';
+    } else {
+      el.style.display = 'none';
+    }
+  } catch(e) { el.style.display = 'none'; }
+}
+
+async function togglePush() {
+  const sub = await pushGetSubscription();
+  if(sub && Notification.permission === 'granted') {
+    await pushDisable();
+  } else {
+    await pushEnable(pushIdentity(null));
+  }
+  paintPushBell();
+}
+
+// On each page load: retry a link that failed earlier, and paint the bell.
+window.addEventListener('load', () => {
+  setTimeout(async () => {
+    try {
+      if(!pushSupported()) return;
+      const pending = localStorage.getItem(PUSH_PENDING_KEY);
+      const sub = await pushGetSubscription();
+      if(pending && sub) await pushLinkToBackend(sub, JSON.parse(pending));
+    } catch(e) {}
+    paintPushBell();
+  }, 1500);
+});
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

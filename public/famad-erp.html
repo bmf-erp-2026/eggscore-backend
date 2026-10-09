@@ -1000,7 +1000,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'eventlog', 'reps'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'eventlog', 'reps', 'pushnotify'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -5226,6 +5226,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('scorecard')"><span class="icon">🏅</span><span>Customer Scorecard <span class="si-badge" id="scorecard-badge">0</span><span class="si-badge si-badge-violet" id="scorecard-credit-badge" title="Customers currently owing credit" style="display:none">0</span></span></div>
   <div class="si" onclick="switchModule('promotions')"><span class="icon">🎯</span><span>Promotions</span></div>
   <div class="si" onclick="switchModule('whatsapp')" id="si-whatsapp"><span class="icon">💬</span><span>WA Broadcast <span class="si-badge" id="wa-badge" style="background:rgba(37,211,102,0.15);color:var(--wa)">0</span></span></div>
+  <div class="si" onclick="switchModule('pushnotify')"><span class="icon">🔔</span><span>Push Notifications</span></div>
   <hr class="sdiv"/>
   <div class="sl">Finance</div>
   <div class="si" onclick="switchModule('pnl')"><span class="icon">📈</span><span>P&amp;L Calculator</span></div>
@@ -6379,6 +6380,100 @@ input[type=number]{-moz-appearance:textfield;}
 </div>
 
 <!-- ════ MODULE: PROMOTIONS ══════════════════════════════ -->
+<!-- ════ MODULE: PUSH NOTIFICATIONS (Oct 9 2026) ════════════
+     Owner-only. Sends notifications to the phones of customers who
+     installed the portal and tapped "Turn on order updates". Talks to
+     /push/* on the backend (routes-postgres/push.js). -->
+<div class="module-page" id="mod-pushnotify">
+  <style>#mod-pushnotify .data-table td,#mod-pushnotify .data-table th{padding-right:12px;vertical-align:top}#mod-pushnotify .data-table th:last-child,#mod-pushnotify .data-table td:last-child{padding-right:0}</style>
+  <div class="ph">
+    <div>
+      <h2>Push Notifications</h2>
+      <div class="ph-sub">Order updates · delivery-day reminders · promo broadcasts to customers' phones</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-ghost" onclick="renderPushNotify()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div id="pn-status-banner"></div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-hdr"><div class="panel-title">📣 Send a Broadcast</div><div class="panel-tag" id="pn-reach-tag">—</div></div>
+      <div class="panel-body">
+        <div class="form-group" style="margin-bottom:12px"><label class="form-label">Who should get it?</label>
+          <select class="form-select" id="pn-audience" onchange="pnAudienceChanged()">
+            <option value="all">Everyone who turned notifications on</option>
+            <option value="wholesalers">Wholesalers only</option>
+            <option value="inactive">Quiet customers (no order in 30+ days)</option>
+            <option value="highvolume">High-volume (200+ crates in last 30 days)</option>
+            <option value="customer">ONE customer — test (by phone number)</option>
+          </select>
+        </div>
+        <div class="form-group" id="pn-phone-wrap" style="margin-bottom:12px;display:none"><label class="form-label">Customer's phone number</label><input class="form-input" id="pn-phone" placeholder="e.g. 0916 534 3020" oninput="pnPreviewReach()"/></div>
+        <div class="form-row cols-1">
+          <div class="form-group"><label class="form-label">Title (English) <span class="req">*</span></label><input class="form-input" id="pn-title-en" maxlength="65" placeholder="e.g. Weekend egg deal 🥚" oninput="pnCount()"/></div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px"><label class="form-label">Message (English) <span class="req">*</span> <span id="pn-body-en-count" style="color:var(--mist)"></span></label><textarea class="form-textarea" id="pn-body-en" maxlength="200" placeholder="Short and clear. One offer, one action." oninput="pnCount()"></textarea></div>
+        <div class="form-group" style="margin-bottom:12px"><label class="form-label">Title (Pidgin) <span style="color:var(--mist)">(optional)</span></label><input class="form-input" id="pn-title-pcm" maxlength="65" placeholder="Pidgin version of the title" oninput="pnCount()"/></div>
+        <div class="form-group" style="margin-bottom:12px"><label class="form-label">Message (Pidgin) <span style="color:var(--mist)">(optional — customers on Pidgin get this; others get English)</span> <span id="pn-body-pcm-count" style="color:var(--mist)"></span></label><textarea class="form-textarea" id="pn-body-pcm" maxlength="200" placeholder="Pidgin version of the message" oninput="pnCount()"></textarea></div>
+        <div style="padding:10px 14px;background:var(--raised);border-radius:8px;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.7;margin-bottom:12px" id="pn-preview-box">Preview appears here as you type.</div>
+        <div class="submit-btns">
+          <button class="btn btn-teal" id="pn-send-btn" onclick="pnSend()">🔔 Send Notification</button>
+        </div>
+        <div id="pn-send-result" style="margin-top:10px;font-family:'DM Mono',monospace;font-size:11px"></div>
+        <div style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);line-height:1.7">
+          Tip: do a "ONE customer — test" send to your own phone first. Promo-style messages work best at most once or twice a week — customers who feel spammed switch notifications off for good.
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hdr"><div class="panel-title">⚙ Automatic Messages</div><div class="panel-tag">sent without you lifting a finger</div></div>
+      <div class="panel-body">
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;font-size:12px;color:var(--dust);line-height:1.5"><input type="checkbox" id="pn-set-orderUpdates" style="margin-top:3px"/><span><strong>Order updates</strong> — "payment received", "confirmed", "on its way", "delivered". Sent the moment staff move the order forward.</span></label>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;font-size:12px;color:var(--dust);line-height:1.5"><input type="checkbox" id="pn-set-deliveryReminders" style="margin-top:3px"/><span><strong>Delivery-day reminders</strong> — the evening before each active delivery day: "Wednesday delivery closes tonight". Skips customers who already have an open order for that day.</span></label>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;font-size:12px;color:var(--dust);line-height:1.5"><input type="checkbox" id="pn-set-winback" style="margin-top:3px"/><span><strong>"We miss you" nudges</strong> — once a month to customers who haven't ordered in a while, naming the next delivery day.</span></label>
+        <div class="form-row cols-2">
+          <div class="form-group"><label class="form-label">Reminder time (Lagos hour, 0–23)</label><input class="form-input" type="number" min="0" max="23" id="pn-set-reminderHour"/></div>
+          <div class="form-group"><label class="form-label">"We miss you" time (Lagos hour)</label><input class="form-input" type="number" min="0" max="23" id="pn-set-winbackHour"/></div>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group"><label class="form-label">Quiet for how many days?</label><input class="form-input" type="number" min="7" max="180" id="pn-set-winbackAfterDays"/></div>
+          <div class="form-group"><label class="form-label">Max promo messages per phone / week</label><input class="form-input" type="number" min="1" max="14" id="pn-set-weeklyCap"/></div>
+        </div>
+        <div class="submit-btns"><button class="btn btn-teal" onclick="pnSaveSettings()">✓ Save Settings</button></div>
+        <div id="pn-settings-result" style="margin-top:8px;font-family:'DM Mono',monospace;font-size:11px"></div>
+        <div style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);line-height:1.7">
+          The weekly limit applies to reminders, "we miss you" nudges and broadcasts together. Order updates are never limited. Each automatic message reaches a given phone only once.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-hdr"><div class="panel-title">Recent Sends</div><div class="panel-tag">last 30</div></div>
+      <div class="panel-body panel-scroll" style="overflow-x:auto">
+        <table class="data-table">
+          <thead><tr><th>When</th><th>Type</th><th>Message</th><th>Reached</th></tr></thead>
+          <tbody id="pn-log-body"><tr><td colspan="4" style="color:var(--mist)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-hdr"><div class="panel-title">Devices Subscribed</div><div class="panel-tag" id="pn-subs-tag">—</div></div>
+      <div class="panel-body panel-scroll" style="overflow-x:auto">
+        <table class="data-table">
+          <thead><tr><th>Customer</th><th>Lang</th><th>Joined</th><th>Last delivered</th></tr></thead>
+          <tbody id="pn-subs-body"><tr><td colspan="4" style="color:var(--mist)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="module-page" id="mod-promotions">
   <div class="ph">
     <div>
@@ -11094,6 +11189,172 @@ function closeSidebar() {
 }
 window.addEventListener('resize', () => { if(window.innerWidth >= 768) closeSidebar(); });
 
+/* ═══════════════════════════════════════════════════════
+   PUSH NOTIFICATIONS MODULE (Oct 9 2026) — Owner-only screen
+   Talks to the backend's /push/* routes. Nothing here sends a
+   notification by itself; the backend does the sending.
+═══════════════════════════════════════════════════════ */
+let PN_STATE = { summary: null };
+
+async function pnApi(path, opts) {
+  const token = await erpGetAuthToken();
+  if(!token) throw new Error('Not signed in.');
+  const resp = await fetch(`${BACKEND_URL}/push${path}`, {
+    ...(opts || {}),
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+  });
+  let data = null;
+  try { data = await resp.json(); } catch(e) {}
+  if(!resp.ok) throw new Error((data && data.error) || `Server said ${resp.status}`);
+  return data;
+}
+
+function pnWhen(iso) {
+  if(!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' +
+         d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+const PN_KIND_LABEL = { broadcast: 'Broadcast', test: 'Test', reminder: 'Reminder', winback: 'We miss you', order_update: 'Order update' };
+
+async function renderPushNotify() {
+  const banner = document.getElementById('pn-status-banner');
+  if(!banner) return;
+  let sum;
+  try {
+    sum = await pnApi('/summary');
+  } catch(e) {
+    banner.innerHTML = `<div class="alert-banner warn">Could not load push notifications: ${escapeHtml(e.message)}. If this says the table does not exist, the push migration has not been run in Supabase yet.</div>`;
+    return;
+  }
+  PN_STATE.summary = sum;
+
+  if(!sum.enabled) {
+    banner.innerHTML = `<div class="alert-banner warn">Push is <strong>switched off</strong> on the server — the VAPID keys are not set in Railway yet, so nothing can be sent. Customers also won't be offered the "Turn on order updates" option until it is on.</div>`;
+  } else {
+    banner.innerHTML = `<div class="alert-banner" style="background:rgba(61,214,192,0.08);border:1px solid rgba(61,214,192,0.3);color:var(--teal)">Push is <strong>on</strong> · ${sum.counts.active} device${sum.counts.active===1?'':'s'} subscribed (${sum.counts.pidgin} on Pidgin)${sum.counts.inactive ? ` · ${sum.counts.inactive} lapsed` : ''}</div>`;
+  }
+
+  // settings
+  const st = sum.settings || {};
+  ['orderUpdates','deliveryReminders','winback'].forEach(k => { const el = document.getElementById('pn-set-' + k); if(el) el.checked = !!st[k]; });
+  ['reminderHour','winbackHour','winbackAfterDays','weeklyCap'].forEach(k => { const el = document.getElementById('pn-set-' + k); if(el) el.value = st[k]; });
+
+  // log
+  const logBody = document.getElementById('pn-log-body');
+  logBody.innerHTML = (sum.log || []).length ? sum.log.map(l => `
+    <tr>
+      <td style="white-space:nowrap">${pnWhen(l.created_at)}</td>
+      <td>${escapeHtml(PN_KIND_LABEL[l.kind] || l.kind)}</td>
+      <td><strong>${escapeHtml(l.title_en || '')}</strong><br><span style="color:var(--mist);font-size:10px">${escapeHtml(l.body_en || '')}${l.audience ? ' · to: ' + escapeHtml(l.audience) : ''}</span></td>
+      <td>${l.delivered}/${l.targeted}${l.failed ? ` <span style="color:var(--red)">(${l.failed} failed)</span>` : ''}</td>
+    </tr>`).join('') : '<tr><td colspan="4" style="color:var(--mist)">Nothing sent yet.</td></tr>';
+
+  // subscribers
+  document.getElementById('pn-subs-tag').textContent = `${sum.counts.active} active`;
+  const subsBody = document.getElementById('pn-subs-body');
+  subsBody.innerHTML = (sum.subscribers || []).length ? sum.subscribers.map(s => `
+    <tr>
+      <td>${escapeHtml(s.customer_name || 'Unknown')}${s.cid ? `<br><span style="color:var(--mist);font-size:10px">${escapeHtml(s.cid)}</span>` : ''}</td>
+      <td>${s.language === 'pcm' ? 'Pidgin' : 'English'}</td>
+      <td style="white-space:nowrap">${pnWhen(s.created_at)}</td>
+      <td style="white-space:nowrap">${pnWhen(s.last_success_at)}</td>
+    </tr>`).join('') : '<tr><td colspan="4" style="color:var(--mist)">No devices yet. Customers are offered notifications right after they place an order.</td></tr>';
+
+  pnCount();
+  pnAudienceChanged();
+}
+
+function pnAudienceChanged() {
+  const a = document.getElementById('pn-audience').value;
+  document.getElementById('pn-phone-wrap').style.display = a === 'customer' ? 'block' : 'none';
+  pnPreviewReach();
+}
+
+let pnReachTimer = null;
+function pnPreviewReach() {
+  clearTimeout(pnReachTimer);
+  pnReachTimer = setTimeout(async () => {
+    const tag = document.getElementById('pn-reach-tag');
+    if(!tag) return;
+    const audience = pnReadAudience();
+    if(audience.type === 'customer' && String(audience.phone || '').replace(/\D/g, '').length < 7) { tag.textContent = 'enter a phone number'; return; }
+    try {
+      const r = await pnApi('/broadcast', { method: 'POST', body: JSON.stringify({ dryRun: true, audience }) });
+      tag.textContent = `would reach ${r.targeted} device${r.targeted === 1 ? '' : 's'}`;
+    } catch(e) { tag.textContent = '—'; }
+  }, 350);
+}
+
+function pnReadAudience() {
+  const type = document.getElementById('pn-audience').value;
+  return type === 'customer' ? { type, phone: document.getElementById('pn-phone').value } : { type };
+}
+
+function pnCount() {
+  const be = document.getElementById('pn-body-en'), bp = document.getElementById('pn-body-pcm');
+  if(!be) return;
+  document.getElementById('pn-body-en-count').textContent = `${be.value.length}/200`;
+  document.getElementById('pn-body-pcm-count').textContent = `${bp.value.length}/200`;
+  const t = document.getElementById('pn-title-en').value.trim(), b = be.value.trim();
+  document.getElementById('pn-preview-box').innerHTML = (t || b)
+    ? `<strong style="color:var(--cream)">🔔 ${escapeHtml(t || '(title)')}</strong><br>${escapeHtml(b || '(message)')}`
+    : 'Preview appears here as you type.';
+}
+
+async function pnSend() {
+  const res = document.getElementById('pn-send-result');
+  const btn = document.getElementById('pn-send-btn');
+  const payload = {
+    titleEn: document.getElementById('pn-title-en').value.trim(),
+    bodyEn: document.getElementById('pn-body-en').value.trim(),
+    titlePcm: document.getElementById('pn-title-pcm').value.trim(),
+    bodyPcm: document.getElementById('pn-body-pcm').value.trim(),
+    audience: pnReadAudience(),
+  };
+  if(!payload.titleEn || !payload.bodyEn) { res.style.color = 'var(--red)'; res.textContent = 'Please fill in the English title and message.'; return; }
+  if((payload.titlePcm && !payload.bodyPcm) || (!payload.titlePcm && payload.bodyPcm)) { res.style.color = 'var(--red)'; res.textContent = 'Fill in both Pidgin fields, or leave both blank.'; return; }
+  if(payload.audience.type === 'customer' && String(payload.audience.phone || '').replace(/\D/g, '').length < 7) { res.style.color = 'var(--red)'; res.textContent = "Enter the customer's phone number."; return; }
+
+  btn.disabled = true; res.style.color = 'var(--mist)'; res.textContent = 'Checking who it will reach…';
+  try {
+    const preview = await pnApi('/broadcast', { method: 'POST', body: JSON.stringify({ ...payload, dryRun: true }) });
+    if(preview.targeted === 0) { res.style.color = 'var(--red)'; res.textContent = 'No subscribed devices match that audience, so nothing was sent.'; btn.disabled = false; return; }
+    if(!confirm(`Send "${payload.titleEn}" to ${preview.targeted} device${preview.targeted === 1 ? '' : 's'} now? This cannot be undone.`)) { res.textContent = 'Cancelled.'; btn.disabled = false; return; }
+    res.textContent = 'Sending…';
+    const r = await pnApi('/broadcast', { method: 'POST', body: JSON.stringify(payload) });
+    res.style.color = 'var(--teal)';
+    res.textContent = `✓ Sent to ${r.delivered} of ${r.targeted} device${r.targeted === 1 ? '' : 's'}${r.failed ? ` · ${r.failed} failed` : ''}.`;
+    if(payload.audience.type !== 'customer') {
+      ['pn-title-en','pn-body-en','pn-title-pcm','pn-body-pcm'].forEach(id => { document.getElementById(id).value = ''; });
+    }
+    renderPushNotify();
+  } catch(e) {
+    res.style.color = 'var(--red)'; res.textContent = '✗ ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+async function pnSaveSettings() {
+  const res = document.getElementById('pn-settings-result');
+  const body = {
+    orderUpdates: document.getElementById('pn-set-orderUpdates').checked,
+    deliveryReminders: document.getElementById('pn-set-deliveryReminders').checked,
+    winback: document.getElementById('pn-set-winback').checked,
+    reminderHour: document.getElementById('pn-set-reminderHour').value,
+    winbackHour: document.getElementById('pn-set-winbackHour').value,
+    winbackAfterDays: document.getElementById('pn-set-winbackAfterDays').value,
+    weeklyCap: document.getElementById('pn-set-weeklyCap').value,
+  };
+  try {
+    await pnApi('/settings', { method: 'PUT', body: JSON.stringify(body) });
+    res.style.color = 'var(--teal)'; res.textContent = '✓ Saved.';
+    setTimeout(() => { res.textContent = ''; }, 2500);
+  } catch(e) {
+    res.style.color = 'var(--red)'; res.textContent = '✗ ' + e.message;
+  }
+}
+
 function switchModule(name) {
   // Hard safety net (Sep 1 2026, Sales Rep Access) — refuses to render
   // an owner-only module for a rep even if reached directly (a stale
@@ -11120,6 +11381,7 @@ function switchModule(name) {
        (name==='reps' && txt.includes('rep centre')) ||
        (name==='customers' && txt.includes('customer')) ||
        (name==='promotions' && txt.includes('promo')) ||
+       (name==='pushnotify' && txt.includes('push notif')) ||
        (name==='commission' && txt.includes('commission')) ||
        (name==='credit' && txt.includes('credit')) ||
        (name==='timevalue' && txt.includes('time-value')) ||
@@ -11139,7 +11401,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -11162,6 +11424,7 @@ function switchModule(name) {
     reservations: renderReservationIntelligence,
     scorecard: renderCustomerScorecard,
     whatsapp: renderWhatsapp,
+    pushnotify: renderPushNotify,
     eventlog: renderEventLog,
     suppliers: renderSuppliers,
     supplierscorecard: renderSupplierScorecard,

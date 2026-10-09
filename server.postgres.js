@@ -50,6 +50,7 @@ app.use('/loyalty', require('./routes-postgres/loyalty'));
 app.use('/notices', require('./routes-postgres/notices'));
 app.use('/ai', require('./routes-postgres/ai'));
 app.use('/theme-views', require('./routes-postgres/theme-views'));
+app.use('/push', require('./routes-postgres/push'));
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides
@@ -76,6 +77,11 @@ app.post('/admin/create-key', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`EggScore backend (Postgres mode) listening on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`EggScore backend (Postgres mode) listening on port ${PORT}`);
+  // Oct 9 2026 — starts the delivery-reminder / win-back timer for push
+  // notifications. Does nothing unless the VAPID keys are set in Railway.
+  require('./lib/push').startScheduler();
+});
 
 module.exports = app;
