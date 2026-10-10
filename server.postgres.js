@@ -51,6 +51,11 @@ app.use('/notices', require('./routes-postgres/notices'));
 app.use('/ai', require('./routes-postgres/ai'));
 app.use('/theme-views', require('./routes-postgres/theme-views'));
 app.use('/push', require('./routes-postgres/push'));
+// Oct 10 2026 — Volume Requests (customer phone -> ERP) and Payment Holds /
+// Pending Transfers (ERP device -> every ERP device) now live on the server
+// instead of in whichever single browser created them.
+app.use('/volume-requests', require('./routes-postgres/volume-requests'));
+app.use('/payment-holds', require('./routes-postgres/payment-holds'));
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides
