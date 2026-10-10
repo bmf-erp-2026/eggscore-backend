@@ -3667,7 +3667,12 @@ function updateOrderCalc() {
       if(crates > maxCrates) ensureServerIdentity(nameVal, phoneVal);
       if(crates > maxCrates) {
         resvPreview.innerHTML = T().reservationCapPreview(maxCrates);
-        resvBtn.disabled = true; resvBtn.style.opacity = '0.5';
+        // Oct 10 2026 — a large first-timer (100+ crates) must still be able
+        // to press Reserve: that press is what raises the staff alert and
+        // shows the WhatsApp fast-track panel. With the button disabled the
+        // alert could never fire from a real phone.
+        const bigFirstTimer = crates >= LARGE_FIRST_TIMER_THRESHOLD;
+        resvBtn.disabled = !bigFirstTimer; resvBtn.style.opacity = bigFirstTimer ? '1' : '0.5';
       } else {
         resvPreview.innerHTML = T().reservationNormalPreview(crates, windowHours, returning);
         resvBtn.disabled = false; resvBtn.style.opacity = '1';
@@ -3953,6 +3958,7 @@ async function submitVolumeRequest() {
 // A large first-timer hitting the cap is a genuinely different event
 // from a routine modest overflow — worth a real record and an
 // immediate staff alert, not just a sentence the customer reads alone.
+const LARGE_FIRST_TIMER_THRESHOLD = 100; // a genuinely different situation from a routine modest overflow
 const LFT_KEY = 'feds_large_firsttimer_alerts';
 async function postLargeFirstTimerToBackend(a) {
   const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -4112,7 +4118,6 @@ async function submitReservation() {
   // purchase on record, capped until then, however many names get tried.
   const maxCrates = getMaxReservationCrates(erp, name);
   if(portalState.crates > maxCrates) {
-    const LARGE_FIRST_TIMER_THRESHOLD = 100; // a genuinely different situation from a routine modest overflow
     if(portalState.crates >= LARGE_FIRST_TIMER_THRESHOLD) {
       recordAndAlertLargeFirstTimer({ name, phone, location, crates: portalState.crates, cap: maxCrates });
       showLargeFirstTimerPanel({ name, phone, location, crates: portalState.crates, cap: maxCrates });
