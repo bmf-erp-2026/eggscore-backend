@@ -3231,6 +3231,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof syncPaymentHoldsFromBackend === 'function') await syncPaymentHoldsFromBackend();
     if(typeof syncBlocklistFromBackend === 'function') await syncBlocklistFromBackend();
     if(typeof syncLargeFirstTimersFromBackend === 'function') await syncLargeFirstTimersFromBackend();
+    if(typeof ownerRecPull === 'function') await ownerRecPull();
     if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
     if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
     if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
@@ -10827,6 +10828,8 @@ function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(e) {}
   // Oct 10 2026 — sends any new or changed payment hold to the server.
   if(typeof schedulePaymentHoldPush === 'function') schedulePaymentHoldPush();
+  // Oct 10 2026 (Stage 2) — same for commission disputes, overpayments and write-offs.
+  if(typeof scheduleOwnerRecPush === 'function') scheduleOwnerRecPush();
 }
 
 // Default State
@@ -24671,6 +24674,125 @@ function syncPortalPersistenceFromBackend() {
   syncLargeFirstTimersFromBackend();
 }
 
+/* ═══════════════════════════════════════════════════════
+   OCT 10 2026 (STAGE 2) — MONEY RECORDS NOW HAVE A SERVER COPY
+   Commission disputes, overpayments and stock write-offs used to live only in
+   the browser they were typed into. A second device therefore showed no open
+   dispute (and let a payout go ahead that should have been held), no cash
+   refund still owed, and no write-off in the profit figures. They are now kept
+   on the server too (routes-postgres/owner-records.js — Owner only) and this
+   page keeps its lists in step with it:
+     * ownerRecPull()  — brings the server's records in. The server copy wins,
+       EXCEPT for a record this device changed and has not sent yet.
+     * ownerRecPush()  — sends any record that is new or changed here. Records
+       that only existed in this browser from before are sent too.
+   Nothing else changed: the screens still read and write the same lists in
+   STATE. A rep's browser is refused by the server (Owner only) and quietly
+   stops trying until the page is reloaded.
+═══════════════════════════════════════════════════════ */
+const OWNREC_SYNCED_KEY = 'feds_ownrec_synced';
+const OWNREC_KINDS = [
+  { kind: 'comm_dispute', key: 'commDisputes', idRe: /^DISP-\d{6,20}$/, sort: r => String(r.raisedAt || '') },
+  { kind: 'overpayment',  key: 'overpayments', idRe: /^op\d{6,20}$/,    sort: r => String(r.id).replace(/\D/g, '').padStart(20, '0') },
+  { kind: 'write_off',    key: 'writeOffs',    idRe: /^wo\d{6,20}$/,    sort: r => String(r.id).replace(/\D/g, '').padStart(20, '0') },
+];
+let ownerRecBlocked = false;           // true after the server says "Owner only"
+function ownerRecHash(r) { const c = { ...r }; delete c.serverUpdatedAt; return syncHash(syncCanon(c)); }
+function loadOwnerRecSynced() { return blLoad(OWNREC_SYNCED_KEY, {}); }
+function saveOwnerRecSynced(m) { blSave(OWNREC_SYNCED_KEY, m); }
+
+let ownerRecPushTimer = null, ownerRecPushing = false;
+function scheduleOwnerRecPush() {
+  if(ownerRecBlocked) return;
+  clearTimeout(ownerRecPushTimer);
+  ownerRecPushTimer = setTimeout(ownerRecPush, 1500);
+}
+async function ownerRecPush() {
+  if(ownerRecBlocked) return;
+  if(ownerRecPushing) { scheduleOwnerRecPush(); return; }
+  const synced = loadOwnerRecSynced();
+  const dirty = [];
+  OWNREC_KINDS.forEach(k => (STATE[k.key] || []).forEach(r => {
+    if(r && r.id && k.idRe.test(String(r.id)) && synced[k.kind + '|' + r.id] !== ownerRecHash(r)) dirty.push({ k, r });
+  }));
+  if(!dirty.length) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;                    // not signed in — tried again at the next sync
+  ownerRecPushing = true;
+  try {
+    for(const { k, r } of dirty) {
+      try {
+        const resp = await fetch(`${BACKEND_URL}/owner-records/${k.kind}/${encodeURIComponent(r.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(r),
+        });
+        if(resp.status === 403) { ownerRecBlocked = true; break; }   // not the Owner — stop for this page load
+        // 400 = the server will never accept this record as it stands; do not retry it forever.
+        if(resp.ok || resp.status === 400) {
+          if(!resp.ok) console.warn('Money record not accepted by the server:', k.kind, r.id);
+          synced[k.kind + '|' + r.id] = ownerRecHash(r);
+          saveOwnerRecSynced(synced);
+        }
+      } catch(networkErr) { break; }    // offline — the rest wait for the next sync
+    }
+  } finally { ownerRecPushing = false; }
+}
+
+async function ownerRecPull() {
+  if(ownerRecBlocked) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  const synced = loadOwnerRecSynced();
+  let changed = false;
+  for(const k of OWNREC_KINDS) {
+    let server;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/owner-records/${k.kind}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(resp.status === 403) { ownerRecBlocked = true; return; }
+      if(!resp.ok) continue;
+      server = await resp.json();
+    } catch(networkErr) { return; }
+    if(!Array.isArray(server)) continue;
+
+    const local = Array.isArray(STATE[k.key]) ? STATE[k.key] : [];
+    const localById = new Map(local.filter(r => r && r.id).map(r => [String(r.id), r]));
+    const serverIds = new Set();
+    const merged = [];
+    server.forEach(sr => {
+      serverIds.add(String(sr.id));
+      const lr = localById.get(String(sr.id));
+      const clean = { ...sr }; delete clean.serverUpdatedAt;
+      if(lr && synced[k.kind + '|' + sr.id] !== ownerRecHash(lr)) {
+        merged.push(lr);                                   // changed here and not sent yet — keep ours
+      } else {
+        const m = lr ? { ...lr, ...clean } : clean;        // server wins; keep any extra local-only fields
+        merged.push(m);
+        synced[k.kind + '|' + sr.id] = ownerRecHash(m);
+        if(!lr || ownerRecHash(lr) !== ownerRecHash(m)) changed = true;
+      }
+    });
+    // Records that exist only on this device (from before server storage, or not sent yet) stay and are sent below.
+    local.forEach(lr => { if(lr && lr.id && !serverIds.has(String(lr.id))) merged.push(lr); });
+    merged.sort((a, b) => k.sort(b).localeCompare(k.sort(a)));
+    STATE[k.key] = merged;
+  }
+  saveOwnerRecSynced(synced);
+  // A payout is held while a dispute is open — worked out from the list, so every device agrees.
+  STATE.commHeld = {};
+  (STATE.commDisputes || []).forEach(d => { if(d && d.status === 'open') STATE.commHeld[d.repName] = true; });
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(e) {}
+  scheduleOwnerRecPush();
+  if(changed) {
+    try {
+      const m = window.currentModule;
+      if(m === 'commission' && typeof renderCommission === 'function') renderCommission();
+      else if(m === 'credit' && typeof renderCredit === 'function') renderCredit();
+      else if(m === 'inventory' && typeof renderInventory === 'function') renderInventory();
+    } catch(e) {}
+  }
+}
+
 function initVolReqChannel() {
   try {
     const bc = new BroadcastChannel(VOLREQ_CH);
@@ -34083,6 +34205,7 @@ window.addEventListener('load', () => {
   syncVolumeRequestsFromBackend();
   syncPaymentHoldsFromBackend();
   syncPortalPersistenceFromBackend();   // blocklist + large first-timer alerts
+  if(typeof ownerRecPull === 'function') ownerRecPull();   // commission disputes, overpayments, write-offs
   if(typeof pushVolumePricingIfChanged === 'function') pushVolumePricingIfChanged();
 });
 

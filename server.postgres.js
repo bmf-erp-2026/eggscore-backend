@@ -25,43 +25,63 @@ app.use(express.json());
 
 app.get('/', (req, res) => res.redirect('/famad-order.html'));
 
-app.use('/orders', require('./routes-postgres/orders'));
-app.use('/events', require('./routes-postgres/events'));
-app.use('/sales', require('./routes-postgres/sales'));
-app.use('/inventory', require('./routes-postgres/inventory'));
-app.use('/customers', require('./routes-postgres/customers'));
-app.use('/settlements', require('./routes-postgres/settlements'));
-app.use('/reps', require('./routes-postgres/reps'));
-app.use('/suppliers', require('./routes-postgres/suppliers'));
-app.use('/promotions', require('./routes-postgres/promotions'));
-app.use('/vehicles', require('./routes-postgres/vehicles'));
-app.use('/drivers', require('./routes-postgres/drivers'));
-app.use('/destinations', require('./routes-postgres/destinations'));
-app.use('/dispatch-origins', require('./routes-postgres/dispatch-origins'));
-app.use('/service-areas', require('./routes-postgres/service-areas'));
-app.use('/delivery-days', require('./routes-postgres/delivery-days'));
-app.use('/delivery-batches', require('./routes-postgres/delivery-batches'));
-app.use('/settings', require('./routes-postgres/settings'));
-app.use('/wallet', require('./routes-postgres/wallet'));
-app.use('/respect', require('./routes-postgres/respect'));
-app.use('/relationship-tags', require('./routes-postgres/relationship-tags'));
-app.use('/feedback', require('./routes-postgres/feedback'));
-app.use('/loyalty', require('./routes-postgres/loyalty'));
-app.use('/notices', require('./routes-postgres/notices'));
-app.use('/ai', require('./routes-postgres/ai'));
-app.use('/theme-views', require('./routes-postgres/theme-views'));
-app.use('/push', require('./routes-postgres/push'));
+// Oct 10 2026 (Stage 2) — startup safeguard. Each route file is loaded on its
+// own. If one is missing or has a mistake in it, the server logs a clear
+// warning, leaves that one feature switched off, and keeps every other part
+// of the app running — instead of crashing the whole backend, which is what
+// happened when a file was uploaded to the wrong folder. /health lists
+// anything that did not load ("degraded"), so a glance after every release
+// shows whether everything came up.
+const failedRoutes = [];
+function mount(path, file) {
+  try {
+    app.use(path, require(file));
+  } catch(e) {
+    failedRoutes.push({ path, file, error: String(e && e.message || e).split('\n')[0].slice(0, 200) });
+    console.error(`[startup] WARNING: ${path} did not load (${file}): ${e && e.message}`);
+  }
+}
+
+mount('/orders', './routes-postgres/orders');
+mount('/events', './routes-postgres/events');
+mount('/sales', './routes-postgres/sales');
+mount('/inventory', './routes-postgres/inventory');
+mount('/customers', './routes-postgres/customers');
+mount('/settlements', './routes-postgres/settlements');
+mount('/reps', './routes-postgres/reps');
+mount('/suppliers', './routes-postgres/suppliers');
+mount('/promotions', './routes-postgres/promotions');
+mount('/vehicles', './routes-postgres/vehicles');
+mount('/drivers', './routes-postgres/drivers');
+mount('/destinations', './routes-postgres/destinations');
+mount('/dispatch-origins', './routes-postgres/dispatch-origins');
+mount('/service-areas', './routes-postgres/service-areas');
+mount('/delivery-days', './routes-postgres/delivery-days');
+mount('/delivery-batches', './routes-postgres/delivery-batches');
+mount('/settings', './routes-postgres/settings');
+mount('/wallet', './routes-postgres/wallet');
+mount('/respect', './routes-postgres/respect');
+mount('/relationship-tags', './routes-postgres/relationship-tags');
+mount('/feedback', './routes-postgres/feedback');
+mount('/loyalty', './routes-postgres/loyalty');
+mount('/notices', './routes-postgres/notices');
+mount('/ai', './routes-postgres/ai');
+mount('/theme-views', './routes-postgres/theme-views');
+mount('/push', './routes-postgres/push');
 // Oct 10 2026 — Volume Requests (customer phone -> ERP) and Payment Holds /
 // Pending Transfers (ERP device -> every ERP device) now live on the server
 // instead of in whichever single browser created them.
-app.use('/volume-requests', require('./routes-postgres/volume-requests'));
-app.use('/payment-holds', require('./routes-postgres/payment-holds'));
+mount('/volume-requests', './routes-postgres/volume-requests');
+mount('/payment-holds', './routes-postgres/payment-holds');
 // Oct 10 2026 — portal persistence: the portal now reads its prices,
 // promotions, policies and limits from the server (/portal-config); the
 // blocklist and large first-timer alerts live on the server too.
-app.use('/portal-config', require('./routes-postgres/portal-config'));
-app.use('/reservation-blocklist', require('./routes-postgres/reservation-blocklist'));
-app.use('/large-first-timers', require('./routes-postgres/large-first-timers'));
+mount('/portal-config', './routes-postgres/portal-config');
+mount('/reservation-blocklist', './routes-postgres/reservation-blocklist');
+mount('/large-first-timers', './routes-postgres/large-first-timers');
+// Oct 10 2026 (Stage 2) — commission disputes, overpayments and write-offs
+// live on the server too (Owner only).
+mount('/owner-records', './routes-postgres/owner-records');
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides
@@ -69,11 +89,15 @@ app.use('/large-first-timers', require('./routes-postgres/large-first-timers'));
 // '/system-events' rather than '/events' since that path is already
 // taken above by the funnel/analytics events route — a different
 // thing entirely.
-app.use('/commission-payouts', require('./routes-postgres/commission-payouts'));
-app.use('/credit-overrides', require('./routes-postgres/credit-overrides'));
-app.use('/system-events', require('./routes-postgres/system-events'));
+mount('/commission-payouts', './routes-postgres/commission-payouts');
+mount('/credit-overrides', './routes-postgres/credit-overrides');
+mount('/system-events', './routes-postgres/system-events');
 
-app.get('/health', (req, res) => res.json({ ok: true, service: 'eggscore-backend', mode: 'postgres', time: new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({
+  ok: true, service: 'eggscore-backend', mode: 'postgres', time: new Date().toISOString(),
+  // empty / absent = every route loaded. Anything listed here is switched off.
+  ...(failedRoutes.length ? { degraded: failedRoutes } : {}),
+}));
 
 app.post('/admin/create-key', async (req, res) => {
   if(req.headers['x-setup-secret'] !== process.env.SETUP_SECRET) {
@@ -92,7 +116,8 @@ app.listen(PORT, () => {
   console.log(`EggScore backend (Postgres mode) listening on port ${PORT}`);
   // Oct 9 2026 — starts the delivery-reminder / win-back timer for push
   // notifications. Does nothing unless the VAPID keys are set in Railway.
-  require('./lib/push').startScheduler();
+  try { require('./lib/push').startScheduler(); }
+  catch(e) { console.error('[startup] WARNING: push scheduler did not start:', e && e.message); }
 });
 
 module.exports = app;
