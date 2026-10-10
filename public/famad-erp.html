@@ -3225,6 +3225,10 @@ input[type=number]{-moz-appearance:textfield;}
   // so this is harmless to leave running across login/logout.
   setInterval(async () => {
     await syncOrdersFromBackend();
+    // Oct 10 2026 — a customer's volume request, or a hold logged on another
+    // staff device, shows up here without anyone pressing refresh.
+    if(typeof syncVolumeRequestsFromBackend === 'function') await syncVolumeRequestsFromBackend();
+    if(typeof syncPaymentHoldsFromBackend === 'function') await syncPaymentHoldsFromBackend();
     if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
     if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
     if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
@@ -10819,6 +10823,8 @@ function loadState() {
 
 function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(e) {}
+  // Oct 10 2026 — sends any new or changed payment hold to the server.
+  if(typeof schedulePaymentHoldPush === 'function') schedulePaymentHoldPush();
 }
 
 // Default State
@@ -24306,7 +24312,143 @@ function saveOrders(orders) { localStorage.setItem(ORDERS_KEY, JSON.stringify(or
 function loadVolumeRequests() {
   try { return JSON.parse(localStorage.getItem(VOLREQ_KEY)||'[]'); } catch(e) { return []; }
 }
-function saveVolumeRequests(reqs) { localStorage.setItem(VOLREQ_KEY, JSON.stringify(reqs)); }
+function saveVolumeRequests(reqs) {
+  localStorage.setItem(VOLREQ_KEY, JSON.stringify(reqs));
+  scheduleVolReqPush();
+}
+
+/* ═══════════════════════════════════════════════════════
+   OCT 10 2026 — VOLUME REQUESTS NOW HAVE A SERVER COPY
+   Until now a volume request lived only in the browser it was written in.
+   A customer's request, made on their own phone, therefore never reached
+   this ERP unless it happened to be the same browser. Customers' phones now
+   send each request to the server (routes-postgres/volume-requests.js) and
+   this page keeps its local list in step with it:
+     * syncVolumeRequestsFromBackend() — pulls the server list in. The server
+       copy wins, EXCEPT for a request this device has changed and not yet
+       sent (it keeps ours, then sends it).
+     * pushDirtyVolumeRequests() — sends any request that is new or changed
+       here (status changes, decline reasons, linked invoice). Records that
+       only existed in this browser from before are sent too, so the demo
+       entries appear on every device.
+   Nothing else in the Volume Request code changed: it still reads and writes
+   the same local list, so every existing panel and report works as before.
+═══════════════════════════════════════════════════════ */
+const VOLREQ_SYNCED_KEY = 'feds_volreq_synced';
+const VOLREQ_LOCAL_ONLY_FIELDS = ['backendSynced', 'syncRejected', 'serverUpdatedAt'];
+
+// Same record always gives the same fingerprint, whatever order its fields
+// were written in — so "has this changed since it was last sent?" is reliable.
+function syncCanon(v) {
+  if(Array.isArray(v)) return '[' + v.map(syncCanon).join(',') + ']';
+  if(v && typeof v === 'object') {
+    return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + syncCanon(v[k])).join(',') + '}';
+  }
+  return JSON.stringify(v === undefined ? null : v);
+}
+function syncHash(str) {
+  let h = 5381;
+  for(let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return (h >>> 0) + ':' + str.length;
+}
+function volReqHash(r) {
+  const c = { ...r };
+  VOLREQ_LOCAL_ONLY_FIELDS.forEach(k => delete c[k]);
+  return syncHash(syncCanon(c));
+}
+function loadVolReqSynced() {
+  try { return JSON.parse(localStorage.getItem(VOLREQ_SYNCED_KEY) || '{}') || {}; } catch(e) { return {}; }
+}
+function saveVolReqSynced(m) {
+  try { localStorage.setItem(VOLREQ_SYNCED_KEY, JSON.stringify(m)); } catch(e) {}
+}
+function volReqSortKey(r) { return String(r.submittedAt || ((r.date || '') + 'T' + (r.time || '00:00'))); }
+
+let volReqPushTimer = null, volReqPushing = false;
+function scheduleVolReqPush() {
+  clearTimeout(volReqPushTimer);
+  volReqPushTimer = setTimeout(pushDirtyVolumeRequests, 1500);
+}
+async function pushDirtyVolumeRequests() {
+  if(volReqPushing) { scheduleVolReqPush(); return; }
+  const synced = loadVolReqSynced();
+  const dirty = loadVolumeRequests().filter(r => r && r.ref && synced[r.ref] !== volReqHash(r));
+  if(!dirty.length) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;                 // not signed in — tried again at the next sync
+  volReqPushing = true;
+  try {
+    for(const r of dirty) {
+      try {
+        const resp = await fetch(`${BACKEND_URL}/volume-requests/${encodeURIComponent(r.ref)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(r),
+        });
+        // A 400 means the server will never accept this record as it stands;
+        // stop re-sending it rather than retrying forever.
+        if(resp.ok || resp.status === 400) {
+          if(!resp.ok) console.warn('Volume request not accepted by the server:', r.ref);
+          synced[r.ref] = volReqHash(r);
+          saveVolReqSynced(synced);
+        }
+      } catch(networkErr) { break; }  // offline — the rest wait for the next sync
+    }
+  } finally { volReqPushing = false; }
+}
+
+async function syncVolumeRequestsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  let server;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/volume-requests`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    server = await resp.json();
+  } catch(networkErr) { return; }
+  if(!Array.isArray(server)) return;
+
+  const local = loadVolumeRequests();
+  const synced = loadVolReqSynced();
+  const localByRef = new Map(local.filter(r => r && r.ref).map(r => [r.ref, r]));
+  const serverRefs = new Set();
+  const merged = [];
+  const arrivals = [];
+  let changed = false;
+
+  server.forEach(sr => {
+    serverRefs.add(sr.ref);
+    const lr = localByRef.get(sr.ref);
+    const clean = { ...sr };
+    delete clean.serverUpdatedAt;
+    if(lr && synced[sr.ref] !== volReqHash(lr)) {
+      merged.push(lr);              // changed here and not sent yet — keep ours
+    } else {
+      merged.push(clean);
+      synced[sr.ref] = volReqHash(clean);
+      if(!lr) { changed = true; if(clean.status === 'new') arrivals.push(clean); }
+      else if(volReqHash(lr) !== volReqHash(clean)) changed = true;
+    }
+  });
+  // Requests that exist only on this device (from before server storage, or
+  // not sent yet) stay, and are sent below.
+  local.forEach(lr => { if(lr && lr.ref && !serverRefs.has(lr.ref)) merged.push(lr); });
+  merged.sort((a, b) => volReqSortKey(b).localeCompare(volReqSortKey(a)));
+
+  saveVolReqSynced(synced);
+  try { localStorage.setItem(VOLREQ_KEY, JSON.stringify(merged)); } catch(e) {}
+  scheduleVolReqPush();
+
+  if(changed) {
+    if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
+    if(window.currentModule === 'orders' && typeof renderVolumeRequests === 'function') renderVolumeRequests();
+  }
+  // Tell staff about genuinely fresh requests (not an old backlog loading in).
+  const fresh = arrivals.filter(r => Date.now() - new Date(r.submittedAt || 0).getTime() < 86400000);
+  if(fresh.length && typeof showToast === 'function') {
+    showToast(fresh.length === 1 ? `⚡ New volume request: ${fresh[0].ref}` : `⚡ ${fresh.length} new volume requests`);
+  }
+}
 
 function initVolReqChannel() {
   try {
@@ -33608,6 +33750,114 @@ function computeHoldTimeValue(crateCount, hoursHeld) {
     perHourCost:  Math.round(dailyHoldCost / 24), hoursHeld,
   };
 }
+
+/* ═══════════════════════════════════════════════════════
+   OCT 10 2026 — PAYMENT HOLDS NOW HAVE A SERVER COPY
+   Pending Transfers and suspicious-payment flags used to live only in the
+   browser where staff logged them. Another device showed an empty panel and,
+   worse, told staff "payment must be verified" for an order that was already
+   on hold. Every hold is now saved to the server (routes-postgres/
+   payment-holds.js) and every ERP device reads the same list.
+     * Any save of the ERP's own state (saveState) notices a new or changed
+       hold and sends it a moment later.
+     * syncPaymentHoldsFromBackend() pulls the server list in. The server copy
+       wins, except for a hold this device changed and has not sent yet.
+   Releasing, cancelling and verifying holds work exactly as before.
+═══════════════════════════════════════════════════════ */
+const HOLDS_SYNCED_KEY = 'feds_holds_synced';
+function holdHash(h) {
+  const c = { ...h };
+  delete c.serverUpdatedAt;
+  return syncHash(syncCanon(c));
+}
+function loadHoldsSynced() {
+  try { return JSON.parse(localStorage.getItem(HOLDS_SYNCED_KEY) || '{}') || {}; } catch(e) { return {}; }
+}
+function saveHoldsSynced(m) {
+  try { localStorage.setItem(HOLDS_SYNCED_KEY, JSON.stringify(m)); } catch(e) {}
+}
+
+let holdPushTimer = null, holdPushing = false;
+function schedulePaymentHoldPush() {
+  clearTimeout(holdPushTimer);
+  holdPushTimer = setTimeout(pushDirtyPaymentHolds, 1500);
+}
+async function pushDirtyPaymentHolds() {
+  if(holdPushing) { schedulePaymentHoldPush(); return; }
+  const synced = loadHoldsSynced();
+  const dirty = (STATE.paymentHolds || []).filter(h => h && h.id && synced[h.id] !== holdHash(h));
+  if(!dirty.length) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  holdPushing = true;
+  try {
+    for(const h of dirty) {
+      try {
+        const resp = await fetch(`${BACKEND_URL}/payment-holds/${encodeURIComponent(h.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(h),
+        });
+        if(resp.ok || resp.status === 400) {
+          if(!resp.ok) console.warn('Payment hold not accepted by the server:', h.id);
+          synced[h.id] = holdHash(h);
+          saveHoldsSynced(synced);
+        }
+      } catch(networkErr) { break; }
+    }
+  } finally { holdPushing = false; }
+}
+
+async function syncPaymentHoldsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  let server;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/payment-holds`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    server = await resp.json();
+  } catch(networkErr) { return; }
+  if(!Array.isArray(server)) return;
+
+  const local = STATE.paymentHolds || [];
+  const synced = loadHoldsSynced();
+  const localById = new Map(local.filter(h => h && h.id).map(h => [h.id, h]));
+  const serverIds = new Set();
+  const merged = [];
+  let changed = false;
+
+  server.forEach(sh => {
+    serverIds.add(sh.id);
+    const lh = localById.get(sh.id);
+    const clean = { ...sh };
+    delete clean.serverUpdatedAt;
+    if(lh && synced[sh.id] !== holdHash(lh)) {
+      merged.push(lh);              // changed here and not sent yet — keep ours
+    } else {
+      merged.push(clean);
+      synced[sh.id] = holdHash(clean);
+      if(!lh || holdHash(lh) !== holdHash(clean)) changed = true;
+    }
+  });
+  local.forEach(h => { if(h && h.id && !serverIds.has(h.id)) merged.push(h); });
+  merged.sort((a, b) => String(b.claimedAt || '').localeCompare(String(a.claimedAt || '')));
+
+  saveHoldsSynced(synced);
+  STATE.paymentHolds = merged;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(e) {}
+  schedulePaymentHoldPush();
+
+  if(changed && window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
+}
+
+// Start-up pull. Deliberately hung on the page's own 'load' event rather than
+// the session-check chain near the top of the page: this code lives in the
+// second script block, and that chain can run before the block has finished
+// loading. Not signed in yet = quietly does nothing; logging in reloads the page.
+window.addEventListener('load', () => {
+  syncVolumeRequestsFromBackend();
+  syncPaymentHoldsFromBackend();
+});
 
 function renderPendingTransfers() {
   const panel   = document.getElementById('pending-transfers-panel');

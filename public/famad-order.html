@@ -1095,6 +1095,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--dust);line-height:1.7;margin-bottom:18px">
         <span data-i18n="vr.received_body">BMF EggScore Limited will reach out shortly to confirm volume, pricing, and timing for your order.</span>
       </div>
+      <div id="vr-offline-note" style="display:none;font-family:'DM Mono',monospace;font-size:11px;color:var(--amber);line-height:1.6;margin:-6px 0 16px" data-i18n="vr.offline_note">Your connection looks weak. Your request is saved on this phone and will be sent automatically as soon as you are back online. Please open this page again later if it has not gone through.</div>
       <button class="submit-btn" onclick="closeVolumeRequestModal()" style="background:var(--surface);border:1px solid var(--border);color:var(--cream)" data-i18n="vr.close">Close</button>
     </div>
 
@@ -1380,6 +1381,7 @@ const UI_STRINGS = {
     'vr.qty_label': 'Crates Needed', 'vr.needed_by': 'Needed By', 'vr.notes_label': 'Notes',
     'vr.send': 'Send Volume Request', 'vr.received_title': 'Request Received',
     'vr.received_body': 'BMF EggScore Limited will reach out shortly to confirm volume, pricing, and timing for your order.',
+    'vr.offline_note': 'Your connection looks weak. Your request is saved on this phone and will be sent automatically as soon as you are back online. Please open this page again later if it has not gone through.',
     'vr.close': 'Close',
   },
   pcm: {
@@ -1460,6 +1462,7 @@ const UI_STRINGS = {
     'vr.qty_label': 'How Many Crate You Wan', 'vr.needed_by': 'When You Need Am', 'vr.notes_label': 'Notes',
     'vr.send': 'Send Am', 'vr.received_title': 'We Don Receive Am',
     'vr.received_body': 'BMF EggScore Limited go buzz you soon to confirm how many crate, price, and timing for your order.',
+    'vr.offline_note': 'Network no strong well. We don save your request for this phone, e go enter by itself as network come back. Open this page again later if e never go.',
     'vr.close': 'Close',
   },
 };
@@ -3622,6 +3625,7 @@ function saveVolumeRequest(req) {
 function openVolumeRequestModal() {
   document.getElementById('vr-form-state').style.display = 'block';
   document.getElementById('vr-success-state').classList.remove('active');
+  const vrNote = document.getElementById('vr-offline-note'); if(vrNote) vrNote.style.display = 'none';
   document.getElementById('vr-err').style.display = 'none';
 
   // Pre-fill quantity with the customer's intended order size if they'd
@@ -3640,7 +3644,71 @@ function closeVolumeRequestModal() {
   document.getElementById('vr-overlay').classList.remove('active');
 }
 
-function submitVolumeRequest() {
+// Oct 10 2026 — until now a volume request was written ONLY into this
+// customer's own browser, so the Owner's ERP never saw it unless it was the
+// very same browser. It is now also sent to the server (x-api-key, same as
+// orders and feedback). The local copy is kept and flagged backendSynced:false
+// until the server confirms, and retryFailedVolumeRequests() below re-sends any
+// that did not get through (page load, and the moment the phone is back
+// online) — same self-healing shape as retryFailedOrders(). The request
+// reference is the idempotency key, so a retry never creates a duplicate.
+async function postVolumeRequestToBackend(req) {
+  const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 10000) : null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/volume-requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({
+        ref: req.ref, date: req.date, time: req.time,
+        customerName: req.customerName, phone: req.phone,
+        qtyRequested: req.qtyRequested,
+        stockAvailableAtRequest: req.stockAvailableAtRequest,
+        committedAtRequest: req.committedAtRequest,
+        physicalStockAtRequest: req.physicalStockAtRequest,
+        submittedAt: req.submittedAt, neededBy: req.neededBy, notes: req.notes,
+      }),
+      signal: ctl ? ctl.signal : undefined,
+    });
+    if(resp.ok) return 'ok';
+    // A 400 means the server will never accept this record — stop retrying it.
+    if(resp.status === 400) return 'rejected';
+    return 'retry'; // 429 / 5xx — try again later
+  } catch(networkErr) {
+    return 'retry';
+  } finally {
+    if(timer) clearTimeout(timer);
+  }
+}
+
+function markVolumeRequestSynced(ref, rejected) {
+  const reqs = loadVolumeRequests();
+  const r = reqs.find(x => x.ref === ref);
+  if(!r) return;
+  r.backendSynced = true;
+  if(rejected) r.syncRejected = true;
+  localStorage.setItem(VOLREQ_KEY, JSON.stringify(reqs));
+}
+
+let retryVolReqInFlight = false;
+async function retryFailedVolumeRequests() {
+  if(retryVolReqInFlight) return;
+  retryVolReqInFlight = true;
+  try {
+    const stuck = loadVolumeRequests().filter(r => r.backendSynced === false);
+    for(const r of stuck) {
+      const outcome = await postVolumeRequestToBackend(r);
+      if(outcome !== 'retry') markVolumeRequestSynced(r.ref, outcome === 'rejected');
+    }
+  } finally {
+    retryVolReqInFlight = false;
+  }
+}
+document.addEventListener('DOMContentLoaded', retryFailedVolumeRequests);
+window.addEventListener('online', retryFailedVolumeRequests);
+
+let vrSubmitting = false;
+async function submitVolumeRequest() {
   const qty      = parseInt(document.getElementById('vr-qty')?.value) || 0;
   const name     = document.getElementById('vr-name')?.value.trim() || '';
   const phone    = document.getElementById('vr-phone')?.value.trim() || '';
@@ -3664,6 +3732,10 @@ function submitVolumeRequest() {
     return;
   }
   errEl.style.display = 'none';
+  if(vrSubmitting) return;   // ignore a double-tap while the first send is in flight
+  vrSubmitting = true;
+  const vrBtn = document.querySelector('#vr-form-state .submit-btn');
+  if(vrBtn) vrBtn.disabled = true;
 
   const ref = genVolReqRef();
   const now = new Date();
@@ -3689,16 +3761,25 @@ function submitVolumeRequest() {
     notes,
     status: 'new',
     source: 'portal',
+    backendSynced: false,
   };
 
+  // Saved on this phone first so nothing is lost if the network drops, then
+  // sent to the server.
   saveVolumeRequest(request);
+  const outcome = await postVolumeRequestToBackend(request);
+  if(outcome !== 'retry') markVolumeRequestSynced(ref, outcome === 'rejected');
 
   try { new BroadcastChannel(VOLREQ_CH).postMessage({type:'new_volume_request', ref}); }
   catch(e) {}
 
-  // Show success state
+  // Show success state (with a gentle note if it is still waiting to send)
+  const note = document.getElementById('vr-offline-note');
+  if(note) note.style.display = (outcome === 'retry') ? 'block' : 'none';
   document.getElementById('vr-form-state').style.display = 'none';
   document.getElementById('vr-success-state').classList.add('active');
+  if(vrBtn) vrBtn.disabled = false;
+  vrSubmitting = false;
 }
 
 /* ── Submit order ── */
