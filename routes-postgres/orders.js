@@ -3,6 +3,7 @@ const { db } = require('../db.postgres');
 const { requireAuth, requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
 const { geocodeAddress, getRouteDistance } = require('../lib/geocode');
 const { notifyOrderChange } = require('../lib/push');
+const pc = require('../lib/portal-checks');
 
 const router = express.Router();
 
@@ -37,6 +38,20 @@ function genReferralCode(name) {
   const digits = String(Math.floor(100 + Math.random() * 900));
   return `BEL-${letters}${digits}`;
 }
+
+// POST /orders/precheck (Oct 10 2026) — asked by the portal just before it
+// submits, so a blocked number, an existing reservation or the new-customer
+// crate limit is decided by the SERVER (which knows the real blocklist and
+// sales history) instead of by the customer's own phone (which knows
+// neither). Also tells the portal whether this customer counts as returning.
+router.post('/precheck', requireEitherAuth(), async (req, res) => {
+  const { phone, customerName, crates, kind } = req.body || {};
+  const verdict = await pc.portalPrecheck({
+    phone, customerName, crates: parseInt(crates, 10) || 0,
+    kind: kind === 'reservation' ? 'reservation' : 'order',
+  });
+  res.json(verdict);
+});
 
 router.post('/', requireEitherAuth(), async (req, res) => {
   const { customerName, phone, location, crates, eggPricePerCrate, deliveryPerCrate, notes, paymentMethod,
@@ -73,6 +88,26 @@ router.post('/', requireEitherAuth(), async (req, res) => {
         ? await db.prepare('SELECT cid FROM customers WHERE id = ?').get(already.customer_id)
         : null;
       return res.status(200).json({ ...already, customerCid: cust?.cid || null, isNewCustomer: false });
+    }
+  }
+
+  // Oct 10 2026 — the server's own backstop for orders that come from a
+  // customer's phone (the portal key). The portal already asks /precheck
+  // first; this catches anything that skips it. Staff entering orders from
+  // the ERP are not held to these rules.
+  const fromPortal = req.apiKeyRole === 'portal';
+  if(fromPortal) {
+    const verdict = await pc.portalPrecheck({
+      phone, customerName, crates,
+      kind: status === 'reserved' ? 'reservation' : 'order',
+    });
+    if(!verdict.ok) {
+      await pc.logServerEvent({
+        entryId: `srv-refused-${clientRef || Date.now()}`, category: 'orders', level: 'warn',
+        message: `Portal order refused by the server (${verdict.code}) — ${customerName}, ${crates} crates`,
+        detail: { code: verdict.code, phone: phone || null },
+      });
+      return res.status(403).json({ error: verdict.message, code: verdict.code, cap: verdict.cap });
     }
   }
 
@@ -147,6 +182,25 @@ const ref = clientRef || genOrderRef();
     preferredDeliveryDay || null, !!isSpecialVolumeOrder);
 
   const order = await db.prepare('SELECT * FROM orders WHERE id = ?').get(info.lastInsertRowid);
+
+  // Oct 10 2026 — price re-check, FLAG mode: the order is always accepted
+  // (a customer is never turned away over a rounding gap), but a price below
+  // anything the real rules could produce is written to the Event Log so the
+  // Owner sees it. Failures here must never block the order.
+  if(fromPortal) {
+    try {
+      const lowest = await pc.priceLowerBound(crates);
+      const sent = Number(eggPricePerCrate) || 0;
+      if(lowest != null && sent < lowest - 5) {
+        console.warn(`[price-check] ${ref}: portal sent ${sent}/crate, lowest legitimate is ${lowest}/crate (${crates} crates)`);
+        await pc.logServerEvent({
+          entryId: `srv-price-${ref}`, category: 'pricing', level: 'warn',
+          message: `Order ${ref} was priced below the rules — ₦${sent.toLocaleString()}/crate sent, lowest allowed ₦${lowest.toLocaleString()}/crate (${crates} crates, ${customerName})`,
+          detail: { ref, sent, lowest, crates },
+        });
+      }
+    } catch(e) { console.warn('[price-check] skipped:', e.message); }
+  }
   res.status(201).json({ ...order, customerCid, isNewCustomer });
 });
 

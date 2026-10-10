@@ -203,6 +203,38 @@ router.patch('/price-floor', requireSupabaseAuth(), requireRole('owner'), async 
   res.json({ ok: true, floor });
 });
 
+// Volume pricing (Oct 10 2026) — the half-life that shapes the volume
+// discount curve. The ERP works it out from recent portal orders; before
+// this route it lived only in the Owner's browser, so a customer's phone
+// used a built-in guess instead. Stored as one JSON object. Read and write
+// are Owner-only; customers only ever see the finished discount curve
+// through GET /portal-config.
+router.get('/volume-pricing', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'volume_pricing'").get();
+  if(!row) return res.json({ settings: null });
+  res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+});
+router.patch('/volume-pricing', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const { settings, updatedBy } = req.body;
+  const hl = settings && Number(settings.halfLife);
+  if(!settings || typeof settings !== 'object' || !Number.isFinite(hl) || hl < 1 || hl > 10000) {
+    return res.status(400).json({ error: 'settings.halfLife must be a number between 1 and 10000.' });
+  }
+  const clean = {
+    halfLife: hl,
+    sampleSize: Number.isFinite(Number(settings.sampleSize)) ? Number(settings.sampleSize) : null,
+    basis: typeof settings.basis === 'string' ? settings.basis.slice(0, 200) : null,
+    computedAt: typeof settings.computedAt === 'string' ? settings.computedAt : null,
+    manual: !!settings.manual,
+  };
+  await db.prepare(`
+    INSERT INTO settings (key, value, updated_by, updated_at)
+    VALUES ('volume_pricing', ?, ?, now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()
+  `).run(JSON.stringify(clean), updatedBy || null);
+  res.json({ ok: true, settings: clean });
+});
+
 router.get('/target-margin', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'target_margin'").get();
   if(!row) return res.json({ margin: null });

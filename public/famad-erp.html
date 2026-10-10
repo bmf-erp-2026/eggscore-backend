@@ -3229,6 +3229,8 @@ input[type=number]{-moz-appearance:textfield;}
     // staff device, shows up here without anyone pressing refresh.
     if(typeof syncVolumeRequestsFromBackend === 'function') await syncVolumeRequestsFromBackend();
     if(typeof syncPaymentHoldsFromBackend === 'function') await syncPaymentHoldsFromBackend();
+    if(typeof syncBlocklistFromBackend === 'function') await syncBlocklistFromBackend();
+    if(typeof syncLargeFirstTimersFromBackend === 'function') await syncLargeFirstTimersFromBackend();
     if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
     if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
     if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
@@ -20886,7 +20888,13 @@ async function syncOrderPoliciesFromBackend() {
     });
     if(!resp.ok) return;
     const data = await resp.json();
-    if(!data.settings) return; // backend has no value set yet — leave local default alone
+    if(!data.settings) {
+      // Oct 10 2026 — the server had no policies at all, so the portal showed
+      // "No policies published yet" even though this ERP showed the defaults.
+      // Publish what this ERP has (the Owner's browser; others get a harmless 403).
+      if(Array.isArray(STATE.orderPolicies) && STATE.orderPolicies.length) postOrderPoliciesToBackend(STATE.orderPolicies);
+      return;
+    }
     STATE.orderPolicies = data.settings;
     saveState();
     if(currentModule === 'loyalty') renderOrderPolicies();
@@ -22606,7 +22614,32 @@ function recalculateVolumePricing(manual) {
   saveState();
   logInfo('pricing', `Volume pricing half-life recalculated — ${result.halfLife} crates`,
     `${result.basis}${manual ? ' (manual trigger)' : ' (auto — daily)'}`);
+  postVolumePricingToBackend(STATE.volumePricing);
   return STATE.volumePricing;
+}
+
+// Oct 10 2026 — the customer portal reads the half-life from the server
+// (GET /portal-config). Until now the figure only existed in this browser,
+// so every customer saw the built-in default. Owner-only on the server: a
+// rep's browser gets a harmless 403. Sent when recalculated, and once per
+// change on page load.
+async function postVolumePricingToBackend(vp) {
+  if(!vp || !(Number(vp.halfLife) >= 1)) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/settings/volume-pricing`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: vp, updatedBy: 'owner' }),
+    });
+    if(resp.ok) { try { localStorage.setItem('feds_volpricing_pushed', syncHash(syncCanon(vp))); } catch(e) {} }
+  } catch(networkErr) { /* tried again on the next load */ }
+}
+function pushVolumePricingIfChanged() {
+  if(!STATE.volumePricing) return;
+  let last = null; try { last = localStorage.getItem('feds_volpricing_pushed'); } catch(e) {}
+  if(last !== syncHash(syncCanon(STATE.volumePricing))) postVolumePricingToBackend(STATE.volumePricing);
 }
 
 // Auto-recalculates once per 24h — called on app load. Never blocks
@@ -24450,6 +24483,194 @@ async function syncVolumeRequestsFromBackend() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════
+   OCT 10 2026 — BLOCKLIST AND LARGE FIRST-TIMER ALERTS NOW HAVE SERVER COPIES
+   Both used to live only in the browser they were created in:
+     * The BLOCKLIST was typed into this ERP, but the customer portal runs on
+       the customer's own phone and never saw it — so it blocked nobody. The
+       server now holds the list and checks every portal order itself.
+     * LARGE FIRST-TIMER ALERTS were raised on the customer's phone and kept
+       there. They now go to the server and appear here on any staff device.
+   Rules for both: the server copy wins. Anything that only exists in this
+   browser (from before server storage, or not sent yet) is sent once.
+═══════════════════════════════════════════════════════ */
+const BL_SYNCED_KEY  = 'feds_blocklist_synced';   // ids this device has seen on the server
+const BL_REMOVED_KEY = 'feds_blocklist_removed';  // removals still to be confirmed by the server
+function blLoad(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch(e) { return fallback; } }
+function blSave(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch(e) {} }
+
+async function pushBlocklistEntry(entry) {
+  const token = await erpGetAuthToken();
+  if(!token) return;                              // sent at the next sync
+  try {
+    const resp = await fetch(`${BACKEND_URL}/reservation-blocklist/${encodeURIComponent(entry.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(entry),
+    });
+    if(resp.ok || resp.status === 400) {
+      const m = blLoad(BL_SYNCED_KEY, {}); m[entry.id] = 1; blSave(BL_SYNCED_KEY, m);
+    }
+  } catch(networkErr) { /* the next sync sends it */ }
+}
+
+async function deleteBlocklistEntryOnServer(id) {
+  const removed = blLoad(BL_REMOVED_KEY, []);
+  if(!removed.includes(id)) { removed.push(id); blSave(BL_REMOVED_KEY, removed); }
+  await flushBlocklistRemovals();
+}
+async function flushBlocklistRemovals() {
+  const removed = blLoad(BL_REMOVED_KEY, []);
+  if(!removed.length) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  const left = [];
+  for(const id of removed) {
+    try {
+      const resp = await fetch(`${BACKEND_URL}/reservation-blocklist/${encodeURIComponent(id)}`, {
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` },
+      });
+      // 403 = only the Owner may lift a block; the server keeps it and the
+      // next sync puts it back on this screen. Anything else unexpected: retry.
+      if(!resp.ok && resp.status !== 403 && resp.status !== 400) left.push(id);
+      if(resp.status === 403 && typeof showToast === 'function') showToast('⚠ Only the Owner can lift a block — it has been restored.');
+    } catch(networkErr) { left.push(id); }
+  }
+  blSave(BL_REMOVED_KEY, left);
+}
+
+let blSyncing = false;
+async function syncBlocklistFromBackend() {
+  if(blSyncing) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  blSyncing = true;
+  try {
+    await flushBlocklistRemovals();
+    let server;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/reservation-blocklist`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(!resp.ok) return;
+      server = await resp.json();
+    } catch(networkErr) { return; }
+    if(!Array.isArray(server)) return;
+
+    const removed = new Set(blLoad(BL_REMOVED_KEY, []));
+    const seen = blLoad(BL_SYNCED_KEY, {});
+    const local = ensureReservationBlocklist();
+    const serverIds = new Set(server.map(b => b.id));
+    const merged = server.filter(b => !removed.has(b.id)).map(b => ({ ...b }));
+    const toSend = [];
+    local.forEach(b => {
+      if(serverIds.has(b.id)) return;
+      if(removed.has(b.id)) return;
+      // Seen on the server before but gone now = lifted elsewhere. Drop it.
+      if(seen[b.id]) return;
+      merged.push(b); toSend.push(b);
+    });
+    server.forEach(b => { seen[b.id] = 1; });
+    merged.sort((a, b) => String(b.blockedAt || '').localeCompare(String(a.blockedAt || '')));
+
+    const before = JSON.stringify(local.map(b => b.id + '|' + b.phone + '|' + b.reason));
+    const after = JSON.stringify(merged.map(b => b.id + '|' + b.phone + '|' + b.reason));
+    blSave(BL_SYNCED_KEY, seen);
+    if(before !== after) {
+      STATE.reservationBlocklist = merged;
+      saveState();
+      if(window.currentModule === 'orders' && typeof renderReservationIntelligence === 'function') { try { renderReservationIntelligence(); } catch(e) {} }
+    }
+    for(const b of toSend) await pushBlocklistEntry(b);
+  } finally { blSyncing = false; }
+}
+
+/* ── Large first-timer alerts ── */
+const LFT_SYNCED_KEY = 'feds_lft_synced';   // ref -> last status this device knows the server has
+const LFT_LOCAL_ONLY_FIELDS = ['backendSynced', 'serverUpdatedAt'];
+let lftPushTimer = null, lftBusy = false;
+function scheduleLftPush() {
+  clearTimeout(lftPushTimer);
+  lftPushTimer = setTimeout(pushLargeFirstTimers, 1200);
+}
+async function pushLargeFirstTimers() {
+  if(lftBusy) { scheduleLftPush(); return; }
+  const synced = blLoad(LFT_SYNCED_KEY, {});
+  const dirty = loadLargeFirstTimerAlerts().filter(a => a && a.ref && synced[a.ref] !== a.status);
+  if(!dirty.length) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  lftBusy = true;
+  try {
+    for(const a of dirty) {
+      try {
+        const body = {}; Object.keys(a).forEach(k => { if(!LFT_LOCAL_ONLY_FIELDS.includes(k)) body[k] = a[k]; });
+        const resp = await fetch(`${BACKEND_URL}/large-first-timers/${encodeURIComponent(a.ref)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(body),
+        });
+        if(resp.ok || resp.status === 400) { synced[a.ref] = a.status; blSave(LFT_SYNCED_KEY, synced); }
+      } catch(networkErr) { break; }
+    }
+  } finally { lftBusy = false; }
+}
+
+async function syncLargeFirstTimersFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  let server;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/large-first-timers`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    server = await resp.json();
+  } catch(networkErr) { return; }
+  if(!Array.isArray(server)) return;
+
+  const local = loadLargeFirstTimerAlerts();
+  const synced = blLoad(LFT_SYNCED_KEY, {});
+  const localByRef = new Map(local.filter(a => a && a.ref).map(a => [a.ref, a]));
+  const serverRefs = new Set();
+  const merged = [], arrivals = [];
+  let changed = false;
+
+  server.forEach(sr => {
+    serverRefs.add(sr.ref);
+    const lr = localByRef.get(sr.ref);
+    const rec = { ...sr }; delete rec.serverUpdatedAt;
+    // "Handled" is final: handled on either side stays handled.
+    if(lr && lr.status === 'handled' && rec.status !== 'handled') {
+      merged.push({ ...rec, status: 'handled' });          // handled here, not sent yet
+    } else {
+      merged.push(lr ? { ...lr, ...rec, backendSynced: true } : rec);
+      synced[sr.ref] = rec.status;
+      if(!lr) { changed = true; if(rec.status === 'new') arrivals.push(rec); }
+      else if(lr.status !== rec.status) changed = true;
+    }
+  });
+  local.forEach(lr => { if(lr && lr.ref && !serverRefs.has(lr.ref)) merged.push(lr); });
+  merged.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+
+  blSave(LFT_SYNCED_KEY, synced);
+  saveLargeFirstTimerAlerts(merged);
+  scheduleLftPush();
+
+  if(changed) {
+    updateLargeFirstTimerBadge();
+    if(window.currentModule === 'orders') renderLargeFirstTimerAlerts();
+  }
+  const fresh = arrivals.filter(a => Date.now() - new Date(a.at || 0).getTime() < 86400000);
+  if(fresh.length && typeof showToast === 'function') {
+    const a = fresh[0];
+    showToast(fresh.length === 1
+      ? `🚨 Large first-time order blocked — ${a.name} wanted ${a.crates} crates (cap: ${a.cap}). Follow up now.`
+      : `🚨 ${fresh.length} large first-time orders blocked — follow up now.`);
+  }
+}
+
+function syncPortalPersistenceFromBackend() {
+  syncBlocklistFromBackend();
+  syncLargeFirstTimersFromBackend();
+}
+
 function initVolReqChannel() {
   try {
     const bc = new BroadcastChannel(VOLREQ_CH);
@@ -24991,6 +25212,7 @@ function markLargeFirstTimerHandled(ref) {
   const alert = alerts.find(a => a.ref === ref);
   if(alert) alert.status = 'handled';
   saveLargeFirstTimerAlerts(alerts);
+  scheduleLftPush(); // Oct 10 2026 — "handled" must reach the other devices
   updateLargeFirstTimerBadge();
   renderLargeFirstTimerAlerts();
   showToast('✓ Marked handled — ' + ref);
@@ -25613,17 +25835,20 @@ function isPhoneBlocklisted(phone) {
 function addToReservationBlocklist(phone, name, reason, staffName) {
   const list = ensureReservationBlocklist();
   if(isPhoneBlocklisted(phone)) { showToast('⚠ That phone number is already blocked.'); return; }
-  list.unshift({
+  const entry = {
     id: 'bl' + Date.now() + Math.floor(Math.random()*1000), phone, name: name || '', reason: reason || '',
     blockedBy: staffName || 'owner', blockedAt: new Date().toISOString(),
-  });
+  };
+  list.unshift(entry);
   saveState();
+  pushBlocklistEntry(entry); // Oct 10 2026 — the server holds the real list now
   logWarn('orders', `Phone blocked from reservations — ${phone}${name ? ' ('+name+')' : ''}`, reason || 'No reason given');
 }
 
 function removeFromReservationBlocklist(id) {
   STATE.reservationBlocklist = ensureReservationBlocklist().filter(b => b.id !== id);
   saveState();
+  deleteBlocklistEntryOnServer(id); // Oct 10 2026 — lifting a block must reach the server too
 }
 
 // Bounds the MAXIMUM DAMAGE per fake identity, regardless of how many get
@@ -33857,6 +34082,8 @@ async function syncPaymentHoldsFromBackend() {
 window.addEventListener('load', () => {
   syncVolumeRequestsFromBackend();
   syncPaymentHoldsFromBackend();
+  syncPortalPersistenceFromBackend();   // blocklist + large first-timer alerts
+  if(typeof pushVolumePricingIfChanged === 'function') pushVolumePricingIfChanged();
 });
 
 function renderPendingTransfers() {

@@ -1500,7 +1500,67 @@ function syncThemeToggleLabel() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   el.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
 }
+/* ── Oct 10 2026 — settings now come from the SERVER ──
+   This page used to look for prices, promotions, policies, delivery fees
+   and limits in its own browser storage (feds_erp_data) — which only exists
+   on the Owner's device. A customer's phone has none of it, so it quietly
+   used built-in defaults. loadPortalConfig() now fetches one safe page of
+   settings from the server (GET /portal-config) and loadERPData() lays it
+   over whatever is stored locally. The server never sends the margin floor,
+   target margin or cost — only the finished discount curve. A copy is kept
+   on the phone so the page still works for a day if the connection drops. */
+const PORTAL_CONFIG_KEY = 'feds_portal_config';
+const PORTAL_CONFIG_MAX_AGE_MS = 24 * 3600 * 1000;
+let portalConfig = (function() {
+  try {
+    const x = JSON.parse(localStorage.getItem(PORTAL_CONFIG_KEY) || 'null');
+    if(x && x.cfg && x.at && (Date.now() - x.at) < PORTAL_CONFIG_MAX_AGE_MS) return x.cfg;
+  } catch(e) {}
+  return null;
+})();
+let portalConfigInFlight = null;
+function loadPortalConfig() {
+  if(portalConfigInFlight) return portalConfigInFlight;
+  portalConfigInFlight = (async () => {
+    const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 6000) : null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}/portal-config`, {
+        headers: { 'x-api-key': PORTAL_API_KEY }, cache: 'no-store',
+        signal: ctl ? ctl.signal : undefined,
+      });
+      if(!resp.ok) return false;
+      const cfg = await resp.json();
+      if(!cfg || typeof cfg !== 'object') return false;
+      portalConfig = cfg;
+      try { localStorage.setItem(PORTAL_CONFIG_KEY, JSON.stringify({ cfg, at: Date.now() })); } catch(e) {}
+      return true;
+    } catch(networkErr) {
+      return false; // keeps the last good copy (or built-in defaults)
+    } finally {
+      if(timer) clearTimeout(timer);
+      portalConfigInFlight = null;
+    }
+  })();
+  return portalConfigInFlight;
+}
+function applyPortalConfig(erp) {
+  const c = portalConfig;
+  if(!c) return erp;
+  erp.promotions = Array.isArray(c.promotions) ? c.promotions : [];
+  if(Array.isArray(c.orderPolicies)) erp.orderPolicies = c.orderPolicies;
+  erp.volumePricing = { ...(erp.volumePricing || {}), halfLife: c.halfLife };
+  erp.portalMaxDiscount = Number.isFinite(c.maxDiscount) ? c.maxDiscount : 0;
+  if(typeof c.velocity === 'number') erp.portalVelocity = c.velocity;
+  if(c.deliveryPerCrate > 0) erp.distributionPricing = { ...(erp.distributionPricing || {}), ceilingPerCrate: c.deliveryPerCrate };
+  if(c.newCustomerMaxCrates > 0) erp.reservationAbuseSettings = { ...(erp.reservationAbuseSettings || {}), newCustomerMaxCrates: c.newCustomerMaxCrates };
+  if(c.commitmentWindow) erp.holdWindows = { ...(erp.holdWindows || {}), firstTimeLargeVolume: c.commitmentWindow };
+  if(c.reservation) erp.reservationSettings = { ...(erp.reservationSettings || {}), ...c.reservation };
+  return erp;
+}
+
 function getFlatDeliveryRate() {
+  if(portalConfig && portalConfig.deliveryPerCrate > 0) return portalConfig.deliveryPerCrate;
   try {
     const erp = JSON.parse(localStorage.getItem(ERP_KEY) || '{}');
     return erp.distributionPricing?.ceilingPerCrate || DISTRIBUTION_PRICING_DEFAULTS.ceilingPerCrate;
@@ -1509,8 +1569,10 @@ function getFlatDeliveryRate() {
 
 /* ── Load ERP data for stock / promos / customers ── */
 function loadERPData() {
-  try { return JSON.parse(localStorage.getItem(ERP_KEY)||'{}'); }
-  catch(e) { return {}; }
+  let erp = {};
+  try { erp = JSON.parse(localStorage.getItem(ERP_KEY)||'{}') || {}; }
+  catch(e) { erp = {}; }
+  return applyPortalConfig(erp);
 }
 function loadOrders() {
   try { return JSON.parse(localStorage.getItem(ORDERS_KEY)||'[]'); }
@@ -1819,6 +1881,15 @@ async function postOrderToBackend(order) {
       const realOrder = await resp.json();
       return { ok: true, realOrder };
     }
+    // Oct 10 2026 — 403 means the server looked at this order and refused it
+    // for good (blocked number, new-customer limit, existing reservation).
+    // Retrying can never change that, so it is flagged 'rejected' and the
+    // retry loop skips it.
+    if(resp.status === 403) {
+      let message = '';
+      try { message = (await resp.json()).error || ''; } catch(e) {}
+      return { ok: false, rejected: true, message, realOrder: null };
+    }
     return { ok: false, realOrder: null };
   } catch(networkErr) {
     // Real network failure — this device may be offline, or the backend
@@ -1830,6 +1901,11 @@ async function postOrderToBackend(order) {
 
 async function saveOrder(order) {
   const result = await postOrderToBackend(order);
+  if(result.rejected) {
+    // Refused by the server — nothing is kept locally (it would otherwise
+    // be counted against stock) and the caller tells the customer.
+    return { rejected: true, message: result.message };
+  }
   if(result.ok) {
     order.ref = result.realOrder.ref; // the backend's ref is now the authoritative one
     order.customerCid    = result.realOrder.customerCid || null;
@@ -1888,6 +1964,10 @@ async function retryFailedOrders() {
         order.customerCid    = result.realOrder.customerCid || null;
         order.isNewCustomer  = !!result.realOrder.isNewCustomer;
         order.backendSynced  = true;
+        changed = true;
+      } else if(result.rejected) {
+        order.backendSynced  = 'rejected'; // refused for good — never retried
+        order.status         = 'rejected';
         changed = true;
       }
     }
@@ -2208,6 +2288,7 @@ async function syncPortalPriceFromBackend() {
 }
 
 async function initPortal() {
+  await loadPortalConfig(); // prices, promotions, policies, limits — from the server
   const erp   = loadERPData();
   await refreshAvailableStock();
 
@@ -2266,6 +2347,24 @@ async function initPortal() {
   updateOrderCalc();
   updateWAFallback();
 }
+
+// Keeps a page that stays open fresh: re-reads the server settings every
+// few minutes and when the customer comes back to the tab, then repaints
+// promotions, policies and the price. Never touches what they have typed.
+async function refreshPortalConfigAndRepaint() {
+  const ok = await loadPortalConfig();
+  if(!ok) return;
+  const erp = loadERPData();
+  const today = new Date().toISOString().split('T')[0];
+  portalState.allActivePromos = (erp.promotions || []).filter(p =>
+    p.active && (!p.until || p.until === '—' || p.until >= today)
+  );
+  renderPortalPolicies();
+  refreshPromoBanner();
+  updateOrderCalc();
+}
+setInterval(() => { if(!document.hidden) refreshPortalConfigAndRepaint(); }, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshPortalConfigAndRepaint(); });
 
 // Picks, from the date-eligible promos already cached in
 // portalState.allActivePromos, the BEST one this specific visitor (or an
@@ -2365,18 +2464,23 @@ function getNudgeABResults() {
    plus the headline currentSellingPrice, which already embeds the
    ceiling margin. Discount per crate = ceiling − margin(crates).
 ────────────────────────────────────────────────────────────────*/
-function getProgressiveMargin(erp, crates) {
-  const floor    = erp.priceFloor   || 300;
-  const ceiling  = erp.targetMargin || 500;
+// Oct 10 2026 — the discount now comes from the server's finished curve
+// (maximum discount + half-life). The old built-in 300/500 numbers gave
+// every customer a bigger discount than the real one (₦200 vs ₦100 at the
+// top). If the server has not answered yet, the discount is 0 — the safe
+// side for margin — unless this is the Owner's own browser, which holds
+// the real floor and target locally.
+function getProgressiveDiscount(erp, crates) {
   const halfLife = erp.volumePricing?.halfLife || 30;
   const k = halfLife / Math.LN2;
-  return floor + (ceiling - floor) * Math.exp(-crates / k);
+  let maxDiscount = null;
+  if(Number.isFinite(erp.portalMaxDiscount)) maxDiscount = erp.portalMaxDiscount;
+  else if(Number.isFinite(erp.priceFloor) && Number.isFinite(erp.targetMargin)) maxDiscount = Math.max(0, erp.targetMargin - erp.priceFloor);
+  if(maxDiscount == null) return 0;
+  return Math.max(0, Math.round(maxDiscount * (1 - Math.exp(-Math.max(0, crates) / k))));
 }
 function getProgressivePricePerCrate(erp, crates) {
-  const ceiling  = erp.targetMargin || 500;
-  const margin   = getProgressiveMargin(erp, crates);
-  const discount = Math.max(0, Math.round(ceiling - margin));
-  return Math.max(0, portalState.basePrice - discount);
+  return Math.max(0, portalState.basePrice - getProgressiveDiscount(erp, crates));
 }
 function getProgressiveOrderTotal(erp, crates) {
   return crates * getProgressivePricePerCrate(erp, crates);
@@ -2424,6 +2528,9 @@ function getCratesForBudgetTotal(erp, balance) {
    (via loadOrders(), same key) — all already shared through the whole-
    STATE sync, no new wiring required. ── */
 function getPortalStockVelocity(erp) {
+  // Oct 10 2026 — the server works this out from all real orders and stock;
+  // this phone only ever knew its own orders, so it always read "no demand".
+  if(typeof erp.portalVelocity === 'number') return erp.portalVelocity;
   const cutoff = Date.now() - 24 * 3600 * 1000;
   const orders = loadOrders();
   const closed = ['fulfilled','rejected','cancelled','expired'];
@@ -2446,7 +2553,66 @@ function getPortalReservationWindowHours(erp, customerType) {
 // Returning = has at least one completed sale on record — a purchase,
 // not just a recognised name. Matches the ERP's exact definition.
 function isPortalReturningCustomer(erp, customerName) {
+  // Oct 10 2026 — a customer's phone has no sales list (erp.sales is empty
+  // there), so everyone looked brand new. The server now answers this
+  // (portalPrecheck below), and a recognised customer carries their last
+  // purchase date from /customers/search.
+  const sc = portalState.serverCheck;
+  const phoneEl = document.getElementById('c-phone');
+  if(sc && sc.returning === true && sc.key === portalIdentityKey(customerName, phoneEl ? phoneEl.value : '')) return true;
+  const m = portalState.matchedCustomer;
+  if(m && m.daysSinceLastPurchase != null && m.name === customerName) return true;
   return (erp.sales || []).some(s => s.customer === customerName);
+}
+function portalIdentityKey(name, phone) {
+  return normalizePhone(phone) + '|' + String(name || '').trim().toLowerCase();
+}
+// Asks the server (which holds the real blocklist, sales history and
+// reservations) whether this order or reservation may go ahead. If the
+// server cannot be reached the answer is { reached:false } and the caller
+// carries on — the server checks again when the order is actually posted.
+async function portalPrecheck(kind, phone, name, crates) {
+  const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 8000) : null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/orders/precheck`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({ phone, customerName: name, crates, kind }),
+      signal: ctl ? ctl.signal : undefined,
+    });
+    if(!resp.ok) return { reached: false };
+    const r = await resp.json();
+    portalState.serverCheck = { key: portalIdentityKey(name, phone), returning: r.returning, cap: r.cap };
+    return { reached: true, ...r };
+  } catch(networkErr) {
+    return { reached: false };
+  } finally {
+    if(timer) clearTimeout(timer);
+  }
+}
+// Shown when the server refuses an order at the final step.
+function showOrderRefused(message, isReservation) {
+  const errEl = document.getElementById('form-err');
+  const text = message || (isReservation
+    ? 'This reservation could not be completed. Please contact us on WhatsApp to place your order directly.'
+    : 'This order could not be completed. Please contact us on WhatsApp to place your order directly.');
+  if(errEl) { errEl.style.display = 'flex'; errEl.textContent = text; }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+let identityLookupKey = null;
+// Lets the live "reservation preview" know whether this customer is
+// returning before it decides they are over the new-customer limit.
+function ensureServerIdentity(name, phone) {
+  if(!name || normalizePhone(phone).length < 9) return;
+  const key = portalIdentityKey(name, phone);
+  if(portalState.serverCheck && portalState.serverCheck.key === key) return;
+  if(identityLookupKey === key) return;
+  identityLookupKey = key;
+  portalPrecheck('order', phone, name, portalState.crates).then(r => {
+    identityLookupKey = null;
+    if(r.reached) updateOrderCalc();
+  });
 }
 // Strips formatting so different phone formats normalize to the same
 // 10-digit core — mirrors the ERP's exact definition.
@@ -3498,6 +3664,7 @@ function updateOrderCalc() {
       const windowHours = getPortalReservationWindowHours(erp, returning ? 'returning' : 'new');
       const maxCrates = getMaxReservationCrates(erp, nameVal);
       resvPreview.style.display = 'block';
+      if(crates > maxCrates) ensureServerIdentity(nameVal, phoneVal);
       if(crates > maxCrates) {
         resvPreview.innerHTML = T().reservationCapPreview(maxCrates);
         resvBtn.disabled = true; resvBtn.style.opacity = '0.5';
@@ -3786,6 +3953,48 @@ async function submitVolumeRequest() {
 // A large first-timer hitting the cap is a genuinely different event
 // from a routine modest overflow — worth a real record and an
 // immediate staff alert, not just a sentence the customer reads alone.
+const LFT_KEY = 'feds_large_firsttimer_alerts';
+async function postLargeFirstTimerToBackend(a) {
+  const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 10000) : null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/large-first-timers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY },
+      body: JSON.stringify({ ref: a.ref, name: a.name, phone: a.phone, location: a.location, crates: a.crates, cap: a.cap, at: a.at }),
+      signal: ctl ? ctl.signal : undefined,
+    });
+    if(resp.ok) return 'ok';
+    if(resp.status === 400) return 'rejected'; // will never be accepted — stop retrying
+    return 'retry';
+  } catch(e) { return 'retry'; }
+  finally { if(timer) clearTimeout(timer); }
+}
+function markLargeFirstTimerSynced(ref) {
+  try {
+    const list = JSON.parse(localStorage.getItem(LFT_KEY)) || [];
+    const a = list.find(x => x.ref === ref);
+    if(!a) return;
+    a.backendSynced = true;
+    localStorage.setItem(LFT_KEY, JSON.stringify(list));
+  } catch(e) {}
+}
+let retryLftInFlight = false;
+async function retryFailedLargeFirstTimers() {
+  if(retryLftInFlight) return;
+  retryLftInFlight = true;
+  try {
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem(LFT_KEY)) || []; } catch(e) {}
+    for(const a of list.filter(x => x.backendSynced === false)) {
+      const outcome = await postLargeFirstTimerToBackend(a);
+      if(outcome !== 'retry') markLargeFirstTimerSynced(a.ref);
+    }
+  } finally { retryLftInFlight = false; }
+}
+document.addEventListener('DOMContentLoaded', retryFailedLargeFirstTimers);
+window.addEventListener('online', retryFailedLargeFirstTimers);
+
 function recordAndAlertLargeFirstTimer({ name, phone, location, crates, cap }) {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2), mm = String(now.getMonth()+1).padStart(2,'0'),
@@ -3796,8 +4005,15 @@ function recordAndAlertLargeFirstTimer({ name, phone, location, crates, cap }) {
   const KEY = 'feds_large_firsttimer_alerts';
   let alerts = [];
   try { alerts = JSON.parse(localStorage.getItem(KEY)) || []; } catch(e) {}
-  alerts.unshift({ ref, name, phone, location, crates, cap, at: now.toISOString(), status: 'new' });
+  const alertRec = { ref, name, phone, location, crates, cap, at: now.toISOString(), status: 'new', backendSynced: false };
+  alerts.unshift(alertRec);
   localStorage.setItem(KEY, JSON.stringify(alerts));
+  // Oct 10 2026 — the alert used to live only in this customer's own phone,
+  // so staff never saw it unless it was the same browser. It is now also
+  // sent to the server; retryFailedLargeFirstTimers() re-sends if it fails.
+  postLargeFirstTimerToBackend(alertRec).then(outcome => {
+    if(outcome !== 'retry') markLargeFirstTimerSynced(ref);
+  });
 
   // Real-time nudge if the ERP tab happens to be open right now — same
   // channel and pattern already used for ordinary new-order alerts, so
@@ -3862,6 +4078,14 @@ async function submitReservation() {
   // Deliberately generic — never confirms detection to whoever's asking.
   // A genuinely wrongly-blocked customer still has a real path forward
   // (WhatsApp), same message a dozen other failures would show.
+  // Oct 10 2026 — the server decides this now (its blocklist is the real
+  // one). The local list is still consulted as a backup.
+  const pre = await portalPrecheck('reservation', phone, name, portalState.crates);
+  if(pre.reached && (pre.code === 'blocked' || pre.code === 'active_reservation')) {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent = pre.message; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
   if(isPhoneBlocklisted(phone, erp)) {
     if(errEl) { errEl.style.display='flex'; errEl.textContent='This reservation could not be completed. Please contact us on WhatsApp to place your order directly.'; }
     window.scrollTo({top:0,behavior:'smooth'});
@@ -3943,7 +4167,8 @@ async function submitReservation() {
     reservationExpiresAt: new Date(Date.now() + windowHours * 3600000).toISOString(),
   };
 
-  await saveOrder(order);
+  const savedRes = await saveOrder(order);
+  if(savedRes && savedRes.rejected) { showOrderRefused(savedRes.message, true); return; }
   showSuccess(order);
 }
 
@@ -3974,6 +4199,12 @@ async function submitOrder() {
 
   // Same generic message as the reservation path — never confirms
   // detection, and a wrongly-blocked genuine customer still has WhatsApp.
+  const preO = await portalPrecheck('order', phone, name, portalState.crates);
+  if(preO.reached && preO.code === 'blocked') {
+    if(errEl) { errEl.style.display='flex'; errEl.textContent = preO.message; }
+    window.scrollTo({top:0,behavior:'smooth'});
+    return;
+  }
   if(isPhoneBlocklisted(phone, erp)) {
     if(errEl) { errEl.style.display='flex'; errEl.textContent='This order could not be completed. Please contact us on WhatsApp to place your order directly.'; }
     window.scrollTo({top:0,behavior:'smooth'});
@@ -4073,7 +4304,8 @@ async function submitOrder() {
     walletBalanceAtOrder, // advisory — see note above
   };
 
-  await saveOrder(order);
+  const savedOrd = await saveOrder(order);
+  if(savedOrd && savedOrd.rejected) { showOrderRefused(savedOrd.message, false); return; }
   showSuccess(order);
 }
 
@@ -4119,7 +4351,8 @@ function initPaystack() {
         preferredDeliveryDay: portalState.preferredDeliveryDay,
         isSpecialVolumeOrder: isSpecialVolumeOrder(),
       };
-      await saveOrder(order);
+      const savedPaid = await saveOrder(order);
+      if(savedPaid && savedPaid.rejected) { showOrderRefused(savedPaid.message, false); return; }
       showSuccess(order, true);
     },
     onClose(){ showToast('Payment cancelled.'); }

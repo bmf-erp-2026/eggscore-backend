@@ -56,6 +56,12 @@ app.use('/push', require('./routes-postgres/push'));
 // instead of in whichever single browser created them.
 app.use('/volume-requests', require('./routes-postgres/volume-requests'));
 app.use('/payment-holds', require('./routes-postgres/payment-holds'));
+// Oct 10 2026 — portal persistence: the portal now reads its prices,
+// promotions, policies and limits from the server (/portal-config); the
+// blocklist and large first-timer alerts live on the server too.
+app.use('/portal-config', require('./routes-postgres/portal-config'));
+app.use('/reservation-blocklist', require('./routes-postgres/reservation-blocklist'));
+app.use('/large-first-timers', require('./routes-postgres/large-first-timers'));
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides
