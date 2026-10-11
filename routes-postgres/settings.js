@@ -597,6 +597,8 @@ const PNL_SECTIONS = [
   ['totalInvestment',    'totalInvestmentUpdatedAt'],
   ['seasonality',        'seasonalityUpdatedAt'],
   ['ownerTime',          'ownerTimeUpdatedAt'],
+  ['taxSettings',        'taxSettingsUpdatedAt'],
+  ['taxEntries',         'taxEntriesUpdatedAt'],
 ];
 
 router.get('/pnl-data', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {

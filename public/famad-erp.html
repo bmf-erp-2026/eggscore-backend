@@ -1000,7 +1000,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'eventlog', 'reps', 'pushnotify'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -3273,6 +3273,58 @@ input[type=number]{-moz-appearance:textfield;}
 <!-- ═══ MODALS ════════════════════════════════════════════ -->
 
 <!-- Commission Dispute Modal -->
+<!-- Tax Panel dialogs -->
+<div class="modal-overlay" id="modal-tax-setting">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-hdr">
+      <div class="modal-title" id="tax-set-title">Tax setting</div>
+      <button class="modal-close" onclick="closeModal('modal-tax-setting')">✕</button>
+    </div>
+    <input type="hidden" id="tax-set-key"/>
+    <div id="tax-set-hint" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin-bottom:14px"></div>
+    <div class="form-group" style="margin-bottom:16px" id="tax-set-control"></div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-tax-setting')">Cancel</button>
+      <button class="btn btn-ghost" id="tax-set-unknown-btn" onclick="saveTaxSetting(true)">Mark as unknown</button>
+      <button class="btn btn-primary" onclick="saveTaxSetting(false)">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-tax-entry">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-hdr">
+      <div class="modal-title" id="tax-ent-title">Add tax entry</div>
+      <button class="modal-close" onclick="closeModal('modal-tax-entry')">✕</button>
+    </div>
+    <input type="hidden" id="tax-ent-id"/>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">What is this? <span class="req">*</span></label>
+      <select class="form-select" id="tax-ent-type" onchange="taxEntryTypeChanged()"></select>
+      <div id="tax-ent-hint" style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);line-height:1.6;margin-top:6px"></div>
+    </div>
+    <div class="form-row cols-2" style="margin-bottom:12px">
+      <div class="form-group"><label class="form-label">Date <span class="req">*</span></label><input class="form-input" type="date" id="tax-ent-date"/></div>
+      <div class="form-group"><label class="form-label">Amount (₦) <span class="req">*</span></label><input class="form-input" type="number" step="any" id="tax-ent-amount" placeholder="Amount"/></div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px" id="tax-ent-kind-wrap">
+      <label class="form-label">Which tax was paid?</label>
+      <select class="form-select" id="tax-ent-kind"></select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px" id="tax-ent-inpnl-wrap">
+      <label style="font-size:11px;display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="tax-ent-inpnl" style="margin-top:2px"/> The cost for this purchase was entered in the P&amp;L Calculator including this VAT (so the claimed VAT is added back to profit)</label>
+    </div>
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Note <span style="color:var(--mist)">(supplier, customer, receipt number…)</span></label>
+      <textarea class="form-textarea" id="tax-ent-note" placeholder="Optional detail" style="min-height:60px"></textarea>
+    </div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-tax-entry')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTaxEntry()">Save entry</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-comm-dispute">
   <div class="modal" style="max-width:540px">
     <div class="modal-hdr">
@@ -5322,6 +5374,7 @@ input[type=number]{-moz-appearance:textfield;}
   <hr class="sdiv"/>
   <div class="sl">Finance</div>
   <div class="si" onclick="switchModule('pnl')"><span class="icon">📈</span><span>P&amp;L Calculator</span></div>
+  <div class="si" onclick="switchModule('taxpanel')"><span class="icon">🧾</span><span>Tax Panel</span></div>
   <div class="si" onclick="switchModule('commission')"><span class="icon">💰</span><span>Commission</span></div>
   <div class="si" onclick="switchModule('credit')"><span class="icon">⚠</span><span>Credit / Debt <span class="si-badge" id="debt-badge">0</span></span></div>
   <div class="si" onclick="switchModule('timevalue')"><span class="icon">⚖</span><span>Time-Value</span></div>
@@ -6887,6 +6940,71 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="btn btn-primary" style="margin-top:12px" onclick="runTimeValueSimulation()">Run Scenario</button>
       <div id="tv-sim-result" style="display:none;margin-top:12px;padding:12px 14px;background:var(--raised);border-radius:8px;font-family:'DM Mono',monospace;font-size:10.5px;line-height:1.8"></div>
     </div>
+  </div>
+</div>
+
+<!-- ════ MODULE: TAX PANEL (Owner only) ════════════════════════════ -->
+<div class="module-page" id="mod-taxpanel">
+  <div class="ph">
+    <div>
+      <h2>Tax Panel</h2>
+      <div class="ph-sub">Estimated VAT and company tax from your real sales and P&amp;L — every rate, limit and treatment is an editable setting</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-ghost" onclick="renderTaxPanel()">↻ Recalculate</button>
+      <button class="btn btn-primary" onclick="openTaxEntry('input_vat')">+ Add tax entry</button>
+    </div>
+  </div>
+
+  <div class="alert-banner warn" style="margin-bottom:14px">
+    ⚠ This is an estimating tool, not tax advice. The Nigeria Tax Act 2025 is new and some figures conflict between sources. Have your accountant confirm every rate and limit before relying on any number here.
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Needs your input</div><div class="panel-tag">items with no value yet — click Set to fill them in</div></div>
+    <div class="panel-body" id="tax-needs"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Where you stand</div><div class="panel-tag">turnover against the VAT and small-company lines</div></div>
+    <div class="panel-body" id="tax-status"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">VAT</div>
+      <div class="panel-tag">monthly return view</div>
+    </div>
+    <div class="panel-body">
+      <div class="form-group" style="max-width:220px;margin-bottom:12px"><label class="form-label">Month</label><input class="form-input" type="month" id="tax-vat-month" onchange="renderTaxPanel()"/></div>
+      <div id="tax-vat"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Company income tax and development levy</div><div class="panel-tag">financial year to date, both outcomes side by side</div></div>
+    <div class="panel-body" id="tax-cit"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Tax entries</div>
+      <div class="panel-tag">VAT paid on purchases, customer withholding, tax payments, adjustments</div>
+    </div>
+    <div class="panel-body">
+      <div id="tax-entries"></div>
+      <button class="btn btn-ghost" style="margin-top:10px" onclick="openTaxEntry('input_vat')">+ Add tax entry</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Filing calendar</div><div class="panel-tag">follows the dates in the settings below</div></div>
+    <div class="panel-body" id="tax-calendar"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Settings</div><div class="panel-tag">rates, limits and treatments — edit any of them here</div></div>
+    <div class="panel-body" id="tax-settings"></div>
   </div>
 </div>
 
@@ -11496,6 +11614,7 @@ function switchModule(name) {
        (name==='suppliers' && txt.includes('suppliers')) ||
        (name==='supplierscorecard' && txt.includes('supplier scorecard')) ||
        (name==='pnl' && txt.includes('p&l calculator')) ||
+       (name==='taxpanel' && txt.includes('tax panel')) ||
        (name==='doccentre' && txt.includes('document centre'))) {
       el.classList.add('active');
     }
@@ -11507,7 +11626,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -11535,6 +11654,7 @@ function switchModule(name) {
     suppliers: renderSuppliers,
     supplierscorecard: renderSupplierScorecard,
     pnl: renderPnL,
+    taxpanel: renderTaxPanel,
     doccentre: renderDocumentCentre,
   };
   if(renders[name]) renders[name]();
@@ -18986,6 +19106,10 @@ function ensurePnLData() {
   if(!STATE.pnl.cacLtv) {
     STATE.pnl.cacLtv = { marketingSpend: 0, assumedLifespanMonths: 12 };
   }
+  // Tax Panel — Oct 2026. Settings are completed from TAX_DEFAULTS at
+  // render time (taxSet), so only the containers are created here.
+  if(!STATE.pnl.taxSettings || typeof STATE.pnl.taxSettings !== 'object') STATE.pnl.taxSettings = {};
+  if(!Array.isArray(STATE.pnl.taxEntries)) STATE.pnl.taxEntries = [];
   // Debt Service — Sep 23 2026. Fully template, no derivable source at
   // all: nothing in this app tracks any loan or financing taken out
   // for vehicles/cold storage/equipment (the P&L Calculator's Fixed
@@ -19079,6 +19203,7 @@ const PNL_REVIEW_ITEMS = [
   { key:'totalInvestment',    label:'Total Investment (ROI)',                                          cadenceDays:30,  tsField:'totalInvestmentUpdatedAt' },
   { key:'ownerTime',          label:"Owner's Time Valuation",                                          cadenceDays:30,  tsField:'ownerTimeUpdatedAt' },
   { key:'seasonality',        label:'Seasonality Festive Calendar',                                    cadenceDays:365, tsField:'seasonalityUpdatedAt' },
+  { key:'taxSettings',        label:'Tax Panel settings (rates, limits, VAT treatment)',               cadenceDays:90,  tsField:'taxSettingsUpdatedAt' },
 ];
 
 // Returns the subset of PNL_REVIEW_ITEMS that are currently due/overdue,
@@ -19124,7 +19249,8 @@ function markPnLReviewedToday() {
 // SECTION carries its own "...UpdatedAt" stamp and the newer one wins
 // (the backend applies the same rule when merging, so a device holding a
 // stale copy can never clobber a newer edit made elsewhere).
-const PNL_SYNC_SECTIONS = PNL_REVIEW_ITEMS.map(i => ({ key: i.key, ts: i.tsField }));
+// taxEntries syncs like the other sections but carries no review reminder.
+const PNL_SYNC_SECTIONS = PNL_REVIEW_ITEMS.map(i => ({ key: i.key, ts: i.tsField })).concat([{ key: 'taxEntries', ts: 'taxEntriesUpdatedAt' }]);
 
 // Folds a server copy into local STATE.pnl. A section is only adopted when
 // the server's stamp is STRICTLY newer than this device's — equal stamps
@@ -19194,6 +19320,524 @@ async function postPnLToBackend() {
   } catch(networkErr) {
     // Offline — the next load's sync sees local is newer and retries.
   }
+}
+
+/* ═══════════════════════════════════════════════════════
+   TAX PANEL — Oct 2026 (Task #52)
+   Owner-only. Every rate, threshold and treatment below is an EDITABLE
+   setting (STATE.pnl.taxSettings), never a hard-coded constant, because
+   the Nigeria Tax Act 2025 is new and some of its figures are disputed.
+   Anything the business does not know yet is stored as null and shown
+   as "Needs your input" with a Set button, instead of being guessed.
+   Dated tax records (VAT paid on purchases, WHT credits, tax payments,
+   adjustments) live in STATE.pnl.taxEntries and are added/edited through
+   a dialog box. Both sync to the server with the other P&L parameters
+   (sections taxSettings / taxEntries, newest edit wins per section).
+   This is an ESTIMATING tool, not tax advice — figures must be checked
+   with the company's accountant.
+═══════════════════════════════════════════════════════ */
+const TAX_DEFAULTS = {
+  vatRegistered: true,
+  vatRate: 7.5,
+  vatRegThreshold: 25000000,
+  eggVat: 'zero',
+  deliveryVat: 'standard',
+  vatBasis: 'inclusive',
+  smallCoMode: 'auto',
+  citRate: 30,
+  devLevyRate: 4,
+  smallCoTurnoverLimit: 100000000,
+  smallCoTurnoverLimitAlt: 50000000,
+  smallCoAssetsLimit: 250000000,
+  fyEndMonth: 12,
+  crateRefPrice: 5900,
+  vatDueDay: null,
+  whtDueDay: null,
+  payeDueDay: 10,
+  citReturnMonths: 6,
+};
+
+const TAX_VAT_OPTIONS = [
+  ['zero', 'Zero-rated — 0% VAT charged, VAT paid on purchases can be claimed back'],
+  ['exempt', 'Exempt — no VAT charged, VAT paid on purchases cannot be claimed'],
+  ['standard', 'Standard rate — VAT charged at the VAT rate'],
+];
+const TAX_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+const TAX_SETTING_DEFS = [
+  { group:'VAT', key:'vatRegistered', label:'Registered for VAT', kind:'bool', status:'decided',
+    hint:'Your decision: the business is designed as VAT-registered. Choose No only if the business is not registered — the panel then shows no VAT to pay or claim.' },
+  { group:'VAT', key:'vatRate', label:'VAT rate', kind:'number', unit:'%', status:'verify',
+    hint:'Standard rate under the Nigeria Tax Act 2025 is 7.5%. Change it here if the rate changes.' },
+  { group:'VAT', key:'vatRegThreshold', label:'VAT registration threshold (yearly turnover)', kind:'number', unit:'₦', status:'verify',
+    hint:'Your figure: ₦25 million a year. Another source puts the small-business line at ₦100 million, so confirm with your accountant.' },
+  { group:'VAT', key:'eggVat', label:'VAT treatment of egg sales', kind:'select', options:TAX_VAT_OPTIONS, status:'decided',
+    hint:'Your decision: eggs are zero-rated. The section number and an explicit mention of eggs were not confirmed, so keep this switchable.' },
+  { group:'VAT', key:'deliveryVat', label:'VAT treatment of delivery fees', kind:'select', options:TAX_VAT_OPTIONS, status:'verify',
+    hint:'Delivery is a service, not eggs. Starts as taxable at the VAT rate until your accountant says otherwise.' },
+  { group:'VAT', key:'vatBasis', label:'Are your prices VAT-inclusive?', kind:'select', status:'verify',
+    options:[['inclusive','Yes — invoices do not add VAT on top, so VAT comes out of the price you charge'],['exclusive','No — VAT is added on top of the price']],
+    hint:'Today your invoices show no VAT line, so "Yes" is the cautious setting: any VAT owed is treated as your own cost.' },
+  { group:'Company tax', key:'smallCoMode', label:'Company-tax status to apply', kind:'select', status:'decided',
+    options:[['auto','Automatic — decided from turnover against the limits below'],['small','Always treat as a small company'],['standard','Always treat as a standard company']],
+    hint:'Both outcomes are always shown side by side; this picks the one used for the P&L estimate.' },
+  { group:'Company tax', key:'citRate', label:'Company income tax rate', kind:'number', unit:'%', status:'verify', hint:'Standard company rate under the Nigeria Tax Act 2025.' },
+  { group:'Company tax', key:'devLevyRate', label:'Development levy rate', kind:'number', unit:'%', status:'verify', hint:'Charged on assessable profit; small companies are exempt.' },
+  { group:'Company tax', key:'smallCoTurnoverLimit', label:'Small-company turnover limit', kind:'number', unit:'₦', status:'verify',
+    hint:'Used for the automatic decision. The Tax Administration Act says ₦100 million; the Tax Act text says ₦50 million.' },
+  { group:'Company tax', key:'smallCoTurnoverLimitAlt', label:'Small-company turnover limit (strict reading)', kind:'number', unit:'₦', status:'verify',
+    hint:'The other, stricter reading, shown as a warning only. It never changes the automatic decision.' },
+  { group:'Company tax', key:'smallCoAssetsLimit', label:'Small-company fixed-assets limit', kind:'number', unit:'₦', status:'verify', hint:'Total cost of fixed assets must not exceed this (from the Fixed Assets table in the P&L Calculator).' },
+  { group:'Company tax', key:'fyEndMonth', label:'Financial year ends in', kind:'select', status:'verify',
+    options:TAX_MONTHS.map((m,i)=>[String(i+1), m]), hint:'Month the company\'s financial year closes. December is a placeholder until the accountant confirms.' },
+  { group:'Planning', key:'crateRefPrice', label:'Reference price per crate (for crate equivalents)', kind:'number', unit:'₦', status:'decided',
+    hint:'Used only to translate a naira threshold into crates (₦25m a year is about 353 crates a month at ₦5,900).' },
+  { group:'Filing dates', key:'vatDueDay', label:'VAT return due: day of the following month', kind:'number', unit:'day', nullable:true, status:'verify',
+    hint:'Sources disagree (the 14th or the 21st). Leave it unknown until your accountant confirms.' },
+  { group:'Filing dates', key:'whtDueDay', label:'Withholding tax remittance due: day of the following month', kind:'number', unit:'day', nullable:true, status:'verify',
+    hint:'One source says the 21st. Confirm before relying on it.' },
+  { group:'Filing dates', key:'payeDueDay', label:'PAYE (staff tax) due: day of the following month', kind:'number', unit:'day', nullable:true, status:'verify', hint:'One source says the 10th.' },
+  { group:'Filing dates', key:'citReturnMonths', label:'Company tax return due: months after year end', kind:'number', unit:'months', nullable:true, status:'verify', hint:'Six months after the financial year end, per the sources found.' },
+];
+
+const TAX_ENTRY_TYPES = {
+  input_vat: { label:'VAT paid on a purchase', hint:'VAT you paid to a supplier (fuel, repairs, packaging, vehicle, rent…). It counts as a claim only if your sales are zero-rated or standard-rated. Enter the VAT part only.' },
+  wht_credit: { label:'Tax withheld by a customer (WHT credit)', hint:'When a customer pays you less because they kept tax at source and gave you a credit note. It is set against your company income tax.' },
+  payment: { label:'Tax paid to the tax authority', hint:'A payment you made: VAT, company tax, levy, staff tax, withholding tax or other.' },
+  addback: { label:'Add back to profit (not tax-deductible)', hint:'A cost already inside your P&L that the tax law does not allow, such as a fine, an unproven doubtful debt, or donations above the cap.' },
+  extra_deduction: { label:'Extra deduction (allowed, not in the P&L)', hint:'Something the tax law allows that is not in your P&L, such as a capital allowance exceeding book depreciation.' },
+};
+const TAX_PAY_KINDS = [['vat','VAT'],['cit','Company income tax'],['levy','Development levy'],['paye','PAYE (staff tax)'],['wht','Withholding tax'],['other','Other']];
+
+function taxIso(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function taxDays(a, b) {
+  return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+}
+function taxDateLabel(d) {
+  return d.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+}
+
+// Settings with any missing key filled from the defaults. Called at render
+// time only (never from ensurePnLData) so a partial copy arriving from the
+// server can never leave a calculation reading undefined.
+function taxSet() {
+  const pnl = ensurePnLData();
+  if(!pnl.taxSettings || typeof pnl.taxSettings !== 'object') pnl.taxSettings = {};
+  Object.keys(TAX_DEFAULTS).forEach(k => { if(pnl.taxSettings[k] === undefined) pnl.taxSettings[k] = TAX_DEFAULTS[k]; });
+  if(!Array.isArray(pnl.taxEntries)) pnl.taxEntries = [];
+  return pnl.taxSettings;
+}
+
+// Financial year containing refDate (ISO yyyy-mm-dd) or today.
+function taxFyBounds(refIso) {
+  const s = taxSet();
+  const endM = Math.min(12, Math.max(1, parseInt(s.fyEndMonth, 10) || 12));
+  const d = refIso ? new Date(refIso + 'T00:00:00') : new Date();
+  let endYear = d.getFullYear();
+  if(d.getMonth() + 1 > endM) endYear += 1;
+  return { from: taxIso(new Date(endYear - 1, endM, 1)), to: taxIso(new Date(endYear, endM, 0)) };
+}
+
+function taxSalesIn(from, to) { return (STATE.sales || []).filter(s => s.date >= from && s.date <= to); }
+function taxTurnover(from, to) {
+  return round2(taxSalesIn(from, to).reduce((a, s) => a + (s.gross || 0) + (s.deliveryTotal || 0), 0));
+}
+function taxEntriesIn(type, from, to) {
+  taxSet();
+  return ensurePnLData().taxEntries.filter(e => e.type === type && e.date >= from && e.date <= to);
+}
+function taxSum(list) { return round2(list.reduce((a, e) => a + (Number(e.amount) || 0), 0)); }
+
+function taxVatOn(amount, treatment, s) {
+  if(treatment !== 'standard') return 0;
+  const r = (Number(s.vatRate) || 0) / 100;
+  return s.vatBasis === 'inclusive' ? amount * r / (1 + r) : amount * r;
+}
+
+function getVatForPeriod(from, to) {
+  const s = taxSet();
+  const sales = taxSalesIn(from, to);
+  const eggRev = round2(sales.reduce((a, x) => a + (x.gross || 0), 0));
+  const delRev = round2(sales.reduce((a, x) => a + (x.deliveryTotal || 0), 0));
+  const registered = !!s.vatRegistered;
+  const outEgg = registered ? round2(taxVatOn(eggRev, s.eggVat, s)) : 0;
+  const outDel = registered ? round2(taxVatOn(delRev, s.deliveryVat, s)) : 0;
+  const output = round2(outEgg + outDel);
+  const absorbed = s.vatBasis === 'inclusive' ? output : 0;
+  // Share of sales that are zero-rated or standard-rated (i.e. not exempt):
+  // only that share of the VAT paid on purchases can be claimed back.
+  const totalRev = eggRev + delRev;
+  const claimRev = (s.eggVat !== 'exempt' ? eggRev : 0) + (s.deliveryVat !== 'exempt' ? delRev : 0);
+  const claimFrac = totalRev > 0 ? claimRev / totalRev : (s.eggVat !== 'exempt' ? 1 : 0);
+  const inputEntries = taxEntriesIn('input_vat', from, to);
+  const inputRecorded = taxSum(inputEntries);
+  const claimable = registered ? round2(inputRecorded * claimFrac) : 0;
+  const reclaimInPnl = registered ? round2(taxSum(inputEntries.filter(e => e.inPnl)) * claimFrac) : 0;
+  const paid = taxSum(taxEntriesIn('payment', from, to).filter(e => e.taxKind === 'vat'));
+  return { eggRev, delRev, outEgg, outDel, output, absorbed, inputRecorded, claimFrac, claimable, reclaimInPnl,
+           net: round2(output - claimable), paid, registered, inputCount: inputEntries.length };
+}
+
+function getTaxStatus() {
+  const s = taxSet();
+  const fy = taxFyBounds();
+  const today = taxIso(new Date());
+  const toDate = today < fy.to ? today : fy.to;
+  const ytd = taxTurnover(fy.from, toDate);
+  const fyDays = taxDays(fy.from, fy.to) + 1;
+  const elapsed = Math.max(1, taxDays(fy.from, toDate) + 1);
+  const projected = elapsed >= 30 ? round2(ytd / elapsed * fyDays) : ytd;
+  const basis = Math.max(ytd, projected);
+  const assets = round2((ensurePnLData().fixedAssets || []).reduce((a, x) => a + (Number(x.cost) || 0), 0));
+  const smallOk = basis <= s.smallCoTurnoverLimit && assets <= s.smallCoAssetsLimit;
+  const smallOkAlt = basis <= s.smallCoTurnoverLimitAlt && assets <= s.smallCoAssetsLimit;
+  const mode = s.smallCoMode === 'small' ? 'small' : s.smallCoMode === 'standard' ? 'standard' : (smallOk ? 'small' : 'standard');
+  return { fy, toDate, ytd, projected, basis, assets, smallOk, smallOkAlt, mode, elapsed, fyDays };
+}
+
+// The single place that turns a P&L net profit into a tax estimate, used by
+// both the Tax Panel (financial year to date) and the P&L Calculator tie-in
+// (whatever period is picked there), so the two can never disagree.
+function getTaxEstimateForPeriod(from, to, netProfit, forceMode) {
+  const s = taxSet();
+  const st = getTaxStatus();
+  const v = getVatForPeriod(from, to);
+  const addbacks = taxSum(taxEntriesIn('addback', from, to));
+  const deductions = taxSum(taxEntriesIn('extra_deduction', from, to));
+  const base = round2(netProfit - v.absorbed + v.reclaimInPnl + addbacks - deductions);
+  const calc = (mode) => {
+    const citRate = mode === 'standard' ? (Number(s.citRate) || 0) : 0;
+    const levyRate = mode === 'standard' ? (Number(s.devLevyRate) || 0) : 0;
+    const cit = base > 0 ? round2(base * citRate / 100) : 0;
+    const levy = base > 0 ? round2(base * levyRate / 100) : 0;
+    return { mode, citRate, levyRate, cit, levy, total: round2(cit + levy) };
+  };
+  const small = calc('small'), standard = calc('standard');
+  const applied = forceMode ? calc(forceMode) : calc(st.mode);
+  return { base, addbacks, deductions, vat: v, small, standard, applied, status: st,
+           profitAfterTax: round2(netProfit - v.absorbed + v.reclaimInPnl - applied.total) };
+}
+
+function taxBadge(text, color) {
+  return `<span style="display:inline-block;font-family:'DM Mono',monospace;font-size:8.5px;padding:2px 7px;border-radius:10px;background:rgba(255,255,255,0.06);color:var(--${color});border:1px solid var(--${color})">${escapeHtml(text)}</span>`;
+}
+function taxSettingStatus(def, val) {
+  if(val === null || val === undefined || val === '') return { text:'Needs your input', color:'red' };
+  if(def.status === 'decided') return { text:'Your decision', color:'lime' };
+  return { text:'Check with accountant', color:'amber' };
+}
+function taxSettingDisplay(def, val) {
+  if(val === null || val === undefined || val === '') return '<span style="color:var(--red)">— not set —</span>';
+  if(def.kind === 'bool') return val ? 'Yes' : 'No';
+  if(def.kind === 'select') { const o = def.options.find(x => String(x[0]) === String(val)); return escapeHtml(o ? o[1].split(' — ')[0] : String(val)); }
+  if(def.unit === '₦') return fmt(val);
+  if(def.unit === '%') return val + '%';
+  if(def.unit === 'day') return 'day ' + val;
+  if(def.unit === 'months') return val + ' months';
+  return escapeHtml(String(val));
+}
+
+function persistTax(section) {
+  const pnl = ensurePnLData();
+  pnl[section + 'UpdatedAt'] = Date.now();
+  saveState();
+  postPnLToBackend();
+  renderTaxPanel();
+  if(window.currentModule === 'pnl') renderPnL();
+}
+
+/* ── Setting editor (dialog) ── */
+function openTaxSetting(key) {
+  const def = TAX_SETTING_DEFS.find(d => d.key === key);
+  if(!def) return;
+  const s = taxSet();
+  const val = s[key];
+  document.getElementById('tax-set-key').value = key;
+  document.getElementById('tax-set-title').textContent = def.label;
+  document.getElementById('tax-set-hint').textContent = def.hint || '';
+  let control;
+  if(def.kind === 'bool') {
+    control = `<select class="form-select" id="tax-set-value"><option value="yes" ${val?'selected':''}>Yes</option><option value="no" ${!val&&val!==null?'selected':''}>No</option></select>`;
+  } else if(def.kind === 'select') {
+    control = `<select class="form-select" id="tax-set-value">${def.options.map(o => `<option value="${escapeHtml(String(o[0]))}" ${String(o[0])===String(val)?'selected':''}>${escapeHtml(o[1])}</option>`).join('')}</select>`;
+  } else {
+    control = `<input class="form-input" type="number" step="any" id="tax-set-value" value="${val===null||val===undefined?'':val}" placeholder="Enter a number${def.unit?' ('+def.unit+')':''}"/>`;
+  }
+  document.getElementById('tax-set-control').innerHTML = control;
+  document.getElementById('tax-set-unknown-btn').style.display = def.nullable ? '' : 'none';
+  openModal('modal-tax-setting');
+}
+
+function saveTaxSetting(markUnknown) {
+  const key = document.getElementById('tax-set-key').value;
+  const def = TAX_SETTING_DEFS.find(d => d.key === key);
+  if(!def) return;
+  const s = taxSet();
+  let v;
+  if(markUnknown) {
+    v = null;
+  } else {
+    const raw = document.getElementById('tax-set-value').value;
+    if(def.kind === 'bool') v = raw === 'yes';
+    else if(def.kind === 'select') v = def.key === 'fyEndMonth' ? parseInt(raw, 10) : raw;
+    else {
+      if(raw === '' || isNaN(parseFloat(raw))) { showToast('⚠ Enter a number first.'); return; }
+      v = parseFloat(raw);
+      if(v < 0) { showToast('⚠ A negative number is not allowed here.'); return; }
+      if(def.unit === '%' && v > 100) { showToast('⚠ A percentage cannot be more than 100.'); return; }
+      if(def.unit === 'day' && (v < 1 || v > 31 || v !== Math.floor(v))) { showToast('⚠ Enter a day of the month from 1 to 31.'); return; }
+    }
+  }
+  s[key] = v;
+  closeModal('modal-tax-setting');
+  persistTax('taxSettings');
+  showToast('✓ Saved — ' + def.label);
+}
+
+/* ── Tax entry dialog ── */
+function taxEntryTypeChanged() {
+  const t = document.getElementById('tax-ent-type').value;
+  document.getElementById('tax-ent-hint').textContent = TAX_ENTRY_TYPES[t]?.hint || '';
+  document.getElementById('tax-ent-kind-wrap').style.display = t === 'payment' ? '' : 'none';
+  document.getElementById('tax-ent-inpnl-wrap').style.display = t === 'input_vat' ? '' : 'none';
+}
+function openTaxEntry(type, id) {
+  taxSet();
+  const pnl = ensurePnLData();
+  const e = id ? pnl.taxEntries.find(x => x.id === id) : null;
+  const sel = document.getElementById('tax-ent-type');
+  sel.innerHTML = Object.entries(TAX_ENTRY_TYPES).map(([k, t]) => `<option value="${k}">${escapeHtml(t.label)}</option>`).join('');
+  document.getElementById('tax-ent-kind').innerHTML = TAX_PAY_KINDS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+  document.getElementById('tax-ent-id').value = e ? e.id : '';
+  sel.value = e ? e.type : (type || 'input_vat');
+  document.getElementById('tax-ent-date').value = e ? e.date : taxIso(new Date());
+  document.getElementById('tax-ent-amount').value = e ? e.amount : '';
+  document.getElementById('tax-ent-kind').value = e && e.taxKind ? e.taxKind : 'vat';
+  document.getElementById('tax-ent-inpnl').checked = !!(e && e.inPnl);
+  document.getElementById('tax-ent-note').value = e ? (e.note || '') : '';
+  document.getElementById('tax-ent-title').textContent = e ? 'Edit tax entry' : 'Add tax entry';
+  taxEntryTypeChanged();
+  openModal('modal-tax-entry');
+}
+function saveTaxEntry() {
+  taxSet();
+  const pnl = ensurePnLData();
+  const id = document.getElementById('tax-ent-id').value;
+  const type = document.getElementById('tax-ent-type').value;
+  const date = document.getElementById('tax-ent-date').value;
+  const amount = parseFloat(document.getElementById('tax-ent-amount').value);
+  if(!date) { showToast('⚠ Pick the date of the entry.'); return; }
+  if(isNaN(amount) || amount <= 0) { showToast('⚠ Enter an amount greater than zero.'); return; }
+  const rec = { id: id || ('tax_' + Date.now() + '_' + Math.floor(Math.random() * 1000)), type, date, amount: round2(amount),
+                taxKind: type === 'payment' ? document.getElementById('tax-ent-kind').value : null,
+                inPnl: type === 'input_vat' ? document.getElementById('tax-ent-inpnl').checked : false,
+                note: document.getElementById('tax-ent-note').value.trim() };
+  if(id) { const i = pnl.taxEntries.findIndex(x => x.id === id); if(i >= 0) pnl.taxEntries[i] = rec; else pnl.taxEntries.push(rec); }
+  else pnl.taxEntries.push(rec);
+  closeModal('modal-tax-entry');
+  persistTax('taxEntries');
+  showToast('✓ Tax entry saved.');
+}
+function removeTaxEntry(id) {
+  if(!confirm('Remove this tax entry?')) return;
+  const pnl = ensurePnLData();
+  pnl.taxEntries = pnl.taxEntries.filter(x => x.id !== id);
+  persistTax('taxEntries');
+}
+
+function getTaxVatPeriod() {
+  const el = document.getElementById('tax-vat-month');
+  let v = el && el.value;
+  if(!v) { const n = new Date(); v = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0'); if(el) el.value = v; }
+  const [y, m] = v.split('-').map(Number);
+  return { from: v + '-01', to: v + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0'), label: TAX_MONTHS[m - 1] + ' ' + y };
+}
+
+function taxNextDue(day) {
+  if(!day) return null;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const mk = (y, m) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+  let d = mk(t.getFullYear(), t.getMonth());
+  if(d < t) d = mk(t.getFullYear(), t.getMonth() + 1);
+  return d;
+}
+
+function taxRow(label, value, opts) {
+  opts = opts || {};
+  return `<tr${opts.bold ? ' style="font-weight:700"' : ''}><td>${label}</td><td class="mono" style="text-align:right${opts.color ? ';color:var(--' + opts.color + ')' : ''}">${value}</td></tr>`;
+}
+
+function renderTaxPanel() {
+  if(!document.getElementById('tax-status')) return;
+  const s = taxSet();
+  const pnl = ensurePnLData();
+  const st = getTaxStatus();
+  const vp = getTaxVatPeriod();
+  const v = getVatForPeriod(vp.from, vp.to);
+
+  // ── Where you stand ──
+  const perMonth = s.vatRegThreshold / 12;
+  const cratesMonth = s.crateRefPrice > 0 ? Math.round(perMonth / s.crateRefPrice) : 0;
+  const cratesDay = s.crateRefPrice > 0 ? Math.round(perMonth / 30 / s.crateRefPrice) : 0;
+  const vatOver = st.basis > s.vatRegThreshold;
+  const modeBadge = st.mode === 'small' ? taxBadge('Small company — 0% company tax', 'lime') : taxBadge('Standard company — company tax + levy', 'amber');
+  const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 100)) : 0;
+  const bar = (a, b, color) => `<div style="height:7px;background:var(--raised);border-radius:4px;margin:4px 0 2px"><div style="height:7px;width:${pct(a,b)}%;background:var(--${color});border-radius:4px"></div></div>`;
+  document.getElementById('tax-status').innerHTML = `
+    <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-bottom:10px">Financial year ${st.fy.from} → ${st.fy.to} · ${st.elapsed} of ${st.fyDays} days gone</div>
+    <table class="data-table"><tbody>
+      ${taxRow('Turnover so far this year', fmt(st.ytd))}
+      ${taxRow('Projected full-year turnover' + (st.elapsed < 30 ? ' <span style="color:var(--mist)">(under 30 days of data — not projected yet)</span>' : ''), fmt(st.projected))}
+      ${taxRow('Fixed assets at cost (P&amp;L Calculator)', fmt(st.assets))}
+    </tbody></table>
+    <div style="margin-top:12px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream)">VAT registration line — ${fmt(s.vatRegThreshold)} a year ${vatOver ? taxBadge('above the line','amber') : taxBadge('below the line','lime')}</div>
+      ${bar(st.basis, s.vatRegThreshold, vatOver ? 'amber' : 'teal')}
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">= about ${fmt(perMonth)} a month = about ${cratesMonth.toLocaleString()} crates a month (${cratesDay} a day) at ${fmt(s.crateRefPrice)} a crate. Registered: <b>${s.vatRegistered ? 'Yes' : 'No'}</b>.</div>
+    </div>
+    <div style="margin-top:14px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream)">Small-company line — ${fmt(s.smallCoTurnoverLimit)} turnover and ${fmt(s.smallCoAssetsLimit)} assets ${st.smallOk ? taxBadge('qualifies','lime') : taxBadge('does not qualify','amber')}</div>
+      ${bar(st.basis, s.smallCoTurnoverLimit, st.smallOk ? 'teal' : 'amber')}
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">Strict reading (${fmt(s.smallCoTurnoverLimitAlt)}): ${st.smallOkAlt ? 'you would still qualify' : '<span style="color:var(--amber)">you would NOT qualify</span>'}. Both limits are tested every year on its own; going over either loses the exemption for that year.</div>
+    </div>
+    <div style="margin-top:12px">Applied for estimates: ${modeBadge}</div>`;
+
+  // ── VAT ──
+  const eggTag = { zero:'zero-rated (0%)', exempt:'exempt', standard:'standard rate' }[s.eggVat] || s.eggVat;
+  const delTag = { zero:'zero-rated (0%)', exempt:'exempt', standard:'standard rate' }[s.deliveryVat] || s.deliveryVat;
+  const netLabel = v.net > 0 ? 'VAT to pay' : v.net < 0 ? 'VAT refundable / carried forward' : 'Net VAT';
+  document.getElementById('tax-vat').innerHTML = `
+    ${v.registered ? '' : '<div class="alert-banner warn" style="margin-bottom:10px">Not registered for VAT — no VAT is charged or claimed. Turn registration on in Settings below when you register.</div>'}
+    <table class="data-table"><tbody>
+      ${taxRow('Egg sales in ' + vp.label + ' — ' + eggTag, fmt(v.eggRev))}
+      ${taxRow('Delivery fees in ' + vp.label + ' — ' + delTag, fmt(v.delRev))}
+      ${taxRow('VAT on egg sales', fmt(v.outEgg))}
+      ${taxRow('VAT on delivery fees' + (s.vatBasis === 'inclusive' && v.outDel > 0 ? ' <span style="color:var(--mist)">(taken out of the fee, not added on top)</span>' : ''), fmt(v.outDel))}
+      ${taxRow('Output VAT (what you owe on sales)', fmt(v.output), { bold:true })}
+      ${taxRow('− VAT paid on purchases, recorded (' + v.inputCount + ' ' + (v.inputCount === 1 ? 'entry' : 'entries') + ')', fmt(v.inputRecorded))}
+      ${taxRow('− Claimable share (' + Math.round(v.claimFrac * 100) + '% of sales are not exempt)', fmt(v.claimable))}
+      ${taxRow(netLabel, fmt(Math.abs(v.net)), { bold:true, color: v.net > 0 ? 'amber' : 'lime' })}
+      ${taxRow('VAT payments recorded in ' + vp.label, fmt(v.paid))}
+    </tbody></table>
+    ${v.inputCount === 0 && s.eggVat === 'zero' ? '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--amber);margin-top:8px">No VAT-paid-on-purchases entries yet. With zero-rated eggs, the VAT you pay on fuel, repairs, packaging and equipment is claimable — add each one with “+ Add tax entry” so the claim is not missed.</div>' : ''}
+    <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Estimate only. A VAT-registered business must also issue e-invoices with sequential numbers; check the current e-invoicing deadline with your accountant.</div>`;
+
+  // ── Company tax (financial year to date) ──
+  const fyNet = computeNetProfitForPeriod(st.fy.from, st.toDate);
+  const est = getTaxEstimateForPeriod(st.fy.from, st.toDate, fyNet);
+  const wht = taxSum(taxEntriesIn('wht_credit', st.fy.from, st.fy.to));
+  const paidCit = taxSum(taxEntriesIn('payment', st.fy.from, st.fy.to).filter(e => e.taxKind === 'cit' || e.taxKind === 'levy'));
+  const col = (sc, title, active) => {
+    const whtUse = Math.min(wht, sc.cit);
+    const due = round2(sc.total - whtUse - paidCit);
+    return `<div style="flex:1;min-width:240px;padding:12px 14px;background:var(--raised);border-radius:8px;${active ? 'outline:1px solid var(--teal)' : ''}">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">${title} ${active ? taxBadge('applied','teal') : ''}</div>
+      <table class="data-table"><tbody>
+        ${taxRow('Company income tax (' + sc.citRate + '%)', fmt(sc.cit))}
+        ${taxRow('Development levy (' + sc.levyRate + '%)', fmt(sc.levy))}
+        ${taxRow('Total tax', fmt(sc.total), { bold:true })}
+        ${taxRow('− WHT credits used', fmt(whtUse))}
+        ${taxRow('− Tax payments recorded', fmt(paidCit))}
+        ${taxRow(due >= 0 ? 'Still to pay (estimate)' : 'Overpaid / credit', fmt(Math.abs(due)), { bold:true, color: due > 0 ? 'amber' : 'lime' })}
+        ${taxRow('Profit after tax', fmt(round2(fyNet - est.vat.absorbed + est.vat.reclaimInPnl - sc.total)), { bold:true, color:'lime' })}
+      </tbody></table></div>`;
+  };
+  document.getElementById('tax-cit').innerHTML = `
+    <table class="data-table"><tbody>
+      ${taxRow('Net profit, financial year to date (from the P&amp;L Calculator)', fmt(fyNet))}
+      ${taxRow('− VAT taken out of delivery fees', fmt(est.vat.absorbed))}
+      ${taxRow('+ VAT reclaimed that sits inside your costs', fmt(est.vat.reclaimInPnl))}
+      ${taxRow('+ Add-backs (not tax-deductible)', fmt(est.addbacks))}
+      ${taxRow('− Extra deductions', fmt(est.deductions))}
+      ${taxRow('Taxable profit (estimate)', fmt(est.base), { bold:true })}
+    </tbody></table>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+      ${col(est.small, 'If a small company', st.mode === 'small')}
+      ${col(est.standard, 'If a standard company', st.mode === 'standard')}
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:10px;line-height:1.6">
+      Bad debts you wrote off are already deducted in the P&amp;L, and recoveries already count as profit again, which matches the tax rule (write-offs allowed, recoveries added back; related-party debts are not allowed).
+      P&amp;L depreciation is straight-line; tax uses capital allowances, so record any difference as an adjustment. The 15% minimum rate applies only above ₦20 billion turnover and is not modelled. Small companies still owe PAYE, withholding tax and VAT.
+    </div>`;
+
+  // ── Entries ──
+  const entries = [...pnl.taxEntries].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  document.getElementById('tax-entries').innerHTML = entries.length === 0
+    ? '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">No tax entries yet. Add VAT you paid on purchases, tax withheld by customers, tax payments you made, or adjustments, as they become known.</div>'
+    : `<table class="data-table"><thead><tr><th>Date</th><th>Type</th><th style="text-align:right">Amount</th><th>Detail</th><th></th></tr></thead><tbody>` +
+      entries.map(e => `<tr>
+        <td class="mono">${escapeHtml(e.date)}</td>
+        <td>${escapeHtml(TAX_ENTRY_TYPES[e.type]?.label || e.type)}${e.taxKind ? ' — ' + escapeHtml((TAX_PAY_KINDS.find(k => k[0] === e.taxKind) || [,e.taxKind])[1]) : ''}</td>
+        <td class="mono" style="text-align:right">${fmt(e.amount)}</td>
+        <td style="font-size:10px;color:var(--mist)">${escapeHtml(e.note || '')}${e.inPnl ? ' <i>(cost in P&amp;L includes this VAT)</i>' : ''}</td>
+        <td style="white-space:nowrap"><button class="btn btn-ghost" style="font-size:9px;padding:3px 8px" onclick="openTaxEntry('${e.type}','${e.id}')">Edit</button> <button class="btn btn-ghost" style="font-size:9px;padding:3px 8px" onclick="removeTaxEntry('${e.id}')">✕</button></td>
+      </tr>`).join('') + '</tbody></table>';
+
+  // ── Settings ──
+  let lastGroup = '';
+  document.getElementById('tax-settings').innerHTML = `<table class="data-table"><thead><tr><th>Setting</th><th>Value</th><th>Status</th><th></th></tr></thead><tbody>` +
+    TAX_SETTING_DEFS.map(def => {
+      const val = s[def.key];
+      const stt = taxSettingStatus(def, val);
+      const head = def.group !== lastGroup ? `<tr><td colspan="4" style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;color:var(--teal);padding-top:12px">${escapeHtml(def.group)}</td></tr>` : '';
+      lastGroup = def.group;
+      return head + `<tr><td>${escapeHtml(def.label)}<div style="font-size:9px;color:var(--mist)">${escapeHtml(def.hint || '')}</div></td>
+        <td class="mono">${taxSettingDisplay(def, val)}</td><td>${taxBadge(stt.text, stt.color)}</td>
+        <td><button class="btn btn-ghost" style="font-size:9px;padding:3px 8px" onclick="openTaxSetting('${def.key}')">${val === null || val === undefined ? 'Set' : 'Edit'}</button></td></tr>`;
+    }).join('') + '</tbody></table>';
+
+  // ── Calendar ──
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const rows = [];
+  const dueRow = (label, day) => {
+    const d = taxNextDue(day);
+    if(!d) { rows.push([label, '<span style="color:var(--red)">needs your input</span>']); return; }
+    const n = Math.round((d - today) / 86400000);
+    rows.push([label, taxDateLabel(d) + ' <span style="color:var(--mist)">(' + (n === 0 ? 'today' : 'in ' + n + ' days') + ')</span>']);
+  };
+  dueRow('VAT return and payment (for the previous month)', s.vatDueDay);
+  dueRow('Withholding tax remittance (for the previous month)', s.whtDueDay);
+  dueRow('PAYE staff tax (for the previous month)', s.payeDueDay);
+  if(s.citReturnMonths) {
+    const prev = taxFyBounds(taxIso(new Date(new Date(st.fy.from + 'T00:00:00').getTime() - 86400000)));
+    [prev, st.fy].forEach(fy => {
+      const e = new Date(fy.to + 'T00:00:00');
+      const due = new Date(e.getFullYear(), e.getMonth() + Number(s.citReturnMonths) + 1, 0);
+      if(due >= today) rows.push(['Company tax return for the year ending ' + fy.to, taxDateLabel(due) + ' <span style="color:var(--mist)">(in ' + Math.round((due - today) / 86400000) + ' days)</span>']);
+    });
+  } else rows.push(['Company tax return', '<span style="color:var(--red)">needs your input</span>']);
+  document.getElementById('tax-calendar').innerHTML = `<table class="data-table"><tbody>${rows.map(r => taxRow(r[0], r[1])).join('')}</tbody></table>
+    <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Late filing was reported as ₦100,000 for the first month and ₦50,000 for each extra month. Dates here follow the settings above, so correct them once your accountant confirms.</div>`;
+
+  // ── Needs your input ──
+  const needs = [];
+  TAX_SETTING_DEFS.forEach(def => { const val = s[def.key]; if(val === null || val === undefined || val === '') needs.push({ text: def.label, key: def.key }); });
+  if(s.vatRegistered && v.inputCount === 0) needs.push({ text: 'VAT paid on purchases for ' + vp.label + ' (no entries yet)', entry: 'input_vat' });
+  document.getElementById('tax-needs').innerHTML = needs.length === 0
+    ? '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--lime)">Nothing outstanding — every setting has a value.</div>'
+    : needs.map(n => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--raised)">
+        <span style="font-size:11px">${escapeHtml(n.text)}</span>
+        <button class="btn btn-ghost" style="font-size:9px;padding:3px 8px" onclick="${n.key ? `openTaxSetting('${n.key}')` : `openTaxEntry('${n.entry}')`}">${n.key ? 'Set' : 'Add'}</button></div>`).join('');
+}
+
+// P&L Calculator tie-in: two extra lines under Net Profit. Wrapped by the
+// caller in try/catch so a tax problem can never break the P&L page.
+function taxTieInHtml(est, netProfit) {
+  const a = est.applied;
+  const label = a.mode === 'small' ? 'small company, 0%' : 'standard company, ' + (a.citRate + a.levyRate) + '%';
+  const rows = [taxRow('Net Profit (before tax)', fmt(netProfit))];
+  if(est.vat.absorbed) rows.push(taxRow('− VAT taken out of delivery fees', '−' + fmt(est.vat.absorbed)));
+  if(est.vat.reclaimInPnl) rows.push(taxRow('+ Input VAT reclaimed', fmt(est.vat.reclaimInPnl)));
+  rows.push(taxRow('− Estimated company tax &amp; levy (' + label + ')', '−' + fmt(a.total)));
+  return `<div style="margin-top:14px;padding:14px 16px;background:var(--raised);border-radius:8px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin-bottom:8px">After tax (estimate) <span style="font-family:'DM Mono',monospace;font-weight:400;font-size:9px;color:var(--teal);cursor:pointer;text-decoration:underline;margin-left:8px" onclick="switchModule('taxpanel')">open Tax Panel →</span></div>
+      <table class="data-table"><tbody>${rows.join('')}
+        <tr style="font-weight:700"><td>Profit after tax</td><td class="mono" style="text-align:right;color:${est.profitAfterTax >= 0 ? 'var(--lime)' : 'var(--red)'}">${fmt(est.profitAfterTax)}</td></tr>
+      </tbody></table>
+      <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Estimate only: uses the Tax Panel's settings and the company-tax status decided from this financial year's turnover. Check with your accountant.</div>
+    </div>`;
 }
 
 function getPnLPeriodDates() {
@@ -19580,6 +20224,8 @@ function renderPnL() {
     const depRows = pnl.fixedAssets.filter(a=>a.name).map(a => [a.name, fmt(getAssetDepreciationForPeriod(a, from, to))]);
     const customRows = pnl.customCostElements.filter(e=>e.label).map(e => [e.label, fmt(getCustomElementValueForPeriod(e, from, to))]);
 
+    let taxTie = '';
+    try { taxTie = taxTieInHtml(getTaxEstimateForPeriod(from, to, netProfit), netProfit); } catch(taxErr) { taxTie = ''; }
     resultEl.innerHTML = `<table class="data-table">
       <tbody>
         <tr><td>Gross Profit</td><td class="mono">₦${grossProfit.toLocaleString()}</td></tr>
@@ -19602,6 +20248,7 @@ function renderPnL() {
         ], 'Net Profit', fmt(netProfit))}</span>
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;color:${netProfit>=0?'var(--lime)':'var(--red)'}">₦${netProfit.toLocaleString()}</span>
       </div>
+      ${taxTie}
       <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">
         Progressive build — Revenue, COGS, and Commission are real, pulled from Sales Log. Depreciation is real math off whatever's in the Fixed Assets table.
         Anything in Other Cost Elements is only as complete as what's been added — a ₦0 total there means nothing's been entered yet, not that there's nothing to pay.
