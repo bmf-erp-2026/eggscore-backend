@@ -5552,7 +5552,7 @@ input[type=number]{-moz-appearance:textfield;}
         <!-- Customer select -->
         <div class="form-group" style="margin-bottom:16px">
           <label class="form-label" style="font-size:11px;letter-spacing:1px">CUSTOMER</label>
-          <select class="form-select" id="qe-customer" style="height:52px;font-size:14px">
+          <select class="form-select" id="qe-customer" style="height:52px;font-size:14px" onchange="syncCreditChoices()">
             <option value="">— Select customer —</option>
           </select>
         </div>
@@ -5606,6 +5606,7 @@ input[type=number]{-moz-appearance:textfield;}
               border-radius:8px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;
               color:var(--dust);transition:all .15s">Part Pay</div>
           </div>
+          <div id="qe-credit-note" style="display:none;margin-top:8px;font-family:'DM Mono',monospace;font-size:10px;line-height:1.4;color:var(--red)"></div>
         </div>
 
         <!-- Live compute strip -->
@@ -5907,6 +5908,7 @@ input[type=number]{-moz-appearance:textfield;}
             <option value="credit30">Credit (30 days)</option>
             <option value="part">Part Payment</option>
           </select>
+          <div id="credit-block-note" style="display:none;margin-top:6px;font-family:'DM Mono',monospace;font-size:10px;line-height:1.4;color:var(--red)"></div>
         </div>
       </div>
       <div class="sec-title">Commission Tier</div>
@@ -15109,6 +15111,7 @@ function populateSelects() {
         return;
       }
       autoPopulateOrderRef(this.value);
+      syncCreditChoices();
       runSaleErrorChecks();
     };
   }
@@ -24867,6 +24870,56 @@ async function syncCreditBlockedFromBackend() {
     if(j && Array.isArray(j.names)) blSave(CREDIT_BLOCKED_KEY, { names: j.names, at: new Date().toISOString() });
   } catch(networkErr) { /* offline — keep the last list */ }
 }
+
+// ── Credit is not even offered to a customer who owes written-off debt ──
+// (Oct 11 2026, from the Owner's first test.) The refusal inside handleSave() stays as a
+// safety net, but the rep no longer goes through a whole sale to find out: the three credit
+// choices (7 days, 30 days, part payment) are switched off the moment such a customer is
+// picked, in both the full Record Sale form and Quick Entry. When the debt is paid in full
+// the same check finds the customer clear and the choices come back by themselves.
+const CREDIT_PAY_KEYS = ['credit7', 'credit30', 'part'];
+let _creditChoiceBlockedFor = '';
+function syncCreditChoices() {
+  try {
+    // Full Record Sale form
+    const cust = document.getElementById('s-customer')?.value || '';
+    const blocked = !!cust && cust !== '_new' && isCustomerCreditBlocked(cust);
+    const sel = document.getElementById('s-payment');
+    if(sel) {
+      Array.from(sel.options).forEach(o => {
+        if(!CREDIT_PAY_KEYS.includes(o.value)) return;
+        if(o.dataset.baseLabel === undefined) o.dataset.baseLabel = o.textContent;
+        o.disabled = blocked;
+        o.textContent = blocked ? o.dataset.baseLabel + ' — not available' : o.dataset.baseLabel;
+      });
+      if(blocked && CREDIT_PAY_KEYS.includes(sel.value)) {
+        sel.value = '';
+        showToast(`🚫 No credit for ${cust} — an old debt that was written off is still unpaid. Choose Cash or Transfer.`);
+      }
+    }
+    const note = document.getElementById('credit-block-note');
+    if(note) {
+      note.style.display = blocked ? 'block' : 'none';
+      note.textContent = blocked ? `🚫 Credit not available for ${cust} — an old written-off debt is still unpaid. Cash or Transfer only.` : '';
+    }
+    // Quick Entry
+    const qc = document.getElementById('qe-customer')?.value || '';
+    const qBlocked = !!qc && isCustomerCreditBlocked(qc);
+    CREDIT_PAY_KEYS.forEach(k => {
+      const el = document.getElementById('qe-pay-' + k);
+      if(!el) return;
+      el.style.opacity = qBlocked ? '0.3' : '';
+      el.style.pointerEvents = qBlocked ? 'none' : '';
+    });
+    if(qBlocked && typeof qeState !== 'undefined' && qeState && CREDIT_PAY_KEYS.includes(qeState.payment)) qeSelectPayment(null);
+    const qNote = document.getElementById('qe-credit-note');
+    if(qNote) {
+      qNote.style.display = qBlocked ? 'block' : 'none';
+      qNote.textContent = qBlocked ? `🚫 Credit not available for ${qc} — an old written-off debt is still unpaid. Cash or Transfer only.` : '';
+    }
+  } catch(e) { /* never let this cosmetic check break a sale screen */ }
+}
+setInterval(syncCreditChoices, 700);
 
 // ── Which credit balances may be written off now ──
 function getBadDebtEligibleSales() {
