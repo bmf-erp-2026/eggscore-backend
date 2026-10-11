@@ -24046,13 +24046,18 @@ function computeCreditSplit(customerName, crates, eggRevenue, deliveryTotal, bat
   const marginCeiling  = Math.max(0, eggRevenue - costFloor);
 
   const trustTier  = getCustomerTrustTier(customerName);
-  const deferPct   = ensureScorecardSettings().marginDeferPct[trustTier] ?? 0;
+  // Oct 11 2026 — a customer who is blocked from credit (an unpaid balance 90+ days old, or an
+  // unpaid written-off debt) is also not given a financed share on a new order. Every screen that
+  // shows what is due today (order card, Apply Wallet, Verify Payment, Pending Transfer) reads this
+  // one function, so they all ask for the FULL amount and stop treating a short payment as enough.
+  const creditBlocked = !!customerName && isCustomerCreditBlocked(customerName);
+  const deferPct   = creditBlocked ? 0 : (ensureScorecardSettings().marginDeferPct[trustTier] ?? 0);
 
   const financed        = Math.round(marginCeiling * deferPct);
   const upfront          = Math.round(eggRevenue - financed); // egg-revenue portion due now; delivery is separate and always due in full
 
   return {
-    upfront, financed, excess: 0, costFloor, marginCeiling, trustTier, deferPct,
+    upfront, financed, excess: 0, costFloor, marginCeiling, trustTier, deferPct, creditBlocked,
     deliveryTotal,
     totalPayable: eggRevenue + deliveryTotal, // for display only — what the customer sees as "total due today's terms": upfront + deliveryTotal now, financed later
   };
@@ -26071,8 +26076,11 @@ function buildOrderCard(o, queueNum) {
           <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)">📇 financed balance</div>
         </div>
         <div style="background:var(--card);border-radius:6px;padding:7px 10px">
-          <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--teal)">${split.trustTier.charAt(0).toUpperCase()+split.trustTier.slice(1)} (${Math.round(split.deferPct*100)}%)</div>
-          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)" title="Margin ceiling this order was computed against: ₦${split.marginCeiling.toLocaleString()}">🏷 trust tier</div>
+          ${split.creditBlocked
+            ? `<div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--red)">Credit blocked</div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)" title="${escapeHtml(creditBlockWhy(o.customerName))}">🚫 pay in full today</div>`
+            : `<div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--teal)">${split.trustTier.charAt(0).toUpperCase()+split.trustTier.slice(1)} (${Math.round(split.deferPct*100)}%)</div>
+          <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)" title="Margin ceiling this order was computed against: ₦${split.marginCeiling.toLocaleString()}">🏷 trust tier</div>`}
         </div>
       </div>`;
     })()}
