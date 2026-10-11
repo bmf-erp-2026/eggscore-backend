@@ -13114,6 +13114,13 @@ function updateSellingPrice() {
   const note     = document.getElementById('pm-price-note')?.value.trim() || '';
   const reasonCategory = document.getElementById('pm-reason-category')?.value || '';
   if(newPrice < 1) { showToast('⚠ Enter a valid price.'); return; }
+  // Oct 11 2026 — pressing Set with the price box already showing the current
+  // price used to write a no-change line in Price History and cancel any ramp
+  // in progress. Now nothing changes; Stop Ramp is the way to cancel a ramp.
+  if(newPrice === getCurrentSellingPrice()) {
+    showToast(`ℹ Price is already ₦${newPrice.toLocaleString()}/crate — nothing changed.`);
+    return;
+  }
   if(newPrice !== getCurrentSellingPrice() && !reasonCategory) {
     showToast('⚠ Select a reason category before setting the price.');
     return;
