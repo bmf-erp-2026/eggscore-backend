@@ -1773,6 +1773,7 @@ input[type=number]{-moz-appearance:textfield;}
       .forEach(e => postCreditOverrideToBackend(e));
 
     if(currentModule === 'credit') renderCredit();
+    else if(currentModule === 'timevalue' && typeof renderTimeValue === 'function') renderTimeValue();   // Oct 11 2026
   }
 
   // Aug 28 fix — System Event Log persistence (third of the 3
@@ -3237,6 +3238,12 @@ input[type=number]{-moz-appearance:textfield;}
     // only after a full page reload (this sync ran at page load and nowhere
     // else). Now it arrives with the same 75-second refresh.
     if(typeof syncCommissionPayoutsFromBackend === 'function') await syncCommissionPayoutsFromBackend();
+    // Oct 11 2026 — the credit-override log and the System Event Log used to be
+    // pulled once at page load only, so a second device never saw new entries
+    // until a reload. They refresh here, but only while the page that shows them
+    // is open (they can hold many rows, and nothing else reads them).
+    if(currentModule === 'eventlog' && typeof syncEventLogFromBackend === 'function') await syncEventLogFromBackend();
+    if((currentModule === 'credit' || currentModule === 'timevalue') && typeof syncCreditOverrideLogFromBackend === 'function') await syncCreditOverrideLogFromBackend();
     if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
     if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
     if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
@@ -11658,6 +11665,10 @@ function switchModule(name) {
     doccentre: renderDocumentCentre,
   };
   if(renders[name]) renders[name]();
+  // Oct 11 2026 — opening these pages pulls the newest log rows from the server
+  // straight away (the page then redraws itself), instead of waiting for a reload.
+  if(name === 'eventlog' && typeof syncEventLogFromBackend === 'function') syncEventLogFromBackend();
+  if((name === 'credit' || name === 'timevalue') && typeof syncCreditOverrideLogFromBackend === 'function') syncCreditOverrideLogFromBackend();
 }
 
 /* ═══════════════════════════════════════════════════════
