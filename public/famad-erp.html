@@ -3233,6 +3233,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof syncBlocklistFromBackend === 'function') await syncBlocklistFromBackend();
     if(typeof syncLargeFirstTimersFromBackend === 'function') await syncLargeFirstTimersFromBackend();
     if(typeof ownerRecPull === 'function') await ownerRecPull();
+    if(typeof opsRecPull === 'function') await opsRecPull();   // Oct 11 2026 — stock log + price history
     if(typeof syncCreditBlockedFromBackend === 'function') await syncCreditBlockedFromBackend();
     // Oct 10 2026 — a "Mark Paid" done on another device used to appear here
     // only after a full page reload (this sync ran at page load and nowhere
@@ -11048,6 +11049,8 @@ function saveState() {
   if(typeof schedulePaymentHoldPush === 'function') schedulePaymentHoldPush();
   // Oct 10 2026 (Stage 2) — same for commission disputes, overpayments and write-offs.
   if(typeof scheduleOwnerRecPush === 'function') scheduleOwnerRecPush();
+  // Oct 11 2026 — and for the stock movement log and the selling-price history.
+  if(typeof scheduleOpsRecPush === 'function') scheduleOpsRecPush();
 }
 
 // Default State
@@ -13049,12 +13052,12 @@ function processPriceRampStep() {
   postSellingPriceToBackend(nextPrice, 'System (ramp)');
   ramp.lastSteppedDate = today;
   if(!STATE.priceHistory) STATE.priceHistory = [];
-  STATE.priceHistory.unshift({
+  STATE.priceHistory.unshift(opsRecStamp('ps', {
     price: nextPrice, setAt: today, setBy: 'System (ramp)',
     reasonCategory: 'input_cost_up',
     note: `Ramp step toward ₦${ramp.targetPrice.toLocaleString()} — batch ${ramp.batchId}`,
     batchId: ramp.batchId, batchCost: getLastCostPrice(), margin: round2(nextPrice - getLastCostPrice()),
-  });
+  }));
   saveState();
   logInfo('price', `Price ramp step — ₦${current.toLocaleString()} → ₦${nextPrice.toLocaleString()}/crate`,
     nextPrice >= ramp.targetPrice ? 'Ramp complete, target reached.' : `Still ramping toward ₦${ramp.targetPrice.toLocaleString()}.`);
@@ -13130,7 +13133,7 @@ function updateSellingPrice() {
   const batch = getFIFOBatch();
 
   if(!STATE.priceHistory) STATE.priceHistory = [];
-  STATE.priceHistory.unshift({
+  STATE.priceHistory.unshift(opsRecStamp('ps', {
     price:    newPrice,
     setAt:    new Date().toISOString().split('T')[0],
     setBy:    'Admin',
@@ -13139,7 +13142,7 @@ function updateSellingPrice() {
     batchId:  batch?.id || '—',
     batchCost: cost,
     margin,
-  });
+  }));
 
   STATE.currentSellingPrice = newPrice;
   postSellingPriceToBackend(newPrice, 'Admin');
@@ -15098,7 +15101,7 @@ function handleSave() {
 
   // ── Derive inventory.main from batch remaining (single source of truth) ──
   STATE.inventory.main = syncInventoryFromBatches();
-  STATE.invLog.unshift({ date, type:'sell', qty:crates, ref:inv, batches: usedBatches });
+  STATE.invLog.unshift(opsRecStamp('sm', { date, type:'sell', qty:crates, ref:inv, batches: usedBatches }));
 
   // Update customer
   const cust = STATE.customers.find(c => c.name === customer);
@@ -16212,7 +16215,7 @@ function receiveStock() {
     showToast('✓ Stock updated — ' + qty + ' crates received.');
   }
 
-  STATE.invLog.unshift({ date:today, type:type==='main'?'receive':type, qty, supplier:sup, cost, notes });
+  STATE.invLog.unshift(opsRecStamp('sm', { date:today, type:type==='main'?'receive':type, qty, supplier:sup, cost, notes }));
 
   // ── Always derive inventory.main from batch remaining ──
   if(type === 'main') {
@@ -26004,6 +26007,170 @@ async function ownerRecPull() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════
+   OCT 11 2026 — STOCK MOVEMENT LOG + SELLING-PRICE HISTORY NOW HAVE A SERVER COPY
+   Both lists used to exist only in the browser that made the entry, so a Stock
+   Movement Register printed on a second device had gaps, and the "new batch —
+   price review needed" check read an incomplete history. They are now kept on
+   the server too (routes-postgres/ops-records.js) and merged here:
+     * every new entry gets an id and a time stamp when it is made;
+     * entries that existed before this change get a repeatable id worked out
+       from their own contents, so two devices never send the same old entry twice;
+     * the built-in demo entries are never sent;
+     * entries are saved once and never change, so merging only ever ADDS the
+       entries this device is missing — nothing local is overwritten or removed;
+     * stock movements: any signed-in staff may add; the cost per crate is only
+       ever sent back to the Owner. Price history: Owner only, both ways.
+═══════════════════════════════════════════════════════ */
+const OPSREC_SYNCED_KEY = 'feds_opsrec_synced';
+const OPSREC_SINCE_KEY  = 'feds_opsrec_since';
+const OPSREC_KINDS = [
+  { kind: 'stock_move', key: 'invLog',       prefix: 'sm', day: 'date' },
+  { kind: 'price_set',  key: 'priceHistory', prefix: 'ps', day: 'setAt' },
+];
+const opsRecBlocked = {};              // kind -> true once the server says "not your role"
+function opsRecStamp(prefix, entry) {
+  entry.id = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  entry.at = new Date().toISOString();
+  return entry;
+}
+function opsRecIsSeed(k, e) {
+  if(k.kind === 'stock_move') {
+    return (e.date === '2026-05-01' && e.type === 'receive' && e.qty === 1000 && e.supplier === 'David Elkamis Farm' && e.notes === 'Batch A — May')
+        || (e.date === '2026-05-10' && e.type === 'damaged' && e.qty === 12 && e.notes === 'Crate breakage in transit');
+  }
+  return e.price === 5700 && e.setAt === '2026-05-01' && e.setBy === 'Admin' && e.batchId === 'B001' && String(e.note || '').indexOf('Opening rate') === 0;
+}
+function opsRecLegacyId(prefix, base, n) {
+  const s = base + '#' + n;
+  let a = 5381, b = 0;
+  for(let i = 0; i < s.length; i++) { const ch = s.charCodeAt(i); a = ((a << 5) + a + ch) | 0; b = (ch + (b << 6) + (b << 16) - b) | 0; }
+  return prefix + 'L' + (a >>> 0).toString(36) + (b >>> 0).toString(36) + s.length.toString(36);
+}
+// Gives every entry made before this change an id. Oldest first, so the counter
+// that separates two identical entries is the same on every device.
+function opsRecEnsureIds(k) {
+  const list = STATE[k.key];
+  if(!Array.isArray(list)) return false;
+  const seen = {};
+  let assigned = false;
+  for(let i = list.length - 1; i >= 0; i--) {
+    const e = list[i];
+    if(!e || typeof e !== 'object' || e.id || opsRecIsSeed(k, e)) continue;
+    const c = { ...e }; delete c.id; delete c.at; delete c.serverCreatedAt;
+    const base = syncCanon(c);
+    seen[base] = (seen[base] || 0) + 1;
+    e.id = opsRecLegacyId(k.prefix, base, seen[base]);
+    assigned = true;
+  }
+  return assigned;
+}
+function opsRecOlder(k, a, b) {          // true when entry a is older than entry b
+  const ka = String(a[k.day] || '') + '|' + String(a.at || '');
+  const kb = String(b[k.day] || '') + '|' + String(b.at || '');
+  return ka < kb;
+}
+
+let opsRecPushTimer = null, opsRecPushing = false;
+function scheduleOpsRecPush() {
+  clearTimeout(opsRecPushTimer);
+  opsRecPushTimer = setTimeout(opsRecPush, 1500);
+}
+async function opsRecPush() {
+  if(opsRecPushing) { scheduleOpsRecPush(); return; }
+  const synced = blLoad(OPSREC_SYNCED_KEY, {});
+  const dirty = [];
+  let assigned = false;
+  OPSREC_KINDS.forEach(k => {
+    if(opsRecBlocked[k.kind]) return;
+    if(opsRecEnsureIds(k)) assigned = true;
+    (STATE[k.key] || []).forEach(e => {
+      if(e && typeof e === 'object' && e.id && !opsRecIsSeed(k, e) && !synced[k.kind + '|' + e.id]) dirty.push({ k, e });
+    });
+  });
+  if(assigned) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(err) {} }
+  if(!dirty.length) return;
+  const token = await erpGetAuthToken();
+  if(!token) return;                    // not signed in — tried again at the next sync
+  opsRecPushing = true;
+  try {
+    for(const { k, e } of dirty) {
+      if(opsRecBlocked[k.kind]) continue;
+      try {
+        const resp = await fetch(`${BACKEND_URL}/ops-records/${k.kind}/${encodeURIComponent(e.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(e),
+        });
+        if(resp.status === 403) { opsRecBlocked[k.kind] = true; continue; }   // not allowed for this role — stop for this page load
+        // 400 = the server will never accept this entry as it stands; do not retry it forever.
+        if(resp.ok || resp.status === 400) {
+          if(!resp.ok) console.warn('Entry not accepted by the server:', k.kind, e.id);
+          synced[k.kind + '|' + e.id] = 1;
+          blSave(OPSREC_SYNCED_KEY, synced);
+        }
+      } catch(networkErr) { break; }    // offline — the rest wait for the next sync
+    }
+  } finally { opsRecPushing = false; }
+}
+
+async function opsRecPull() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  const synced = blLoad(OPSREC_SYNCED_KEY, {});
+  const since = blLoad(OPSREC_SINCE_KEY, {});
+  let changedInv = false, changedPrice = false, idsAssigned = false;
+  for(const k of OPSREC_KINDS) {
+    if(opsRecBlocked[k.kind]) continue;
+    if(opsRecEnsureIds(k)) idsAssigned = true;
+    let url = `${BACKEND_URL}/ops-records/${k.kind}`;
+    if(since[k.kind]) {
+      // A few minutes of overlap so nothing saved at the same moment is missed; repeats are ignored by id.
+      const t = new Date(new Date(since[k.kind]).getTime() - 5 * 60000).toISOString();
+      url += '?since=' + encodeURIComponent(t);
+    }
+    let server;
+    try {
+      const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      if(resp.status === 403) { opsRecBlocked[k.kind] = true; continue; }
+      if(!resp.ok) continue;
+      server = await resp.json();
+    } catch(networkErr) { break; }
+    if(!Array.isArray(server)) continue;
+    if(!Array.isArray(STATE[k.key])) STATE[k.key] = [];
+    const list = STATE[k.key];
+    const have = new Set(list.filter(e => e && e.id).map(e => String(e.id)));
+    let maxAt = since[k.kind] || '', added = 0;
+    // The server sends newest first. Each missing entry is slotted in by date without reordering what is already here.
+    server.forEach(sr => {
+      if(!sr || !sr.id) return;
+      synced[k.kind + '|' + sr.id] = 1;
+      if(sr.serverCreatedAt && sr.serverCreatedAt > maxAt) maxAt = sr.serverCreatedAt;
+      if(have.has(String(sr.id))) return;
+      const c = { ...sr }; delete c.serverCreatedAt;
+      let idx = list.findIndex(e => e && opsRecOlder(k, e, c));
+      if(idx < 0) idx = list.length;
+      list.splice(idx, 0, c);
+      have.add(String(sr.id));
+      added++;
+    });
+    if(maxAt) since[k.kind] = maxAt;
+    if(added) { if(k.kind === 'stock_move') changedInv = true; else changedPrice = true; }
+  }
+  blSave(OPSREC_SYNCED_KEY, synced);
+  blSave(OPSREC_SINCE_KEY, since);
+  if(changedInv || changedPrice || idsAssigned) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE)); } catch(e) {} }
+  scheduleOpsRecPush();
+  if(changedInv || changedPrice) {
+    try {
+      const m = window.currentModule;
+      if(changedInv && m === 'inventory' && typeof renderInventory === 'function') renderInventory();
+      if(changedPrice && m === 'sales' && typeof renderPricePanel === 'function') renderPricePanel();
+      if(changedPrice && typeof checkBatchPriceStaleness === 'function') checkBatchPriceStaleness();
+    } catch(e) {}
+  }
+}
+
 function initVolReqChannel() {
   try {
     const bc = new BroadcastChannel(VOLREQ_CH);
@@ -32398,11 +32565,11 @@ function fulfillOrder(ref) {
   STATE.inventory.main = syncInventoryFromBatches();
 
   // Log the movement
-  STATE.invLog.unshift({
+  STATE.invLog.unshift(opsRecStamp('sm', {
     date: new Date().toISOString().split('T')[0],
     type: 'sell', qty: o.crates, ref: o.ref,
     batches: usedBatches,
-  });
+  }));
 
   // ── Honour the price locked at order creation time ──
   const price      = o.lockedPrice || o.pricePerCrate || getCurrentSellingPrice();
@@ -35426,6 +35593,7 @@ window.addEventListener('load', () => {
   syncPaymentHoldsFromBackend();
   syncPortalPersistenceFromBackend();   // blocklist + large first-timer alerts
   if(typeof ownerRecPull === 'function') ownerRecPull();   // commission disputes, overpayments, write-offs
+  if(typeof opsRecPull === 'function') opsRecPull();       // Oct 11 2026 — stock movement log + price history
   if(typeof pushVolumePricingIfChanged === 'function') pushVolumePricingIfChanged();
 });
 

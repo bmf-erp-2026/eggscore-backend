@@ -82,6 +82,7 @@ mount('/large-first-timers', './routes-postgres/large-first-timers');
 // Oct 10 2026 (Stage 2) — commission disputes, overpayments and write-offs
 // live on the server too (Owner only).
 mount('/owner-records', './routes-postgres/owner-records');
+mount('/ops-records', './routes-postgres/ops-records');
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides
