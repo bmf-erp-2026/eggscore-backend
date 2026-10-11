@@ -5552,7 +5552,7 @@ input[type=number]{-moz-appearance:textfield;}
         <!-- Customer select -->
         <div class="form-group" style="margin-bottom:16px">
           <label class="form-label" style="font-size:11px;letter-spacing:1px">CUSTOMER</label>
-          <select class="form-select" id="qe-customer" style="height:52px;font-size:14px" onchange="syncCreditChoices()">
+          <select class="form-select" id="qe-customer" style="height:52px;font-size:14px" onchange="syncCreditChoices(true)">
             <option value="">— Select customer —</option>
           </select>
         </div>
@@ -14626,7 +14626,7 @@ function handleSave() {
   // Oct 11 2026 — Owner's rule: a customer with written-off debt still unpaid gets
   // no credit of any kind (cash or transfer only) until it is paid in full.
   if((payment === 'credit7' || payment === 'credit30' || payment === 'part') && isCustomerCreditBlocked(customer)) {
-    showToast(`🚫 No credit for ${customer} — an old debt that was written off is still unpaid. Cash or transfer only until the Owner records it as paid.`);
+    showToast(`🚫 No credit for ${customer} — ${creditBlockWhy(customer)}. Cash or Transfer only until it is paid.`);
     return;
   }
   if(crates > STATE.inventory.main) { showToast('⚠ Insufficient stock. Only '+STATE.inventory.main+' crates available.'); return; }
@@ -15111,7 +15111,7 @@ function populateSelects() {
         return;
       }
       autoPopulateOrderRef(this.value);
-      syncCreditChoices();
+      syncCreditChoices(true);
       runSaleErrorChecks();
     };
   }
@@ -24855,10 +24855,35 @@ function getCreditBlockedNamesCached() {
   const v = blLoad(CREDIT_BLOCKED_KEY, { names: [] });
   return Array.isArray(v.names) ? v.names : [];
 }
-function isCustomerCreditBlocked(customerName) {
-  if(!customerName) return false;
-  if(getCustomerBadDebtOutstanding(customerName) > 0) return true;
-  return getCreditBlockedNamesCached().includes(customerName);
+// Oct 11 2026 (second version, from the Owner's test): the block no longer waits for the
+// Owner to press Write Off. A customer is blocked from credit when EITHER
+//   (a) a written-off debt of theirs is not yet paid in full, OR
+//   (b) a credit balance of theirs is still unpaid 90 days or more after the sale date
+//       (the same 90 days as the write-off rule), written off or not.
+// Both lift by themselves when the money is paid. (b) is worked out from the sales and
+// payments each device already holds, and is remembered for a few seconds so that screens
+// that ask often do not slow the device down.
+let _overdueCreditCache = { at: 0, set: new Set() };
+function getOverdueCreditNames(force) {
+  const now = Date.now();
+  if(!force && now - _overdueCreditCache.at < 4000) return _overdueCreditCache.set;
+  const set = new Set();
+  try { getBadDebtEligibleSales().forEach(s => { if(s.customer) set.add(s.customer); }); } catch(e) { /* keep going with what we have */ }
+  _overdueCreditCache = { at: now, set };
+  return set;
+}
+function creditBlockReason(customerName) {
+  if(!customerName) return '';
+  if(getCustomerBadDebtOutstanding(customerName) > 0) return 'written_off';
+  if(getCreditBlockedNamesCached().includes(customerName)) return 'written_off';
+  if(getOverdueCreditNames().has(customerName)) return 'overdue';
+  return '';
+}
+function isCustomerCreditBlocked(customerName) { return !!creditBlockReason(customerName); }
+function creditBlockWhy(customerName) {
+  return creditBlockReason(customerName) === 'overdue'
+    ? 'a credit balance is still unpaid 90 days or more after the sale'
+    : 'an old debt that was written off is still unpaid';
 }
 async function syncCreditBlockedFromBackend() {
   const token = await erpGetAuthToken();
@@ -24879,8 +24904,9 @@ async function syncCreditBlockedFromBackend() {
 // the same check finds the customer clear and the choices come back by themselves.
 const CREDIT_PAY_KEYS = ['credit7', 'credit30', 'part'];
 let _creditChoiceBlockedFor = '';
-function syncCreditChoices() {
+function syncCreditChoices(force) {
   try {
+    if(force) getOverdueCreditNames(true);
     // Full Record Sale form
     const cust = document.getElementById('s-customer')?.value || '';
     const blocked = !!cust && cust !== '_new' && isCustomerCreditBlocked(cust);
@@ -24894,13 +24920,13 @@ function syncCreditChoices() {
       });
       if(blocked && CREDIT_PAY_KEYS.includes(sel.value)) {
         sel.value = '';
-        showToast(`🚫 No credit for ${cust} — an old debt that was written off is still unpaid. Choose Cash or Transfer.`);
+        showToast(`🚫 No credit for ${cust} — ${creditBlockWhy(cust)}. Choose Cash or Transfer.`);
       }
     }
     const note = document.getElementById('credit-block-note');
     if(note) {
       note.style.display = blocked ? 'block' : 'none';
-      note.textContent = blocked ? `🚫 Credit not available for ${cust} — an old written-off debt is still unpaid. Cash or Transfer only.` : '';
+      note.textContent = blocked ? `🚫 Credit not available for ${cust} — ${creditBlockWhy(cust)}. Cash or Transfer only.` : '';
     }
     // Quick Entry
     const qc = document.getElementById('qe-customer')?.value || '';
@@ -24915,7 +24941,7 @@ function syncCreditChoices() {
     const qNote = document.getElementById('qe-credit-note');
     if(qNote) {
       qNote.style.display = qBlocked ? 'block' : 'none';
-      qNote.textContent = qBlocked ? `🚫 Credit not available for ${qc} — an old written-off debt is still unpaid. Cash or Transfer only.` : '';
+      qNote.textContent = qBlocked ? `🚫 Credit not available for ${qc} — ${creditBlockWhy(qc)}. Cash or Transfer only.` : '';
     }
   } catch(e) { /* never let this cosmetic check break a sale screen */ }
 }
@@ -25190,7 +25216,7 @@ function renderBadDebtPanel() {
      <table class="data-table"><thead><tr><th>Customer</th><th>Sale date</th><th>Age</th><th>Unpaid</th><th>Rep commission</th><th></th></tr></thead><tbody>${dueRows}</tbody></table>
      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin:16px 0 6px">Bad debt register</div>
      <table class="data-table"><thead><tr><th>Customer</th><th>Written off</th><th>Amount</th><th>Recovered</th><th>Still owed</th><th>Status</th><th></th></tr></thead><tbody>${regRows}</tbody></table>
-     <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Rules: Owner only, PIN required · rep keeps ${BAD_DEBT_REP_KEEP_PCT}% of the commission on the unpaid part, the rest is held back and given back as the customer pays · no credit for a customer until the old debt is fully paid.</div>`;
+     <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Rules: Owner only, PIN required · rep keeps ${BAD_DEBT_REP_KEEP_PCT}% of the commission on the unpaid part, the rest is held back and given back as the customer pays · no credit while a balance is unpaid 90+ days or a written-off debt is unpaid.</div>`;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -26202,10 +26228,11 @@ function buildOrderCard(o, queueNum) {
         <option value="" ${!o.agreedPaymentTerms ? 'selected' : ''}>— Select —</option>
         <option value="cash" ${o.agreedPaymentTerms==='cash' ? 'selected' : ''}>Paid — Cash</option>
         <option value="transfer" ${o.agreedPaymentTerms==='transfer' ? 'selected' : ''}>Paid — Transfer</option>
-        <option value="credit7" ${o.agreedPaymentTerms==='credit7' ? 'selected' : ''}>Credit (7 days)</option>
-        <option value="credit30" ${o.agreedPaymentTerms==='credit30' ? 'selected' : ''}>Credit (30 days)</option>
-        <option value="part" ${o.agreedPaymentTerms==='part' ? 'selected' : ''}>Part Payment</option>
+        <option value="credit7" ${o.agreedPaymentTerms==='credit7' ? 'selected' : ''} ${isCustomerCreditBlocked(o.customerName) ? 'disabled' : ''}>Credit (7 days)${isCustomerCreditBlocked(o.customerName) ? ' — not available' : ''}</option>
+        <option value="credit30" ${o.agreedPaymentTerms==='credit30' ? 'selected' : ''} ${isCustomerCreditBlocked(o.customerName) ? 'disabled' : ''}>Credit (30 days)${isCustomerCreditBlocked(o.customerName) ? ' — not available' : ''}</option>
+        <option value="part" ${o.agreedPaymentTerms==='part' ? 'selected' : ''} ${isCustomerCreditBlocked(o.customerName) ? 'disabled' : ''}>Part Payment${isCustomerCreditBlocked(o.customerName) ? ' — not available' : ''}</option>
       </select>
+      ${isCustomerCreditBlocked(o.customerName) ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--red);flex-basis:100%">🚫 Credit not available for ${escapeHtml(o.customerName)} — ${creditBlockWhy(o.customerName)}. Choose Cash or Transfer${['credit7','credit30','part'].includes(o.agreedPaymentTerms) ? ' (the terms currently set are credit and will be refused at Send to Sales Log)' : ''}.</span>` : ''}
       <span style="font-family:'DM Mono',monospace;font-size:8px;color:var(--dust)">
         set here, not the customer's portal selection — carries into Record Sale
       </span>
@@ -33924,6 +33951,11 @@ function setOrderPaymentTerms(orderRef, value) {
   const orders = loadOrders();
   const o = orders.find(x => x.ref === orderRef);
   if(!o) { showToast('⚠ Order not found.'); return; }
+  if(['credit7','credit30','part'].includes(value) && isCustomerCreditBlocked(o.customerName)) {
+    showToast(`🚫 No credit for ${o.customerName} — ${creditBlockWhy(o.customerName)}. Choose Cash or Transfer.`);
+    renderOrders();
+    return;
+  }
   o.agreedPaymentTerms = value || null;
   saveOrders(orders);
   renderOrders();
