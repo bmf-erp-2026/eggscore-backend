@@ -3232,6 +3232,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof syncBlocklistFromBackend === 'function') await syncBlocklistFromBackend();
     if(typeof syncLargeFirstTimersFromBackend === 'function') await syncLargeFirstTimersFromBackend();
     if(typeof ownerRecPull === 'function') await ownerRecPull();
+    if(typeof syncCreditBlockedFromBackend === 'function') await syncCreditBlockedFromBackend();
     // Oct 10 2026 — a "Mark Paid" done on another device used to appear here
     // only after a full page reload (this sync ran at page load and nowhere
     // else). Now it arrives with the same 75-second refresh.
@@ -4318,6 +4319,86 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="closeModal('modal-write-off')">Cancel</button>
       <button class="btn btn-danger" onclick="confirmWriteOff()">💀 Confirm Write-Off</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Bad Debt Write-Off Modal (Owner only, PIN) -->
+<div class="modal-overlay" id="modal-bad-debt">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-hdr">
+      <div class="modal-title">Write Off Bad Debt</div>
+      <button class="modal-close" onclick="closeModal('modal-bad-debt')">✕</button>
+    </div>
+    <div class="alert-banner crit" style="margin-bottom:14px">
+      💀 This removes the unpaid balance from the open credit list and records it as a loss. The sale itself is kept. The customer gets no further credit until the debt is paid in full. This cannot be undone, but any money received later can be recorded against it.
+    </div>
+    <input type="hidden" id="bd-sale-id"/>
+    <div id="bd-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.8"></div>
+    <div id="bd-commission" class="alert-banner warn" style="margin-bottom:12px"></div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Reason <span class="req">*</span></label>
+      <select class="form-select" id="bd-reason">
+        <option value="unreachable">Customer cannot be reached</option>
+        <option value="refuses">Customer refuses to pay</option>
+        <option value="closed">Customer business closed / insolvent</option>
+        <option value="shortfall">Part-paid, the rest was never paid</option>
+        <option value="other">Other (see notes)</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">What was done to collect it? <span class="req">*</span></label>
+      <textarea class="form-textarea" id="bd-notes" placeholder="Calls, visits, promises made and dates…" style="min-height:60px"></textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Owner PIN <span class="req">*</span></label>
+      <input class="form-input" type="password" id="bd-pin" placeholder="Enter owner PIN" maxlength="8"/>
+    </div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-bad-debt')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmBadDebt()">💀 Confirm Write-Off</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bad Debt Recovery Modal -->
+<div class="modal-overlay" id="modal-bad-debt-recovery">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-hdr">
+      <div class="modal-title">Record Recovery</div>
+      <button class="modal-close" onclick="closeModal('modal-bad-debt-recovery')">✕</button>
+    </div>
+    <input type="hidden" id="bdr-id"/>
+    <div id="bdr-summary" style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.8"></div>
+    <div class="form-row cols-2" style="margin-bottom:12px">
+      <div class="form-group">
+        <label class="form-label">Amount received (₦) <span class="req">*</span></label>
+        <input class="form-input" type="number" id="bdr-amount"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">How</label>
+        <select class="form-select" id="bdr-method">
+          <option value="transfer">Transfer</option>
+          <option value="cash">Cash</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row cols-2" style="margin-bottom:12px">
+      <div class="form-group">
+        <label class="form-label">Date received</label>
+        <input class="form-input" type="date" id="bdr-date"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Note (optional)</label>
+        <input class="form-input" id="bdr-note" placeholder="e.g. Part payment after visit"/>
+      </div>
+    </div>
+    <div class="alert-banner warn" style="margin-bottom:16px"><div>The rep's held-back commission is given back in proportion to the amount recovered. Once the full amount is recovered, the customer can buy on credit again.</div></div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-bad-debt-recovery')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmBadDebtRecovery()">Save Recovery</button>
     </div>
   </div>
 </div>
@@ -6682,6 +6763,12 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel">
     <div class="panel-hdr"><div class="panel-title">💸 Pending Cash Refunds</div><div class="panel-tag">overpayments resolved as "cash refund" — not yet marked sent</div></div>
     <div class="panel-body panel-scroll" id="pending-refunds-panel"></div>
+  </div>
+
+  <!-- Bad debt: credit balances unpaid after 90 days (Owner only) -->
+  <div class="panel" id="bad-debt-wrap">
+    <div class="panel-hdr"><div class="panel-title">💀 Bad Debt</div><div class="panel-tag" id="bad-debt-tag">Owner only</div></div>
+    <div class="panel-body" id="bad-debt-panel"></div>
   </div>
 
   <div class="panel">
@@ -11056,6 +11143,8 @@ const DEFAULT_STATE = {
   commPaidMTD: {}, // { 'RepName': { 'YYYY-MM': amount } } — per-month paid tracking
   commDisputes: [], // { id, repName, amount, reason, saleRef, notes, status, raisedAt, resolvedAt, resolvedBy, outcome, adjustedAmount, resolutionNotes }
   writeOffs: [], // { id, batchId, supplier, qty, costPerCrate, valueLost, reason, date, recordedBy }
+  badDebts: [], // Oct 11 2026 — written-off credit balances, see BAD DEBT block
+  badDebtRecoveries: [], // money recovered later against a bad debt
   creditOverrideLog: [], // { id, customerName, reason, exposure, creditLimit, overriddenAt, overriddenBy: 'owner' }
   ownerPin: null,         // DEPRECATED — migrated to ownerPinHash
   ownerPinHash: null,     // SHA-256 hash of PIN — never stores plaintext
@@ -11603,7 +11692,10 @@ function getRepMTD(repName) {
 }
 
 function getRepCommMTD(repName) {
-  return getMonthSales().filter(s => s.rep === repName).reduce((a,s) => a + s.comm, 0);
+  // Oct 11 2026 — plus/minus any commission held back from (or given back to) this
+  // rep because of written-off bad debt. See getRepBadDebtAdjustments().
+  return getMonthSales().filter(s => s.rep === repName).reduce((a,s) => a + s.comm, 0)
+       + getRepBadDebtAdjustment(repName, badDebtMonthNow());
 }
 
 // ── Multi-period: get sales for a specific YYYY-MM month ──
@@ -11626,7 +11718,8 @@ function getLastNMonths(n) {
 function getRepCommByMonth(repName, yearMonth) {
   return getSalesByMonth(yearMonth)
     .filter(s => s.rep === repName)
-    .reduce((a,s) => a + s.comm, 0);
+    .reduce((a,s) => a + s.comm, 0)
+    + getRepBadDebtAdjustment(repName, yearMonth);   // Oct 11 2026 — bad-debt holdback / give-back
 }
 
 // ── Per-rep crates for a specific month ──
@@ -14528,6 +14621,12 @@ function handleSave() {
   // order-linked sales). Sep 1 2026 — root cause of receipts showing
   // "SETTLED" for orders that were actually on credit/part payment.
   if(!payment) { showToast('⚠ Select the real Payment Status — no default is assumed.'); return; }
+  // Oct 11 2026 — Owner's rule: a customer with written-off debt still unpaid gets
+  // no credit of any kind (cash or transfer only) until it is paid in full.
+  if((payment === 'credit7' || payment === 'credit30' || payment === 'part') && isCustomerCreditBlocked(customer)) {
+    showToast(`🚫 No credit for ${customer} — an old debt that was written off is still unpaid. Cash or transfer only until the Owner records it as paid.`);
+    return;
+  }
   if(crates > STATE.inventory.main) { showToast('⚠ Insufficient stock. Only '+STATE.inventory.main+' crates available.'); return; }
 
   // ── Stop-loss gate — real-currency exposure from a floor-breaching
@@ -17728,7 +17827,7 @@ function renderCommission() {
          <button class="btn btn-danger" style="font-size:9px;padding:3px 8px;margin-left:4px"
            onclick="openDisputeModal('${r.name}',${comm})">⚑ Dispute</button>`;
     return `<tr>
-      <td data-label="Rep">${r.name}</td>
+      <td data-label="Rep">${r.name}${(() => { const bh = getRepBadDebtStillHeld(r.name); return bh > 0 ? `<div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--amber);margin-top:2px" title="Commission held back because of unpaid bad debt; given back as the customer pays">⚠ ${fmt(bh)} held back (bad debt)</div>` : ''; })()}</td>
       <td data-label="Zone">${r.zone}</td>
       <td data-label="MTD Crates" class="mono">${crates}</td>
       <td data-label="Tier"><span class="chip chip-blue">T${tier}</span></td>
@@ -18584,6 +18683,7 @@ function renderCredit() {
   renderSettledTransactions();
   renderCreditOverrideLog('credit-override-log', null, 25);
   renderPendingRefunds();
+  renderBadDebtPanel();   // Oct 11 2026
 }
 
 // The panel the toast message has been promising all along ("mark executed
@@ -19343,7 +19443,7 @@ function computeNetProfitForPeriod(from, to) {
   const totalDepreciation = round2(pnl.fixedAssets.reduce((sum,a) => sum + getAssetDepreciationForPeriod(a, from, to), 0));
   const totalCustom = round2(pnl.customCostElements.reduce((sum,c) => sum + getCustomElementValueForPeriod(c, from, to), 0));
   const grossProfit = round2(totalRevenue - cogs);
-  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom);
+  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom + getBadDebtPnLInPeriod(from, to).net);   // Oct 11 2026 bad debt
   return round2(grossProfit - totalOperatingCosts);
 }
 
@@ -19460,7 +19560,8 @@ function renderPnL() {
   totalCustom = round2(totalCustom);
 
   // ── Result ──
-  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom);
+  const badDebtPnl = getBadDebtPnLInPeriod(from, to);   // Oct 11 2026
+  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom + badDebtPnl.net);
   const netProfit = round2(grossProfit - totalOperatingCosts);
   const resultEl = document.getElementById('pnl-result-section');
   if(resultEl) {
@@ -19482,6 +19583,11 @@ function renderPnL() {
         <tr><td>${metricHover('− Commission Paid','COMMISSION COMPOSITION — BY REP', commRows, 'Total Commission', fmt(commission))}</td><td class="mono">₦${commission.toLocaleString()}</td></tr>
         <tr><td>${metricHover('− Depreciation','DEPRECIATION COMPOSITION — BY ASSET', depRows, 'Total Depreciation', fmt(totalDepreciation))}</td><td class="mono">₦${totalDepreciation.toLocaleString()}</td></tr>
         <tr><td>${metricHover('− Other Cost Elements','OTHER COSTS COMPOSITION — BY LINE ITEM', customRows, 'Total Other Costs', fmt(totalCustom))}</td><td class="mono">₦${totalCustom.toLocaleString()}</td></tr>
+        <tr><td>${metricHover('− Bad Debt Loss (net)','BAD DEBT LOSS — THIS PERIOD', [
+          ['Written off ('+badDebtPnl.writtenCount+')', fmt(badDebtPnl.writtenTotal)],
+          ['− Recovered from customers', '−'+fmt(badDebtPnl.recoveredTotal)],
+          ['− Commission held back from reps', '−'+fmt(badDebtPnl.heldNet)],
+        ], 'Net bad debt loss', fmt(badDebtPnl.net))}</td><td class="mono">₦${badDebtPnl.net.toLocaleString()}</td></tr>
       </tbody></table>
       <div style="margin-top:14px;padding:14px 16px;background:var(--raised);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--cream)">${metricHover('Net Profit','NET PROFIT COMPOSITION', [
@@ -19489,6 +19595,7 @@ function renderPnL() {
           ['− Commission', '−'+fmt(commission)],
           ['− Depreciation', '−'+fmt(totalDepreciation)],
           ['− Other Costs', '−'+fmt(totalCustom)],
+          ['− Bad Debt Loss (net)', '−'+fmt(badDebtPnl.net)],
         ], 'Net Profit', fmt(netProfit))}</span>
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;color:${netProfit>=0?'var(--lime)':'var(--red)'}">₦${netProfit.toLocaleString()}</span>
       </div>
@@ -23182,6 +23289,7 @@ function getOutstandingCreditSales(customerName) {
     (!customerName || s.customer === customerName) &&
     (s.payment === 'credit7' || s.payment === 'credit30' || s.payment === 'part') &&
     !s.settledAt &&
+    !getBadDebtForSale(s) &&   // Oct 11 2026 — a written-off sale is no longer an open credit balance (see Bad Debt)
     getRemainingBalance(s) > 0
   );
 }
@@ -24679,6 +24787,360 @@ function syncPortalPersistenceFromBackend() {
 }
 
 /* ═══════════════════════════════════════════════════════
+   OCT 11 2026 — BAD DEBT (credit balances unpaid after 90 days)
+   The Owner's rules:
+     * A credit sale that is still partly or wholly unpaid 90 days after the sale
+       date may be written off. Only the OWNER can do it, with the PIN.
+     * The written-off amount is the unpaid balance at that moment (the paid
+       part of the sale is untouched).
+     * The rep keeps 50% of the commission that belongs to the UNPAID part.
+       The other 50% is held back: it is netted off the rep's next payouts
+       (the rep has usually been paid in full already) and is given back,
+       in proportion, as the customer pays the debt.
+     * Until the old debt is paid in full the customer gets NO credit
+       (cash or transfer only).
+   Records (both Owner-only on the server, saved once, never edited):
+     STATE.badDebts           one per written-off sale        id  bd<digits>
+     STATE.badDebtRecoveries  money received later against it id  bdr<digits>
+   The sale itself is never edited or deleted. It simply stops counting as an
+   open credit balance (getOutstandingCreditSales skips it).
+═══════════════════════════════════════════════════════ */
+const BAD_DEBT_DAYS = 90;
+const BAD_DEBT_REP_KEEP_PCT = 50;
+
+function ensureBadDebt() {
+  if(!Array.isArray(STATE.badDebts)) STATE.badDebts = [];
+  if(!Array.isArray(STATE.badDebtRecoveries)) STATE.badDebtRecoveries = [];
+}
+function badDebtToday() { return new Date().toISOString().split('T')[0]; }
+function badDebtMonthNow() { return new Date().toISOString().slice(0, 7); }
+function badDebtNextMonth(m) {
+  let y = parseInt(m.slice(0, 4), 10), mo = parseInt(m.slice(5, 7), 10) + 1;
+  if(mo > 12) { mo = 1; y++; }
+  return y + '-' + String(mo).padStart(2, '0');
+}
+function badDebtDaysOld(s) {
+  const t = Date.parse((s && s.date ? String(s.date).slice(0, 10) : '') + 'T00:00:00Z');
+  if(!Number.isFinite(t)) return 0;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
+function getBadDebtForSale(s) {
+  if(!s) return null;
+  ensureBadDebt();
+  const ref = s.inv || s.id;
+  return STATE.badDebts.find(b => b.saleRef === ref) || null;
+}
+function getBadDebtRecovered(bd) {
+  ensureBadDebt();
+  return round2(STATE.badDebtRecoveries.filter(r => r.badDebtId === bd.id).reduce((a, r) => a + (Number(r.amount) || 0), 0));
+}
+function getBadDebtOutstanding(bd) {
+  return Math.max(0, round2((Number(bd.amount) || 0) - getBadDebtRecovered(bd)));
+}
+function getCustomerBadDebtOutstanding(customerName) {
+  ensureBadDebt();
+  return round2(STATE.badDebts.filter(b => b.customerName === customerName).reduce((a, b) => a + getBadDebtOutstanding(b), 0));
+}
+
+// ── "No credit until the old debt is paid" ──
+// The Owner's own browser knows from its list. A rep's browser cannot read the
+// Owner-only list, so it keeps a names-only copy fetched from the server
+// (GET /owner-records/credit-blocked/names).
+const CREDIT_BLOCKED_KEY = 'feds_credit_blocked';
+function getCreditBlockedNamesCached() {
+  const v = blLoad(CREDIT_BLOCKED_KEY, { names: [] });
+  return Array.isArray(v.names) ? v.names : [];
+}
+function isCustomerCreditBlocked(customerName) {
+  if(!customerName) return false;
+  if(getCustomerBadDebtOutstanding(customerName) > 0) return true;
+  return getCreditBlockedNamesCached().includes(customerName);
+}
+async function syncCreditBlockedFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/owner-records/credit-blocked/names`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const j = await resp.json();
+    if(j && Array.isArray(j.names)) blSave(CREDIT_BLOCKED_KEY, { names: j.names, at: new Date().toISOString() });
+  } catch(networkErr) { /* offline — keep the last list */ }
+}
+
+// ── Which credit balances may be written off now ──
+function getBadDebtEligibleSales() {
+  return getOutstandingCreditSales()
+    .filter(s => !s.fullyReversed && badDebtDaysOld(s) >= BAD_DEBT_DAYS)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+// Commission that belongs to the unpaid part of a sale, and how it splits.
+function badDebtCommissionSplit(s, unpaid) {
+  const gross = Number(s.gross) || 0, comm = Number(s.comm) || 0;
+  if(gross <= 0 || comm <= 0 || !(unpaid > 0)) return { commOnUnpaid: 0, held: 0, kept: 0 };
+  const commOnUnpaid = round2(comm * Math.min(1, unpaid / gross));
+  const held = round2(commOnUnpaid * (100 - BAD_DEBT_REP_KEEP_PCT) / 100);
+  return { commOnUnpaid, held, kept: round2(commOnUnpaid - held) };
+}
+
+// ── Commission held back, and given back, per rep ──
+function getRepBadDebtEvents(repName) {
+  ensureBadDebt();
+  const ev = [];
+  STATE.badDebts.filter(b => b.repName === repName && Number(b.commHeld) > 0 && Number(b.amount) > 0).forEach(b => {
+    ev.push({ month: String(b.writtenOffDate).slice(0, 7), date: String(b.writtenOffDate), claw: Number(b.commHeld), rel: 0 });
+    STATE.badDebtRecoveries.filter(r => r.badDebtId === b.id).forEach(r => {
+      const rel = round2(Number(b.commHeld) * (Number(r.amount) || 0) / Number(b.amount));
+      ev.push({ month: String(r.date).slice(0, 7), date: String(r.date), claw: 0, rel });
+    });
+  });
+  return ev;
+}
+function badDebtRawCommByMonth(repName, ym) {
+  return STATE.sales.filter(s => s.rep === repName && s.date && s.date.startsWith(ym)).reduce((a, s) => a + (s.comm || 0), 0);
+}
+// month -> amount to ADD to that month's earned commission (negative = held back).
+// The held-back amount is taken from whatever is still unpaid in a month; if the
+// month is already paid in full it carries to the next month, and so on, until
+// it is fully recovered from the rep. Given-back commission is added to the month
+// it is released in (after first cancelling anything still being held back).
+function getRepBadDebtAdjustments(repName) {
+  const ev = getRepBadDebtEvents(repName);
+  if(!ev.length) return {};
+  const first = ev.map(e => e.month).sort()[0];
+  const cur = badDebtMonthNow();
+  const out = {};
+  let owed = 0, credit = 0, m = first;
+  for(let i = 0; i < 600 && m <= cur; i++) {
+    const claw = ev.filter(e => e.month === m).reduce((a, e) => a + e.claw, 0);
+    const rel  = ev.filter(e => e.month === m).reduce((a, e) => a + e.rel, 0);
+    owed += claw;
+    const cancel = Math.min(owed, rel);
+    owed -= cancel; credit += rel - cancel;
+    const earned = badDebtRawCommByMonth(repName, m);
+    const paid = STATE.commPaidMTD?.[repName]?.[m] || 0;
+    const available = Math.max(0, earned + credit - paid);
+    const recoup = Math.min(owed, available);
+    owed -= recoup;
+    out[m] = round2(credit - recoup);
+    credit = 0;
+    m = badDebtNextMonth(m);
+  }
+  return out;
+}
+function getRepBadDebtAdjustment(repName, ym) {
+  return getRepBadDebtAdjustments(repName)[ym] || 0;
+}
+// Still to be taken from this rep's future payouts.
+function getRepBadDebtStillHeld(repName) {
+  ensureBadDebt();
+  let held = 0;
+  STATE.badDebts.filter(b => b.repName === repName).forEach(b => {
+    const got = getBadDebtRecovered(b);
+    held += Number(b.commHeld || 0) * Math.max(0, 1 - (Number(b.amount) ? got / Number(b.amount) : 1));
+  });
+  return round2(held);
+}
+
+// ── Profit figures: the loss, net of money recovered and commission held back ──
+function getBadDebtPnLInPeriod(from, to) {
+  ensureBadDebt();
+  const inP = d => d && String(d) >= from && String(d) <= to;
+  const written = STATE.badDebts.filter(b => inP(b.writtenOffDate));
+  const writtenTotal = round2(written.reduce((a, b) => a + (Number(b.amount) || 0), 0));
+  const recovered = STATE.badDebtRecoveries.filter(r => inP(r.date));
+  const recoveredTotal = round2(recovered.reduce((a, r) => a + (Number(r.amount) || 0), 0));
+  let heldNet = 0;
+  STATE.badDebts.forEach(b => {
+    if(inP(b.writtenOffDate)) heldNet += Number(b.commHeld) || 0;
+    STATE.badDebtRecoveries.filter(r => r.badDebtId === b.id && inP(r.date)).forEach(r => {
+      heldNet -= round2((Number(b.commHeld) || 0) * (Number(r.amount) || 0) / (Number(b.amount) || 1));
+    });
+  });
+  heldNet = round2(heldNet);
+  return { writtenTotal, recoveredTotal, heldNet, net: round2(writtenTotal - recoveredTotal - heldNet), writtenCount: written.length };
+}
+
+// ── Write-off: open and confirm ──
+function openBadDebtModal(saleId) {
+  if(ERP_ROLE !== 'owner') { showToast('⚠ Only the Owner can write off a debt.'); return; }
+  const s = STATE.sales.find(x => x.id === saleId);
+  if(!s) { showToast('⚠ Sale not found.'); return; }
+  if(getBadDebtForSale(s)) { showToast('⚠ That sale has already been written off.'); return; }
+  const days = badDebtDaysOld(s);
+  if(days < BAD_DEBT_DAYS) { showToast(`⚠ Not yet — a debt can be written off only after ${BAD_DEBT_DAYS} days (this one is ${days} days old).`); return; }
+  const unpaid = getRemainingBalance(s);
+  if(unpaid <= 0) { showToast('⚠ Nothing is owed on this sale.'); return; }
+  const split = badDebtCommissionSplit(s, unpaid);
+  document.getElementById('bd-sale-id').value = saleId;
+  document.getElementById('bd-reason').value = 'unreachable';
+  document.getElementById('bd-notes').value = '';
+  document.getElementById('bd-pin').value = '';
+  document.getElementById('bd-summary').innerHTML =
+    `Customer: <strong style="color:var(--cream)">${escapeHtml(s.customer)}</strong><br>` +
+    `Sale: ${escapeHtml(s.inv || s.id)} · ${escapeHtml(String(s.date))} · <strong>${days} days</strong> ago · ${s.crates} crates<br>` +
+    `Sale value: ${fmt(s.gross)} · Already paid: ${fmt(round2((s.gross || 0) - unpaid))}<br>` +
+    `<strong style="color:var(--red)">Amount to write off: ${fmt(unpaid)}</strong>`;
+  document.getElementById('bd-commission').innerHTML = '<div>' + ((s.rep && s.rep !== 'Direct' && split.commOnUnpaid > 0)
+    ? `Rep <strong>${escapeHtml(s.rep)}</strong>: commission on the unpaid part is ${fmt(split.commOnUnpaid)}. ` +
+      `The rep keeps <strong>${fmt(split.kept)}</strong> (${BAD_DEBT_REP_KEEP_PCT}%). ` +
+      `<strong>${fmt(split.held)}</strong> is held back from the rep's next payouts and given back as the customer pays.`
+    : 'No rep commission is affected by this write-off.') + '</div>';
+  openModal('modal-bad-debt');
+}
+
+async function confirmBadDebt() {
+  if(ERP_ROLE !== 'owner') { showToast('⚠ Only the Owner can write off a debt.'); return; }
+  const saleId = document.getElementById('bd-sale-id').value;
+  const s = STATE.sales.find(x => x.id === saleId);
+  if(!s) return;
+  if(getBadDebtForSale(s)) { showToast('⚠ That sale has already been written off.'); return; }
+  const days = badDebtDaysOld(s);
+  if(days < BAD_DEBT_DAYS) { showToast(`⚠ A debt can be written off only after ${BAD_DEBT_DAYS} days.`); return; }
+  const unpaid = getRemainingBalance(s);
+  if(unpaid <= 0) { showToast('⚠ Nothing is owed on this sale.'); return; }
+  const reason = document.getElementById('bd-reason').value;
+  const notes = document.getElementById('bd-notes').value.trim();
+  if(!notes) { showToast('⚠ A written reason is required — say what was tried to collect the money.'); return; }
+  const pin = document.getElementById('bd-pin').value;
+  if(!pin) { showToast('⚠ Enter the Owner PIN to approve this write-off.'); return; }
+  const result = await verifyPin(pin);
+  if(!result.ok) {
+    if(result.reason === 'locked' || result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
+    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining !== 1 ? 's' : ''} remaining.`);
+    return;
+  }
+  const split = (s.rep && s.rep !== 'Direct') ? badDebtCommissionSplit(s, unpaid) : { commOnUnpaid: 0, held: 0, kept: 0 };
+  ensureBadDebt();
+  const rec = {
+    id: 'bd' + Date.now(),
+    saleRef: s.inv || s.id, customerName: s.customer, repName: s.rep || '',
+    saleDate: String(s.date).slice(0, 10), writtenOffDate: badDebtToday(), daysOverdue: days,
+    saleGross: s.gross || 0, paidBeforeWriteOff: round2((s.gross || 0) - unpaid), amount: unpaid,
+    commOnUnpaid: split.commOnUnpaid, commHeld: split.held, commKept: split.kept, repKeepPct: BAD_DEBT_REP_KEEP_PCT,
+    reason, notes, approvedBy: 'Owner (PIN-verified)', writtenOffAt: new Date().toISOString(),
+  };
+  STATE.badDebts.unshift(rec);
+  saveState();
+  closeModal('modal-bad-debt');
+  logCrit('credit',
+    `BAD DEBT WRITTEN OFF — ${s.customer} · ${fmt(unpaid)} · ${days} days`,
+    `Ref: ${rec.saleRef} · Reason: ${reason} — ${notes} · Rep commission held back: ${fmt(split.held)} · Credit blocked until paid`);
+  updateAllKPIs();
+  if(window.currentModule === 'credit') renderCredit();
+  if(window.currentModule === 'commission') renderCommission();
+  showToast(`💀 ${fmt(unpaid)} written off for ${s.customer}. No further credit until it is paid.`);
+}
+
+// ── Recovery: money received later ──
+function openBadDebtRecoveryModal(bdId) {
+  if(ERP_ROLE !== 'owner') { showToast('⚠ Only the Owner can record a recovery.'); return; }
+  ensureBadDebt();
+  const bd = STATE.badDebts.find(b => b.id === bdId);
+  if(!bd) { showToast('⚠ Bad debt not found.'); return; }
+  const out = getBadDebtOutstanding(bd);
+  if(out <= 0) { showToast('✓ This debt is already fully recovered.'); return; }
+  document.getElementById('bdr-id').value = bdId;
+  document.getElementById('bdr-amount').value = out;
+  document.getElementById('bdr-method').value = 'transfer';
+  document.getElementById('bdr-date').value = badDebtToday();
+  document.getElementById('bdr-note').value = '';
+  document.getElementById('bdr-summary').innerHTML =
+    `Customer: <strong style="color:var(--cream)">${escapeHtml(bd.customerName)}</strong> · Sale ${escapeHtml(bd.saleRef)}<br>` +
+    `Written off: ${fmt(bd.amount)} · Recovered so far: ${fmt(getBadDebtRecovered(bd))} · <strong style="color:var(--red)">Still owed: ${fmt(out)}</strong>`;
+  openModal('modal-bad-debt-recovery');
+}
+function confirmBadDebtRecovery() {
+  if(ERP_ROLE !== 'owner') { showToast('⚠ Only the Owner can record a recovery.'); return; }
+  ensureBadDebt();
+  const bd = STATE.badDebts.find(b => b.id === document.getElementById('bdr-id').value);
+  if(!bd) return;
+  const out = getBadDebtOutstanding(bd);
+  const amount = round2(parseFloat(document.getElementById('bdr-amount').value) || 0);
+  const method = document.getElementById('bdr-method').value;
+  const date = document.getElementById('bdr-date').value || badDebtToday();
+  const note = document.getElementById('bdr-note').value.trim();
+  if(amount <= 0) { showToast('⚠ Enter the amount received.'); return; }
+  if(amount > out + 0.5) { showToast(`⚠ That is more than the ${fmt(out)} still owed.`); return; }
+  const rec = {
+    id: 'bdr' + Date.now(), badDebtId: bd.id, customerName: bd.customerName,
+    amount, method, date, note, recordedBy: 'Owner', recordedAt: new Date().toISOString(),
+  };
+  STATE.badDebtRecoveries.unshift(rec);
+  saveState();
+  closeModal('modal-bad-debt-recovery');
+  const given = round2(Number(bd.commHeld || 0) * amount / Number(bd.amount));
+  const cleared = getBadDebtOutstanding(bd) <= 0;
+  logOk('credit',
+    `Bad debt recovery — ${bd.customerName} · ${fmt(amount)} received (${method})`,
+    `Ref: ${bd.saleRef} · Still owed: ${fmt(getBadDebtOutstanding(bd))} · Commission given back to ${bd.repName || 'rep'}: ${fmt(given)}${cleared ? ' · FULLY RECOVERED' : ''}`);
+  updateAllKPIs();
+  if(window.currentModule === 'credit') renderCredit();
+  if(window.currentModule === 'commission') renderCommission();
+  showToast(cleared
+    ? `✓ ${bd.customerName} has paid in full — credit can be extended again.`
+    : `✓ ${fmt(amount)} recorded. ${fmt(getBadDebtOutstanding(bd))} still owed.`);
+}
+
+// ── The Bad Debt panel on the Credit & Debt page (Owner only) ──
+function renderBadDebtPanel() {
+  const el = document.getElementById('bad-debt-panel');
+  if(!el) return;
+  const wrap = document.getElementById('bad-debt-wrap');
+  if(ERP_ROLE !== 'owner') { if(wrap) wrap.style.display = 'none'; return; }
+  if(wrap) wrap.style.display = '';
+  ensureBadDebt();
+  const eligible = getBadDebtEligibleSales();
+  const totW = round2(STATE.badDebts.reduce((a, b) => a + (Number(b.amount) || 0), 0));
+  const totR = round2(STATE.badDebtRecoveries.reduce((a, r) => a + (Number(r.amount) || 0), 0));
+  const totO = Math.max(0, round2(totW - totR));
+  const tag = document.getElementById('bad-debt-tag');
+  if(tag) tag.textContent = eligible.length ? `${eligible.length} due for write-off` : `${STATE.badDebts.length} written off`;
+
+  const kpi = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px">
+    <div style="background:var(--raised);border-radius:8px;padding:10px 12px"><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">WRITTEN OFF</div><div class="mono" style="color:var(--red);font-size:15px">${fmt(totW)}</div></div>
+    <div style="background:var(--raised);border-radius:8px;padding:10px 12px"><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">RECOVERED</div><div class="mono" style="color:var(--lime);font-size:15px">${fmt(totR)}</div></div>
+    <div style="background:var(--raised);border-radius:8px;padding:10px 12px"><div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">STILL OWED</div><div class="mono" style="color:var(--amber);font-size:15px">${fmt(totO)}</div></div>
+  </div>`;
+
+  const dueRows = eligible.length ? eligible.map(s => {
+    const unpaid = getRemainingBalance(s);
+    const sp = (s.rep && s.rep !== 'Direct') ? badDebtCommissionSplit(s, unpaid) : { held: 0 };
+    return `<tr>
+      <td>${escapeHtml(s.customer)}</td>
+      <td class="mono">${escapeHtml(String(s.date))}</td>
+      <td class="mono" style="color:var(--red)">${badDebtDaysOld(s)} days</td>
+      <td class="mono">${fmt(unpaid)}</td>
+      <td class="mono">${s.rep && s.rep !== 'Direct' ? escapeHtml(s.rep) + ' · hold ' + fmt(sp.held) : '—'}</td>
+      <td><button class="btn btn-danger" style="font-size:9px;padding:3px 10px" onclick="openBadDebtModal('${s.id}')">💀 Write Off</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">No credit balance is 90 days old or more.</td></tr>`;
+
+  const regRows = STATE.badDebts.length ? STATE.badDebts.map(b => {
+    const got = getBadDebtRecovered(b), out = getBadDebtOutstanding(b);
+    const chip = out <= 0 ? '<span class="chip chip-lime">RECOVERED</span>' : got > 0 ? '<span class="chip chip-amber">PART RECOVERED</span>' : '<span class="chip chip-red">OPEN</span>';
+    const btn = out > 0 ? `<button class="btn btn-ghost" style="font-size:9px;padding:3px 10px" onclick="openBadDebtRecoveryModal('${b.id}')">＋ Record Recovery</button>` : '';
+    return `<tr>
+      <td>${escapeHtml(b.customerName)}<div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--mist)">${escapeHtml(b.saleRef)}</div></td>
+      <td class="mono">${escapeHtml(String(b.writtenOffDate))}</td>
+      <td class="mono">${fmt(b.amount)}</td>
+      <td class="mono" style="color:var(--lime)">${fmt(got)}</td>
+      <td class="mono" style="color:var(--amber)">${fmt(out)}</td>
+      <td>${chip}</td>
+      <td>${btn}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Nothing written off yet.</td></tr>`;
+
+  el.innerHTML = kpi +
+    `<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin:4px 0 6px">Due for write-off — unpaid ${BAD_DEBT_DAYS} days or more after the sale</div>
+     <table class="data-table"><thead><tr><th>Customer</th><th>Sale date</th><th>Age</th><th>Unpaid</th><th>Rep commission</th><th></th></tr></thead><tbody>${dueRows}</tbody></table>
+     <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:var(--cream);margin:16px 0 6px">Bad debt register</div>
+     <table class="data-table"><thead><tr><th>Customer</th><th>Written off</th><th>Amount</th><th>Recovered</th><th>Still owed</th><th>Status</th><th></th></tr></thead><tbody>${regRows}</tbody></table>
+     <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">Rules: Owner only, PIN required · rep keeps ${BAD_DEBT_REP_KEEP_PCT}% of the commission on the unpaid part, the rest is held back and given back as the customer pays · no credit for a customer until the old debt is fully paid.</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
    OCT 10 2026 (STAGE 2) — MONEY RECORDS NOW HAVE A SERVER COPY
    Commission disputes, overpayments and stock write-offs used to live only in
    the browser they were typed into. A second device therefore showed no open
@@ -24699,6 +25161,9 @@ const OWNREC_KINDS = [
   { kind: 'comm_dispute', key: 'commDisputes', idRe: /^DISP-\d{6,20}$/, sort: r => String(r.raisedAt || '') },
   { kind: 'overpayment',  key: 'overpayments', idRe: /^op\d{6,20}$/,    sort: r => String(r.id).replace(/\D/g, '').padStart(20, '0') },
   { kind: 'write_off',    key: 'writeOffs',    idRe: /^wo\d{6,20}$/,    sort: r => String(r.id).replace(/\D/g, '').padStart(20, '0') },
+  // Oct 11 2026 — bad debt: a written-off credit balance, and money recovered against it later.
+  { kind: 'bad_debt',          key: 'badDebts',          idRe: /^bd\d{6,20}$/,  sort: r => String(r.id).replace(/\D/g, '').padStart(20, '0') },
+  { kind: 'bad_debt_recovery', key: 'badDebtRecoveries', idRe: /^bdr\d{6,20}$/, sort: r => String(r.id).replace(/\D/g, '').padStart(20, '0') },
 ];
 let ownerRecBlocked = false;           // true after the server says "Owner only"
 function ownerRecHash(r) { const c = { ...r }; delete c.serverUpdatedAt; return syncHash(syncCanon(c)); }
@@ -34686,6 +35151,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Aug 28 fix — the 3 previously local-only-forever logs now sync too.
   syncCommissionPayoutsFromBackend();
+  syncCreditBlockedFromBackend();   // Oct 11 2026 — names only, so a rep's device can refuse credit to a customer with unpaid bad debt
   syncCreditOverrideLogFromBackend();
   syncEventLogFromBackend();
   // Aug 29 fix — Order Policies, found local-only via Bob's own testing.

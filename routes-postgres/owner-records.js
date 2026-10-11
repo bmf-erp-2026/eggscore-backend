@@ -16,6 +16,12 @@ const router = express.Router();
 //   overpayment   saved once; the only later change is "refund sent", and a
 //                 sent refund can never be turned back into "owed".
 //   write_off     saved once and never changed (it is an audit record).
+//   bad_debt      (Oct 11 2026) an unpaid credit balance the Owner has written off
+//                 after 90 days. Saved once and never changed. The 90-day rule is
+//                 checked here too, so a wrong or tampered browser cannot skip it.
+//   bad_debt_recovery  money received later against a bad_debt. Saved once and never
+//                 changed; the server refuses a recovery that would take the total
+//                 recovered above the amount written off.
 
 const KINDS = {
   comm_dispute: {
@@ -42,7 +48,35 @@ const KINDS = {
     required: d => d.batchId && d.qty > 0 && d.valueLost >= 0,
     summary: () => 'recorded',
   },
+  bad_debt: {
+    idRe: /^bd\d{6,20}$/,
+    str: { saleRef: 80, customerName: 160, repName: 120, saleDate: 10, writtenOffDate: 10, reason: 80, notes: 1000, approvedBy: 80, writtenOffAt: 40 },
+    num: ['daysOverdue', 'saleGross', 'paidBeforeWriteOff', 'amount', 'commOnUnpaid', 'commHeld', 'commKept', 'repKeepPct'],
+    bool: [],
+    required: d => d.saleRef && d.customerName && d.amount > 0 && d.saleDate && d.writtenOffDate
+      && /^\d{4}-\d{2}-\d{2}$/.test(d.saleDate) && /^\d{4}-\d{2}-\d{2}$/.test(d.writtenOffDate)
+      && daysBetween(d.saleDate, d.writtenOffDate) >= BAD_DEBT_MIN_DAYS
+      && (d.commHeld == null || (d.commHeld >= 0 && d.commHeld <= (d.commOnUnpaid == null ? d.commHeld : d.commOnUnpaid) + 0.5)),
+    summary: () => 'written_off',
+  },
+  bad_debt_recovery: {
+    idRe: /^bdr\d{6,20}$/,
+    str: { badDebtId: 40, customerName: 160, method: 30, date: 10, note: 500, recordedBy: 80, recordedAt: 40 },
+    num: ['amount'],
+    bool: [],
+    required: d => /^bd\d{6,20}$/.test(d.badDebtId || '') && d.amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(d.date || ''),
+    summary: () => 'received',
+  },
 };
+
+// The rule the Owner set: a credit balance can be written off only once 90 days
+// have passed since the sale date.
+const BAD_DEBT_MIN_DAYS = 90;
+function daysBetween(a, b) {
+  const t1 = Date.parse(a + 'T00:00:00Z'), t2 = Date.parse(b + 'T00:00:00Z');
+  if(!Number.isFinite(t1) || !Number.isFinite(t2)) return -1;
+  return Math.floor((t2 - t1) / 86400000);
+}
 
 function clean(kind, id, b) {
   const spec = KINDS[kind];
@@ -75,6 +109,23 @@ function kindOr400(req, res) {
   return kind;
 }
 
+// Customers who still owe written-off money. NAMES ONLY — no amounts, no reasons —
+// and readable by any signed-in staff member, because the person recording a sale
+// (a rep) must be told "no credit for this customer". The Owner-only lists below
+// stay Owner only.
+router.get('/credit-blocked/names', requireSupabaseAuth(), async (req, res) => {
+  const debts = await db.prepare("SELECT id, data FROM owner_records WHERE kind = 'bad_debt'").all();
+  const recs = await db.prepare("SELECT data FROM owner_records WHERE kind = 'bad_debt_recovery'").all();
+  const got = {};
+  recs.forEach(r => { const d = r.data || {}; got[d.badDebtId] = (got[d.badDebtId] || 0) + (Number(d.amount) || 0); });
+  const names = new Set();
+  debts.forEach(r => {
+    const d = r.data || {};
+    if((Number(d.amount) || 0) - (got[r.id] || 0) > 0.5 && d.customerName) names.add(d.customerName);
+  });
+  res.json({ names: [...names].sort() });
+});
+
 router.get('/:kind', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const kind = kindOr400(req, res); if(!kind) return;
   const rows = await db.prepare('SELECT * FROM owner_records WHERE kind = ? ORDER BY created_at DESC LIMIT 5000').all(kind);
@@ -91,6 +142,15 @@ router.put('/:kind/:id', requireSupabaseAuth(), requireRole('owner'), async (req
   const by = (req.user && req.user.email) || null;
 
   const existing = await db.prepare('SELECT * FROM owner_records WHERE kind = ? AND id = ?').get(kind, id);
+  if(!existing && kind === 'bad_debt_recovery') {
+    const parent = await db.prepare("SELECT data FROM owner_records WHERE kind = 'bad_debt' AND id = ?").get(c.data.badDebtId);
+    if(!parent) return res.status(400).json({ error: 'That bad debt is not on the server yet.' });
+    const others = await db.prepare("SELECT data FROM owner_records WHERE kind = 'bad_debt_recovery'").all();
+    const already = others.reduce((a, r) => a + (((r.data || {}).badDebtId === c.data.badDebtId) ? (Number((r.data || {}).amount) || 0) : 0), 0);
+    if(already + c.data.amount > (Number((parent.data || {}).amount) || 0) + 0.5) {
+      return res.status(400).json({ error: 'That recovery is more than the amount still owed.' });
+    }
+  }
   if(!existing) {
     await db.prepare(`
       INSERT INTO owner_records (kind, id, status, data, updated_by)
