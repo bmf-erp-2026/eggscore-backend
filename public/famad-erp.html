@@ -1708,7 +1708,7 @@ input[type=number]{-moz-appearance:textfield;}
         .forEach(e => postCommissionPayoutToBackend(e));
     }
 
-    if(currentModule === 'commission') renderCommission();
+    if(window.currentModule === 'commission') renderCommission();
   }
 
   // Aug 28 fix — System Overrides & Security Log persistence (second
@@ -3232,6 +3232,10 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof syncBlocklistFromBackend === 'function') await syncBlocklistFromBackend();
     if(typeof syncLargeFirstTimersFromBackend === 'function') await syncLargeFirstTimersFromBackend();
     if(typeof ownerRecPull === 'function') await ownerRecPull();
+    // Oct 10 2026 — a "Mark Paid" done on another device used to appear here
+    // only after a full page reload (this sync ran at page load and nowhere
+    // else). Now it arrives with the same 75-second refresh.
+    if(typeof syncCommissionPayoutsFromBackend === 'function') await syncCommissionPayoutsFromBackend();
     if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel();
     if(typeof updateOrdersBadge === 'function') updateOrdersBadge();
     if(window.currentModule === 'orders' && typeof renderOrders === 'function') renderOrders();
