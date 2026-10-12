@@ -1313,11 +1313,36 @@ input[type=number]{-moz-appearance:textfield;}
           // have failed silently. Retry it now instead of leaving it
           // stuck until the next status change happens to fix it.
           patchOrderStatusOnBackend(row.ref, { status: existing.status });
+        } else if(backendRank < localRank && existing.status === 'in_transit' && row.status === 'pending') {
+          // Oct 12 2026 — a waybill sets in_transit on this device, but that status was never
+          // sent to the server (only the delivery token was). Send it now.
+          patchOrderStatusOnBackend(row.ref, { status: 'in_transit' });
+        } else if(backendRank === localRank && existing.status === 'in_transit' && row.status === 'confirmed') {
+          // Same cause: a waybill made the order in_transit here but the server still says
+          // confirmed. The waybill is a fact on this device, so it wins (do NOT fall back to the server's label).
+          patchOrderStatusOnBackend(row.ref, { status: 'in_transit' });
         } else if(backendRank === localRank && existing.status !== row.status) {
           // Same lifecycle stage, different exact label (e.g. confirmed
           // vs in_transit) — neither side is stale here, so just take
           // the backend's label as the tie-breaker.
           existing.status = row.status;
+        }
+        // Oct 12 2026 — payment verification used to live only on the device that
+        // verified it: the server never heard about it, so the customer portal kept
+        // saying "waiting for payment" and no "payment confirmed" notification went out.
+        // Now both directions are kept in step. The server's "paid" is pulled in (so another
+        // device shows it too, unless this device flagged the payment as suspicious); and a
+        // payment verified here that the server does not know about is sent now (recent, still
+        // open orders only, so old history never triggers customer notifications).
+        {
+          const backendPaid = Number(row.payment_verified) === 1;
+          if(backendPaid && !existing.paymentVerified && !existing.paymentDisputed) {
+            existing.paymentVerified = true;
+          } else if(!backendPaid && existing.paymentVerified === true && !existing.paymentDisputed) {
+            const ageDays = (Date.now() - new Date(row.created_at).getTime()) / 86400000;
+            const open = !['fulfilled','rejected','cancelled'].includes(existing.status);
+            if(open && ageDays <= 30) patchOrderStatusOnBackend(row.ref, { paymentVerified: true });
+          }
         }
       } else {
         byRef.set(row.ref, {
@@ -1341,7 +1366,7 @@ input[type=number]{-moz-appearance:textfield;}
           // seeing this order for the FIRST time gets a silently
           // incomplete record.
           agreedPaymentTerms: row.agreed_payment_terms || null,
-          paymentVerified: false,
+          paymentVerified: Number(row.payment_verified) === 1,   // Oct 12 2026 — the server's record of payment now comes back too
           createdAt: row.created_at,
           date: new Date(row.created_at).toISOString().split('T')[0],
           // FIX: previously every reservation-specific field was silently
@@ -7917,6 +7942,7 @@ input[type=number]{-moz-appearance:textfield;}
           <option value="">All Status</option>
           <option value="pending">Pending</option>
           <option value="confirmed">Confirmed</option>
+          <option value="in_transit">In transit</option>
           <option value="fulfilled">Fulfilled</option>
           <option value="rejected">Rejected</option>
         </select>
@@ -28759,6 +28785,7 @@ function generateWaybill(orderRef, opts) {
 
   saveOrders(orders);
   patchOrderStatusOnBackend(o.ref, {
+    status: 'in_transit',   // Oct 12 2026 — the server was never told the order went out
     deliveryToken: o.deliveryToken,
     outboundCondition: o.outboundCondition,
     outboundAttestedBy: o.outboundAttestedBy,
@@ -28880,6 +28907,7 @@ function generateClusterWaybill(orderRefs, opts) {
     o.outboundNotes = stopOutbound.notes || null;
     o.outboundAttestedAt = new Date().toISOString();
     patchOrderStatusOnBackend(o.ref, {
+      status: 'in_transit',   // Oct 12 2026 — as above, for each stop of a cluster trip
       deliveryToken: o.deliveryToken,
       outboundCondition: o.outboundCondition,
       outboundAttestedBy: o.outboundAttestedBy,
@@ -34993,6 +35021,7 @@ function confirmOverpayment() {
   o.paymentVerifiedAt = new Date().toISOString();
   o.amountReceived    = received;
   saveOrders(orders); saveState(); renderOrders();
+  patchOrderStatusOnBackend(ref, { paymentVerified: true });   // Oct 12 2026
   closeModal('modal-overpayment');
   showToast(toastMsg);
 }
@@ -35273,6 +35302,7 @@ function finalizePaymentVerification(o, orders, amount, notes, invForCheck, meth
     if(hold) { hold.status = 'verified'; hold.verifiedAt = new Date().toISOString(); }
   }
   saveOrders(orders); saveState(); renderOrders();
+  patchOrderStatusOnBackend(ref, { paymentVerified: true });   // Oct 12 2026 — tell the server (portal status, customer notification, quick questions)
   closeModal('modal-payment-verify');
   logOk('credit', `Payment verified — ${o.customerName} · ₦${amount.toLocaleString()} · ${ref}`, notes || 'Confirmed in bank account');
   showToast(`✓ Payment verified for ${ref}.`);
@@ -35378,6 +35408,7 @@ async function confirmReleaseHold() {
     o.paymentVerifiedAt = new Date().toISOString();
     o.paymentNotes      = `Released by owner before credit posted — ${reason}`;
     saveOrders(orders);
+    patchOrderStatusOnBackend(ref, { paymentVerified: true });   // Oct 12 2026
   }
   saveState(); renderOrders();
   closeModal('modal-release-hold');
@@ -35399,6 +35430,7 @@ function flagPhoneyPayment(orderRef) {
   o.paymentVerified = false;
   o.paymentDisputed = true;
   saveOrders(orders); saveState(); renderOrders();
+  patchOrderStatusOnBackend(orderRef, { paymentVerified: false });   // Oct 12 2026 — keep the server in step when a payment is flagged
   logCrit('credit', `Suspicious payment flagged — ${o.customerName} · ${orderRef}`, 'Goods must NOT be released until bank statement confirms credit.');
   showToast(`🚩 ${orderRef} flagged suspicious — do NOT release goods. Verify bank statement.`);
 }
@@ -35695,6 +35727,7 @@ function confirmSelectedCSVMatches() {
   });
 
   saveOrders(orders); saveState(); renderOrders(); renderCSVPreview();
+  selected.forEach(r => { const ref = r.order?.ref || r.extractedRef; const o = orders.find(x => x.ref === ref); if(o && o.paymentVerified) patchOrderStatusOnBackend(ref, { paymentVerified: true }); });   // Oct 12 2026
   if(verifiedCount === 0) { showToast('⚠ Nothing was verified — rows may already be verified.'); return; }
   showToast(`✓ ${verifiedCount} order(s) verified via bank statement.` + (overpaidRefs.length ? ` ${overpaidRefs.length} overpaid — use 💰 Overpay to credit the excess.` : ''));
   if(csvImportPreview.every(r => !['exact_match','overpaid','underpaid'].includes(r.status))) {
