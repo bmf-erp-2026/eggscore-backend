@@ -18,7 +18,9 @@ const MAX_LEN = 300;             // characters per CUSTOMER message (staff repli
 const MAX_STAFF_LEN = 500;       // characters per staff reply
 const MAX_PER_HOUR = 2;          // customer messages per order per hour (more than that = pick up the phone)
 const MAX_PER_ORDER = 30;        // customer messages per order, ever
-const ORDER_WINDOW_DAYS = 60;    // a customer can write about an order for 60 days after it was placed
+const ORDER_WINDOW_DAYS = 30;    // a customer can write about an order for one month after it was placed
+const RETENTION_DAYS = 30;       // every message is deleted one month after it was sent (keeps the database small)
+const OFFICE_CLOSE_HOUR = 19;    // Lagos time: messages after 7 PM are answered the next working day (Mon-Sat); Sundays are not a working day
 const PAY_QUESTION_AFTER_MIN = 30;   // "I have paid" quick question appears this long after the order, if payment is not yet confirmed
 const DELIVERY_QUESTION_HOUR = 18;   // "Where is my delivery?" opens at this Lagos hour (close of business, 6 PM) on the delivery day
 const NO_DAY_FALLBACK_DAYS = 7;      // an order with no recorded delivery day counts as due 7 days after it was placed
@@ -32,6 +34,20 @@ function cleanText(s) {
     .replace(/\r\n?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+// Oct 12 2026 — office hours. A message is never refused out of hours, but the customer
+// is told when it will be answered: after 7 PM (Lagos), or any time on a Sunday, the next
+// working day, Monday to Saturday.
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function officeNotice(nowMs) {
+  const l = new Date((nowMs == null ? Date.now() : nowMs) + 3600000);   // Lagos = UTC+1
+  const day = l.getUTCDay();
+  const afterHours = day === 0 || l.getUTCHours() >= OFFICE_CLOSE_HOUR;
+  if(!afterHours) return { afterHours: false, answerOn: null };
+  let next = day === 0 ? 1 : (day + 1) % 7;   // Sunday -> Monday; otherwise tomorrow
+  if(next === 0) next = 1;                    // Saturday evening -> Monday (Sunday is not a working day)
+  return { afterHours: true, answerOn: WEEKDAYS[next] };
 }
 const asPublic = r => ({ id: Number(r.id), direction: r.direction, body: r.body, at: new Date(r.created_at).toISOString() });
 const asStaff = r => ({ ...asPublic(r), sender: r.sender || null, read: !!r.read_at });
@@ -101,7 +117,7 @@ router.post('/:ref/send', requireEitherAuth(), async (req, res) => {
   const row = await db.prepare(`SELECT * FROM order_messages WHERE order_ref = ? AND direction = 'customer' ORDER BY id DESC LIMIT 1`).get(order.ref);
   // Oct 12 2026 — tell staff devices that opted in, even if the ERP is closed. Never blocks or fails the send.
   push.notifyStaffOfMessage({ ref: order.ref, customerName: order.customer_name }).catch(e => console.error('[order-messages] staff alert failed:', e.message));
-  res.status(201).json(asPublic(row));
+  res.status(201).json({ ...asPublic(row), ...officeNotice() });
 });
 
 // Oct 12 2026 — "My orders" on the portal. The phone keeps a short list of the orders
@@ -152,7 +168,7 @@ router.post('/:ref/thread', requireEitherAuth(), async (req, res) => {
 
 // ═══════════════════════ STAFF SIDE (any signed-in staff) ═══════════════════════
 
-// One line per order that has messages (last 60 days) with the unread count.
+// One line per order that has messages (last 30 days) with the unread count.
 router.get('/inbox', requireSupabaseAuth(), async (req, res) => {
   const rows = await db.prepare(`
     SELECT m.order_ref AS ref,
@@ -164,7 +180,7 @@ router.get('/inbox', requireSupabaseAuth(), async (req, res) => {
            (ARRAY_AGG(m.body ORDER BY m.id DESC))[1] AS last_body
     FROM order_messages m
     LEFT JOIN orders o ON o.ref = m.order_ref
-    WHERE m.created_at > now() - interval '60 days'
+    WHERE m.created_at > now() - interval '30 days'
     GROUP BY m.order_ref, o.customer_name, o.phone, o.crates, o.status
     ORDER BY (COUNT(*) FILTER (WHERE m.direction = 'customer' AND m.read_at IS NULL) > 0) DESC, MAX(m.created_at) DESC
     LIMIT 200
@@ -199,9 +215,24 @@ router.post('/:ref/reply', requireSupabaseAuth(), async (req, res) => {
   await db.prepare(`UPDATE order_messages SET read_at = now() WHERE order_ref = ? AND direction = 'customer' AND read_at IS NULL`).run(ref);
   const row = await db.prepare(`SELECT * FROM order_messages WHERE order_ref = ? AND direction = 'staff' ORDER BY id DESC LIMIT 1`).get(ref);
   // Tell the customer's phone(s) there is a reply. Never blocks or fails the reply.
-  push.notifyOrderReply(order).catch(e => console.error('[order-messages] push failed:', e.message));
+  push.notifyOrderReply(order, body).catch(e => console.error('[order-messages] push failed:', e.message));
   res.status(201).json(asStaff(row));
 });
 
+// Oct 12 2026 — retention. Messages older than RETENTION_DAYS are deleted so the table
+// stays small (the Owner's decision: one month, then old messages give way). Runs shortly
+// after the server starts and then every 6 hours; a failure is logged and never stops anything.
+async function purgeOldMessages() {
+  try {
+    const r = await db.prepare(`DELETE FROM order_messages WHERE created_at < now() - interval '${RETENTION_DAYS} days'`).run();
+    if(r && r.changes) console.log(`[order-messages] purged ${r.changes} message(s) older than ${RETENTION_DAYS} days`);
+  } catch(e) { console.error('[order-messages] purge failed:', e.message); }
+}
+const firstPurge = setTimeout(purgeOldMessages, Number(process.env.OM_PURGE_FIRST_MS) || 20000);
+const repeatPurge = setInterval(purgeOldMessages, 6 * 3600 * 1000);
+if(firstPurge.unref) firstPurge.unref();
+if(repeatPurge.unref) repeatPurge.unref();
+
 module.exports = router;
+module.exports.officeNotice = officeNotice;   // exported for the test suite
 module.exports.quickState = quickState;   // exported for the test suite

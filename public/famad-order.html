@@ -1101,7 +1101,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       </div>
     </div>
     <div class="om-err" id="om-err"></div>
+    <div id="om-note" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lime, #7bd88f);margin:4px 0;"></div>
     <div id="om-urgent" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:4px"></div>
+    <div id="om-hours" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:4px"></div>
   </div>
 </div>
 
@@ -1415,6 +1417,8 @@ const UI_STRINGS = {
     'om.urgent': 'Something urgent? Please call us or message us on WhatsApp.',
     'om.hint_deliv': 'The delivery question opens after 6 PM on your delivery day ({d}).',
     'om.hint_pay': 'If you have already paid, a payment question will appear here shortly.',
+    'om.hours': 'Messages sent after 7 PM, or on a Sunday, are answered the next working day (Monday to Saturday).',
+    'om.after': 'Thank you, we have your message. It is after hours, so we will answer on {d}.',
     'om.quick': 'Quick questions — tap one to fill it in:',
     'om.q1': 'Where is my delivery?',
     'om.q2': 'I have paid — please confirm my payment.',
@@ -1531,6 +1535,8 @@ const UI_STRINGS = {
     'om.urgent': 'E dey urgent? Abeg call us or message us for WhatsApp.',
     'om.hint_deliv': 'Delivery question go open after 6 PM for your delivery day ({d}).',
     'om.hint_pay': 'If you don don pay, payment question go show here soon.',
+    'om.hours': 'Message wey enter after 7 PM, or for Sunday, we go answer am the next work day (Monday to Saturday).',
+    'om.after': 'Thank you, we don get your message. Work time don pass, so we go answer you on {d}.',
     'om.quick': 'Quick questions — tap one make e fill am for you:',
     'om.q1': 'Where my delivery dey?',
     'om.q2': 'I don pay — abeg confirm my payment.',
@@ -5001,6 +5007,7 @@ function omOpen(ctx) {
   omEl('om-text').placeholder = pushStr('om.placeholder');
   omEl('om-send').textContent = pushStr('om.send');
   omEl('om-urgent').textContent = pushStr('om.urgent');
+  omEl('om-hours').textContent = pushStr('om.hours'); omEl('om-note').textContent = '';
   omEl('om-chips-label').textContent = pushStr('om.quick');
   omQuick = null; omPaintChips();   // until the server says otherwise only the two always-safe questions show
   omEl('om-err').textContent = '';
@@ -5114,7 +5121,12 @@ async function omSend() {
     const resp = await fetch(`${BACKEND_URL}/order-messages/${encodeURIComponent(omCurrent.ref)}/send`, {
       method: 'POST', headers: omHeaders(), body: JSON.stringify({ phone: omCurrent.phone, message: text }),
     });
-    if(resp.ok) { t.value = ''; omCount(); await omLoad(true); }
+    if(resp.ok) {
+      let j = null; try { j = await resp.json(); } catch(e) {}
+      t.value = ''; omCount(); await omLoad(true);
+      // Oct 12 2026 — sent outside office hours: say when it will be answered.
+      omEl('om-note').textContent = (j && j.afterHours && j.answerOn) ? pushStr('om.after').replace('{d}', j.answerOn) : '';
+    }
     else {
       let msg = omProblem(resp.status);
       if(!msg) { try { msg = (await resp.json()).error; } catch(e) {} }
