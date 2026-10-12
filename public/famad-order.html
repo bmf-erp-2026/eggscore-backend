@@ -259,6 +259,17 @@ input[type=number]{-moz-appearance:textfield;}
 .om-meta{display:block;font-size:9px;color:var(--mist);margin-top:3px;}
 .om-empty{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);text-align:center;padding:14px 4px;}
 .om-err{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber, #f0a830);margin:6px 0;min-height:14px;}
+.om-chips-label{font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin:0 0 5px 0;}
+.om-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px 0;}
+.om-chip{font-family:'DM Mono',monospace;font-size:10.5px;color:var(--cream);background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:5px 11px;cursor:pointer;line-height:1.3;}
+.om-chip:hover{border-color:var(--blue);}
+.mo-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);}
+.mo-ref{font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);word-break:break-all;}
+.mo-sub{font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:2px;}
+.mo-st{display:inline-block;font-family:'DM Mono',monospace;font-size:10px;color:var(--teal);margin-top:4px;margin-right:6px;}
+.mo-new{display:inline-block;font-family:'DM Mono',monospace;font-size:10px;color:var(--bg);background:var(--teal);border-radius:9px;padding:1px 8px;margin-top:4px;}
+.mo-btn{flex:0 0 auto;font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer;}
+.mo-empty{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);text-align:center;padding:16px 4px;}
 .form-select option{background:var(--surface);}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 
@@ -450,6 +461,8 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
            this device can do push AND the customer is already identifiable
            (has ordered, or is currently subscribed). paintPushBell() decides. -->
       <span id="push-bell" onclick="togglePush()" style="display:none;cursor:pointer;padding:4px 10px;border-radius:12px;border:1px solid var(--border);color:var(--mist)"></span>
+      <!-- Oct 12 2026 — "My orders": shown once this phone has placed an order. Filled by moPaintChip(). -->
+      <span id="my-orders-chip" onclick="moShow()" style="display:none;cursor:pointer;padding:4px 10px;border-radius:12px;border:1px solid var(--blue);color:var(--blue)"></span>
     </div>
     <style>
       .lang-opt-active{background:var(--blue);color:var(--bg);border-color:var(--blue) !important;font-weight:600;}
@@ -1078,7 +1091,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     </div>
     <div id="om-chat-step" style="display:none">
       <div class="om-thread" id="om-thread"></div>
-      <textarea class="form-input" id="om-text" rows="3" maxlength="500" style="width:100%;resize:vertical" oninput="omCount()"></textarea>
+      <div class="om-chips-label" id="om-chips-label"></div>
+      <div class="om-chips" id="om-chips"></div>
+      <textarea class="form-input" id="om-text" rows="3" maxlength="300" style="width:100%;resize:vertical" oninput="omCount()"></textarea>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
         <span id="om-count" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)"></span>
         <button class="submit-btn" id="om-send" style="width:auto;padding:8px 18px;font-size:12px;margin-top:0" onclick="omSend()"></button>
@@ -1086,6 +1101,23 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     </div>
     <div class="om-err" id="om-err"></div>
     <div id="om-urgent" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:4px"></div>
+  </div>
+</div>
+
+<!-- MY ORDERS — Oct 12 2026. The orders placed on THIS phone (kept only on this phone),
+     with their current status and a one-tap way into each order's message box. -->
+<div class="vr-overlay" id="mo-overlay">
+  <div class="vr-modal">
+    <div class="vr-hdr">
+      <div class="vr-title" id="mo-title">My orders</div>
+      <button class="vr-close" onclick="moClose()" aria-label="Close">✕</button>
+    </div>
+    <div class="vr-sub" id="mo-sub"></div>
+    <div id="mo-list"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px">
+      <span id="mo-note" style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist)"></span>
+      <button id="mo-forget" class="mo-btn" style="font-size:10px;padding:5px 10px" onclick="moForget()"></button>
+    </div>
   </div>
 </div>
 
@@ -1379,7 +1411,24 @@ const UI_STRINGS = {
     'om.bad_phone': "That phone number doesn't match this order.",
     'om.not_found': "We can't find this order yet. Please try again in a minute.",
     'om.net': "We couldn't reach EggScore just now. Check your network and try again.",
-    'om.urgent': 'Something urgent? Message us on WhatsApp.',
+    'om.urgent': 'Something urgent? Please call us or message us on WhatsApp.',
+    'om.quick': 'Quick questions — tap one to fill it in:',
+    'om.q1': 'Where is my delivery?',
+    'om.q2': 'I have paid — please confirm my payment.',
+    'om.q3': 'I want to change my delivery address.',
+    'om.q4': 'Can I add more crates to this order?',
+    'mo.chip': '📦 My orders', 'mo.new': 'new reply',
+    'mo.title': 'My orders',
+    'mo.hello': 'Welcome back, {name} — your recent orders are here.',
+    'mo.hello_anon': 'Your recent orders on this phone.',
+    'mo.empty': 'No orders on this phone yet.',
+    'mo.crates': 'crates', 'mo.messages': '💬 Messages', 'mo.newreply': '💬 New reply',
+    'mo.note': 'Saved only on this phone.',
+    'mo.forget': 'Forget my orders', 'mo.forget_sure': 'Tap again to confirm',
+    'mo.st.pending': 'Received — waiting for payment', 'mo.st.paid': 'Payment confirmed',
+    'mo.st.reserved': 'Reserved for you', 'mo.st.confirmed': 'Confirmed',
+    'mo.st.in_transit': 'On the way', 'mo.st.fulfilled': 'Delivered',
+    'mo.st.cancelled': 'Not completed', 'mo.st.rejected': 'Not completed', 'mo.st.unknown': 'Checking…',
     'wa.order_here': 'Prefer WhatsApp? Order here →',
     'stock.available': 'Stock Available', 'stock.ready': 'crates ready to order',
     'stock.price_note': 'Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.',
@@ -1476,7 +1525,24 @@ const UI_STRINGS = {
     'om.bad_phone': 'That phone number no match this order.',
     'om.not_found': 'We no see this order yet. Abeg try again small time.',
     'om.net': 'We no fit reach EggScore now. Check your network make you try again.',
-    'om.urgent': 'E dey urgent? Message us for WhatsApp.',
+    'om.urgent': 'E dey urgent? Abeg call us or message us for WhatsApp.',
+    'om.quick': 'Quick questions — tap one make e fill am for you:',
+    'om.q1': 'Where my delivery dey?',
+    'om.q2': 'I don pay — abeg confirm my payment.',
+    'om.q3': 'I wan change my delivery address.',
+    'om.q4': 'I fit add more crates to this order?',
+    'mo.chip': '📦 My orders', 'mo.new': 'new reply',
+    'mo.title': 'My orders',
+    'mo.hello': 'Welcome back, {name} — your recent orders dey here.',
+    'mo.hello_anon': 'Your recent orders for this phone.',
+    'mo.empty': 'No order for this phone yet.',
+    'mo.crates': 'crates', 'mo.messages': '💬 Messages', 'mo.newreply': '💬 New reply',
+    'mo.note': 'E dey save for this phone only.',
+    'mo.forget': 'Forget my orders', 'mo.forget_sure': 'Tap again to confirm',
+    'mo.st.pending': 'We don receive am — we dey wait for payment', 'mo.st.paid': 'Payment don land',
+    'mo.st.reserved': 'We don reserve am for you', 'mo.st.confirmed': 'Confirmed',
+    'mo.st.in_transit': 'E dey road', 'mo.st.fulfilled': 'Delivered',
+    'mo.st.cancelled': 'E no complete', 'mo.st.rejected': 'E no complete', 'mo.st.unknown': 'We dey check…',
     'wa.order_here': 'You prefer WhatsApp? Order here →',
     'stock.available': 'Stock Wey Dey', 'stock.ready': 'crates ready make you order',
     'stock.price_note': 'Price dey follow how stock dey cost now, e fit shift small between orders. You get question about price? Buzz us anytime.',
@@ -1554,6 +1620,7 @@ function setLanguage(lang) {
   applyUIStrings();
   if(typeof syncPushLanguage === 'function') syncPushLanguage();
   if(typeof paintPushBell === 'function') paintPushBell();
+  if(typeof moPaintChip === 'function') moPaintChip();   // Oct 12 2026 — My orders chip wording
   // Re-run whichever live message currently on screen needs refreshing.
   updatePaymentCommitmentBox();
   renderAvailableStockDisplay();
@@ -4904,7 +4971,8 @@ window.addEventListener('load', () => {
    on order updates, a short "EggScore replied" notification brings them back
    here (the notification never contains the reply itself).
 ═══════════════════════════════════════════════════════ */
-let omCurrent = null, omTimer = null, omBusy = false;
+let omCurrent = null, omTimer = null, omBusy = false, omFromList = false;
+const OM_MAX = 300;   // characters per customer message (the server enforces the same limit)
 function omEl(id) { return document.getElementById(id); }
 function omHeaders() { return { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY }; }
 function omOkRef(ref) { return /^BEL-ORD-[0-9-]{6,30}$/.test(String(ref || '')); }
@@ -4912,6 +4980,7 @@ function omOkRef(ref) { return /^BEL-ORD-[0-9-]{6,30}$/.test(String(ref || ''));
 function omShowButton(order) {
   const b = omEl('om-open-btn');
   if(!b || !order || !omOkRef(order.ref) || !order.phone) return;
+  moRemember(order);   // Oct 12 2026 — this phone now remembers the order for "My orders"
   omCurrent = { ref: order.ref, phone: order.phone };
   b.textContent = pushStr('om.btn');
   b.style.display = 'block';
@@ -4927,6 +4996,8 @@ function omOpen(ctx) {
   omEl('om-text').placeholder = pushStr('om.placeholder');
   omEl('om-send').textContent = pushStr('om.send');
   omEl('om-urgent').textContent = pushStr('om.urgent');
+  omEl('om-chips-label').textContent = pushStr('om.quick');
+  omEl('om-chips').innerHTML = [1,2,3,4].map(i => `<button type="button" class="om-chip" onclick="omChip(${i})">${escapeHtmlPortal(pushStr('om.q' + i))}</button>`).join('');
   omEl('om-err').textContent = '';
   omEl('om-overlay').classList.add('active');
   omCount();
@@ -4938,6 +5009,15 @@ function omOpen(ctx) {
 function omClose() {
   omEl('om-overlay').classList.remove('active');
   clearInterval(omTimer); omTimer = null;
+  if(omFromList) { omFromList = false; moShow(); }   // came from "My orders" — go back to the list
+}
+// A quick question fills the box (the customer can still edit it before sending).
+function omChip(i) {
+  const t = omEl('om-text'); if(!t) return;
+  const q = pushStr('om.q' + i);
+  const v = (t.value || '').trim();
+  t.value = (v ? v + ' ' + q : q).slice(0, OM_MAX);
+  omCount(); t.focus();
 }
 function omStep(which) {
   omEl('om-phone-step').style.display = which === 'phone' ? 'block' : 'none';
@@ -4951,7 +5031,7 @@ function omPhoneGo() {
 }
 function omCount() {
   const t = omEl('om-text'); if(!t) return;
-  omEl('om-count').textContent = (500 - t.value.length) + ' ' + pushStr('om.left');
+  omEl('om-count').textContent = (OM_MAX - t.value.length) + ' ' + pushStr('om.left');
 }
 function omFmt(iso) {
   try { return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
@@ -4967,6 +5047,11 @@ function omRender(list) {
   }).join('');
   if(nearEnd || !el.dataset.painted) el.scrollTop = el.scrollHeight;
   el.dataset.painted = '1';
+  // Oct 12 2026 — the customer has now seen every reply up to here (clears the "new reply" tag).
+  try {
+    const lastStaff = list.slice().reverse().find(m => m.direction === 'staff');
+    if(lastStaff && omCurrent) { moMarkSeen(omCurrent.ref, lastStaff.at); moPaintChip(); }
+  } catch(e) {}
 }
 function omProblem(status) {
   if(status === 403) { omCurrent.phone = ''; omStep('phone'); return pushStr('om.bad_phone'); }
@@ -5002,6 +5087,106 @@ async function omSend() {
   } catch(e) { omEl('om-err').textContent = pushStr('om.net'); }
   finally { omBusy = false; btn.disabled = false; btn.textContent = pushStr('om.send'); }
 }
+/* ═══════════════════════════════════════════════════════
+   MY ORDERS — Oct 12 2026
+   This phone remembers the last few orders placed on it (reference, phone
+   number, name, crates, total) so the customer can come back to them: see the
+   current status and open the message box without typing anything.
+   Kept ONLY in this phone's own storage; "Forget my orders" wipes it. The server
+   is asked for the status of just those orders, and answers only when the phone
+   number sent with an order matches the one on it.
+   ═══════════════════════════════════════════════════════ */
+const MO_KEY = 'eggscore_my_orders', MO_SEEN_KEY = 'eggscore_my_orders_seen';
+const MO_MAX = 10, MO_DAYS = 60;
+let moStatus = {}, moForgetArmed = false;
+function moRead() {
+  try {
+    const a = JSON.parse(localStorage.getItem(MO_KEY) || '[]');
+    if(!Array.isArray(a)) return [];
+    const cutoff = Date.now() - MO_DAYS * 86400000;
+    return a.filter(o => o && omOkRef(o.ref) && o.phone && Date.parse(o.savedAt || '') > cutoff)
+            .sort((x, y) => String(y.savedAt).localeCompare(String(x.savedAt))).slice(0, MO_MAX);
+  } catch(e) { return []; }
+}
+function moWrite(list) { try { localStorage.setItem(MO_KEY, JSON.stringify(list.slice(0, MO_MAX))); } catch(e) {} }
+function moRemember(order) {
+  try {
+    if(!order || !omOkRef(order.ref) || !order.phone) return;
+    const list = moRead().filter(o => o.ref !== order.ref);
+    list.unshift({ ref: order.ref, phone: String(order.phone), name: String(order.customerName || '').slice(0, 60),
+                   crates: Number(order.crates) || 0, total: Number(order.grandTotal) || 0, savedAt: new Date().toISOString() });
+    moWrite(list); moPaintChip(); moRefresh();
+  } catch(e) {}
+}
+function moSeen() { try { return JSON.parse(localStorage.getItem(MO_SEEN_KEY) || '{}') || {}; } catch(e) { return {}; } }
+function moMarkSeen(ref, iso) { try { const s = moSeen(); if(!s[ref] || iso > s[ref]) { s[ref] = iso; localStorage.setItem(MO_SEEN_KEY, JSON.stringify(s)); } } catch(e) {} }
+function moHasNewReply(ref) {
+  const st = moStatus[ref]; if(!st || !st.lastStaffAt) return false;
+  const seen = moSeen()[ref]; return !seen || st.lastStaffAt > seen;
+}
+function moPaintChip() {
+  const el = omEl('my-orders-chip'); if(!el) return;
+  const list = moRead();
+  if(!list.length) { el.style.display = 'none'; return; }
+  const n = list.filter(o => moHasNewReply(o.ref)).length;
+  el.textContent = pushStr('mo.chip') + (n ? ' · ' + n + ' ' + pushStr('mo.new') : '');
+  el.style.display = 'inline-block';
+}
+async function moRefresh() {
+  const list = moRead(); if(!list.length) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/order-messages/my-orders`, {
+      method: 'POST', headers: omHeaders(), body: JSON.stringify({ orders: list.map(o => ({ ref: o.ref, phone: o.phone })) }),
+    });
+    if(!resp.ok) return;
+    const rows = await resp.json(); const m = {};
+    (Array.isArray(rows) ? rows : []).forEach(r => { m[r.ref] = r; });
+    moStatus = m; moPaintChip();
+    if(omEl('mo-overlay').classList.contains('active')) moRender();
+  } catch(e) {}
+}
+function moStatusLabel(ref) {
+  const st = moStatus[ref]; if(!st) return pushStr('mo.st.unknown');
+  if(st.paid && (st.status === 'pending' || st.status === 'reserved')) return pushStr('mo.st.paid');
+  const key = 'mo.st.' + st.status;
+  const label = pushStr(key);
+  return label || pushStr('mo.st.unknown');
+}
+function moRender() {
+  const list = moRead();
+  const nm = (list[0] && list[0].name || '').trim().split(/\s+/)[0];
+  omEl('mo-title').textContent = pushStr('mo.title');
+  omEl('mo-sub').textContent = nm ? pushStr('mo.hello').replace('{name}', nm) : pushStr('mo.hello_anon');
+  omEl('mo-note').textContent = pushStr('mo.note');
+  omEl('mo-forget').textContent = moForgetArmed ? pushStr('mo.forget_sure') : pushStr('mo.forget');
+  const box = omEl('mo-list');
+  if(!list.length) { box.innerHTML = `<div class="mo-empty">${escapeHtmlPortal(pushStr('mo.empty'))}</div>`; return; }
+  box.innerHTML = list.map(o => {
+    const newReply = moHasNewReply(o.ref);
+    const when = (() => { try { return new Date(o.savedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); } catch(e) { return ''; } })();
+    const money = o.total ? ' · ₦' + Number(o.total).toLocaleString('en-NG') : '';
+    return `<div class="mo-row"><div style="min-width:0">
+      <div class="mo-ref">${escapeHtmlPortal(o.ref)}</div>
+      <div class="mo-sub">${o.crates ? o.crates + ' ' + escapeHtmlPortal(pushStr('mo.crates')) : ''}${money} · ${escapeHtmlPortal(when)}</div>
+      <span class="mo-st">${escapeHtmlPortal(moStatusLabel(o.ref))}</span>${newReply ? `<span class="mo-new">${escapeHtmlPortal(pushStr('mo.newreply'))}</span>` : ''}
+    </div><button class="mo-btn" onclick="moOpen('${o.ref}')">${escapeHtmlPortal(pushStr('mo.messages'))}</button></div>`;
+  }).join('');
+}
+function moShow() { moForgetArmed = false; moRender(); omEl('mo-overlay').classList.add('active'); moRefresh(); }
+function moClose() { omEl('mo-overlay').classList.remove('active'); moForgetArmed = false; }
+function moOpen(ref) {
+  const o = moRead().find(x => x.ref === ref); if(!o) return;
+  moClose(); omFromList = true; omOpen({ ref: o.ref, phone: o.phone });
+}
+function moForget() {
+  if(!moForgetArmed) { moForgetArmed = true; omEl('mo-forget').textContent = pushStr('mo.forget_sure'); return; }
+  try { localStorage.removeItem(MO_KEY); localStorage.removeItem(MO_SEEN_KEY); } catch(e) {}
+  moStatus = {}; moForgetArmed = false; moClose(); moPaintChip();
+}
+// On every visit: show the chip if this phone has orders, ask for their status once, and again when the page comes back to the front.
+window.addEventListener('load', () => { moPaintChip(); setTimeout(moRefresh, 1500); });
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') moRefresh(); });
+
 // Opened from an "EggScore replied" notification: ?msgs=BEL-ORD-...
 window.addEventListener('load', () => {
   try {

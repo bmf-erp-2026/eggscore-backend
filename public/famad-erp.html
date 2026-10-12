@@ -1110,6 +1110,7 @@ input[type=number]{-moz-appearance:textfield;}
   }
 
   async function erpLogout() {
+    try { if(typeof erpAlertsOnLogout === 'function') await erpAlertsOnLogout(); } catch(e) {}   // Oct 12 2026 — stop staff alerts for this device while signed out
     await erpSupabase.auth.signOut();
     document.getElementById('erp-login-email').value = '';
     document.getElementById('erp-login-password').value = '';
@@ -5376,6 +5377,12 @@ input[type=number]{-moz-appearance:textfield;}
   <div style="padding:10px 14px;margin-bottom:10px;background:var(--raised);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
     <span id="erp-logged-in-as" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px"></span>
     <button onclick="erpLogout()" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--red);background:none;border:none;cursor:pointer;padding:2px 6px">Log Out</button>
+  </div>
+
+  <!-- Oct 12 2026 — staff alert switch: a "New customer message" notification on THIS device, even with the ERP closed. -->
+  <div id="erp-alerts-row" style="display:none;margin:-4px 0 10px 0">
+    <button id="erp-alerts-btn" onclick="erpAlertsToggle()" style="width:100%;text-align:left;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">🔔 Message alerts…</button>
+    <div id="erp-alerts-note" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin:4px 2px 0 2px;line-height:1.5"></div>
   </div>
 
   <div class="sl">Main Modules</div>
@@ -26245,6 +26252,10 @@ async function syncOrderMessagesFromBackend() {
   ordMsgPrevUnread = unread;
   if(window.currentModule === 'orders') renderOrderMessages();
   if(ordMsgOpenRef && document.getElementById('modal-ordmsg').classList.contains('open')) loadOrderMessageThread(ordMsgOpenRef, true);
+  // Oct 12 2026 — arrived from a "New customer message" alert: open that order's thread once.
+  let pend = null;
+  try { pend = sessionStorage.getItem('erp_pending_ordmsg'); if(pend) sessionStorage.removeItem('erp_pending_ordmsg'); } catch(e) {}
+  if(pend && /^BEL-ORD-[0-9-]{6,30}$/.test(pend)) { try { switchModule('orders'); } catch(e) {} openOrderMessage(pend); }
 }
 function renderOrderMessages() {
   const panel = document.getElementById('ordmsg-panel'), list = document.getElementById('ordmsg-list');
@@ -26316,6 +26327,130 @@ async function sendOrderMessageReply() {
     }
   } finally { ordMsgBusy = false; btn.disabled = false; }
 }
+
+/* ═══════════════════════════════════════════════════════
+   STAFF MESSAGE ALERTS — Oct 12 2026
+   A switch in the sidebar. When ON for this device, a customer message
+   about an order pops up as a notification ("New customer message — order
+   BEL-ORD-…") even if the ERP is closed. The alert never shows the
+   customer's name or words. Tapping it opens that order's thread.
+   Works through its own small worker (erp-sw.js), so the customer portal's
+   worker is untouched. Signing out stops alerts for this device; signing
+   back in resumes them (unless the switch was turned off on purpose).
+   ═══════════════════════════════════════════════════════ */
+function erpAlertsSupported() {
+  return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window) &&
+         window.isSecureContext && location.pathname.indexOf('famad-erp') !== -1;
+}
+function erpB64ToU8(b64) {
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(raw.length);
+  for(let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+async function staffPushFetch(path, opts) {
+  const token = await erpGetAuthToken();
+  if(!token) return null;
+  const o = { ...(opts || {}) };
+  o.headers = { 'Authorization': `Bearer ${token}`, ...(o.body ? { 'Content-Type': 'application/json' } : {}) };
+  try { return await fetch(`${BACKEND_URL}/staff-push${path}`, o); } catch(e) { return null; }
+}
+async function erpAlertsRegistration() {
+  const existing = await navigator.serviceWorker.getRegistration(location.pathname);
+  if(existing && existing.active && existing.scope.indexOf('famad-erp') !== -1) return existing;
+  // Scope = this page's own address, so it can never replace the customer portal's worker.
+  await navigator.serviceWorker.register('/erp-sw.js', { scope: location.pathname });
+  return await navigator.serviceWorker.ready.then(async () => navigator.serviceWorker.getRegistration(location.pathname));
+}
+async function erpAlertsCurrentSub() {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration(location.pathname);
+    if(!reg || reg.scope.indexOf('famad-erp') === -1) return null;
+    return await reg.pushManager.getSubscription();
+  } catch(e) { return null; }
+}
+async function erpAlertsPaint() {
+  const row = document.getElementById('erp-alerts-row'), btn = document.getElementById('erp-alerts-btn'), note = document.getElementById('erp-alerts-note');
+  if(!row || !btn) return;
+  if(!erpAlertsSupported()) { row.style.display = 'none'; return; }
+  row.style.display = 'block';
+  if(Notification.permission === 'denied') {
+    btn.textContent = '🔕 Message alerts: blocked'; btn.style.color = 'var(--amber)';
+    note.textContent = 'This browser is blocking notifications for the ERP. Allow them in the browser\'s site settings (padlock beside the address), then tap here again.';
+    return;
+  }
+  const sub = await erpAlertsCurrentSub();
+  if(sub && Notification.permission === 'granted') {
+    btn.textContent = '🔔 Message alerts: ON — tap to turn off'; btn.style.color = 'var(--teal)';
+    note.textContent = 'This device is alerted when a customer messages about an order, even with the ERP closed.';
+  } else {
+    btn.textContent = '🔕 Message alerts: OFF — tap to turn on'; btn.style.color = 'var(--dust)';
+    note.textContent = 'Turn on to be alerted on this device when a customer messages, even with the ERP closed.';
+  }
+}
+async function erpAlertsToggle() {
+  const note = document.getElementById('erp-alerts-note');
+  try {
+    const current = await erpAlertsCurrentSub();
+    if(current && Notification.permission === 'granted') {              // switch OFF
+      await staffPushFetch('/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: current.endpoint }) });
+      try { await current.unsubscribe(); } catch(e) {}
+      showToast('🔕 Message alerts turned off on this device.');
+      return erpAlertsPaint();
+    }
+    const perm = await Notification.requestPermission();                 // switch ON
+    if(perm !== 'granted') { if(note) note.textContent = 'Notifications were not allowed, so alerts stay off.'; return erpAlertsPaint(); }
+    const keyResp = await staffPushFetch('/public-key');
+    const key = keyResp && keyResp.ok ? await keyResp.json() : null;
+    if(!key || !key.enabled || !key.publicKey) { if(note) note.textContent = 'Alerts are not switched on at the server yet, or you are signed out.'; return; }
+    const reg = await erpAlertsRegistration();
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: erpB64ToU8(key.publicKey) });
+    const r = await staffPushFetch('/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
+    if(r && r.ok) showToast('🔔 Message alerts are ON for this device.');
+    else if(note) note.textContent = 'Could not save the alert switch. Check your connection and try again.';
+  } catch(e) {
+    if(note) note.textContent = 'Could not switch alerts. ' + (e && e.message ? e.message : '');
+  }
+  erpAlertsPaint();
+}
+// Page load / sign-in: if this device already has alerts on, tell the server again
+// (re-activates it for whoever is signed in now). Silent; does nothing if signed out.
+async function erpAlertsResume() {
+  if(!erpAlertsSupported()) return;
+  await erpAlertsPaint();
+  if(Notification.permission !== 'granted') return;
+  const sub = await erpAlertsCurrentSub();
+  if(sub) await staffPushFetch('/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
+}
+// Sign-out: stop alerts for this device (the browser keeps its subscription so signing back in resumes them).
+async function erpAlertsOnLogout() {
+  if(!erpAlertsSupported()) return;
+  const sub = await erpAlertsCurrentSub();
+  if(sub) await staffPushFetch('/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
+}
+// Arrived from an alert: ?ordmsg=ORDER-REF (ERP was closed) — remembered until the inbox has loaded.
+(function() {
+  try {
+    const ref = new URLSearchParams(location.search).get('ordmsg');
+    if(ref && /^BEL-ORD-[0-9-]{6,30}$/.test(ref)) sessionStorage.setItem('erp_pending_ordmsg', ref);
+  } catch(e) {}
+  // Arrived from an alert while the ERP was already open: the worker tells this tab which thread to open.
+  try {
+    if('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', ev => {
+        const d = ev && ev.data;
+        if(d && d.type === 'ordmsg-open' && /^BEL-ORD-[0-9-]{6,30}$/.test(String(d.ref || ''))) {
+          try { sessionStorage.setItem('erp_pending_ordmsg', d.ref); } catch(e) {}
+          syncOrderMessagesFromBackend();
+        }
+      });
+      if(navigator.serviceWorker.startMessages) navigator.serviceWorker.startMessages();
+    }
+  } catch(e) {}
+  window.addEventListener('load', () => { setTimeout(() => { try { erpAlertsResume(); } catch(e) {} }, 1500); });
+})();
 
 function initVolReqChannel() {
   try {

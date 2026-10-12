@@ -85,6 +85,8 @@ mount('/owner-records', './routes-postgres/owner-records');
 mount('/ops-records', './routes-postgres/ops-records');
 // Oct 12 2026 — a customer can message EggScore about one order; staff reply from the ERP.
 mount('/order-messages', './routes-postgres/order-messages');
+// Oct 12 2026 — staff devices opt in to a "New customer message" alert that works with the ERP closed.
+mount('/staff-push', './routes-postgres/staff-push');
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides

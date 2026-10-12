@@ -14,8 +14,9 @@ const router = express.Router();
 // only EggScore staff can answer. Staff see every thread in the ERP.
 //
 // Limits (all deliberate, all easy to change here):
-const MAX_LEN = 500;             // characters per message
-const MAX_PER_HOUR = 5;          // customer messages per order per hour
+const MAX_LEN = 300;             // characters per CUSTOMER message (staff replies may be longer, below)
+const MAX_STAFF_LEN = 500;       // characters per staff reply
+const MAX_PER_HOUR = 2;          // customer messages per order per hour (more than that = pick up the phone)
 const MAX_PER_ORDER = 30;        // customer messages per order, ever
 const ORDER_WINDOW_DAYS = 60;    // a customer can write about an order for 60 days after it was placed
 
@@ -60,11 +61,46 @@ router.post('/:ref/send', requireEitherAuth(), async (req, res) => {
            COUNT(*) FILTER (WHERE created_at > now() - interval '1 hour')::int AS hour
     FROM order_messages WHERE order_ref = ? AND direction = 'customer'
   `).get(order.ref);
-  if(counts.hour >= MAX_PER_HOUR) return res.status(429).json({ error: 'You have sent several messages just now. Please wait a little, or message us on WhatsApp.' });
-  if(counts.total >= MAX_PER_ORDER) return res.status(429).json({ error: 'This order has reached its message limit. Please message us on WhatsApp.' });
+  if(counts.hour >= MAX_PER_HOUR) return res.status(429).json({ error: 'You have sent a few messages just now. Please wait a little, or call or message us on WhatsApp.' });
+  if(counts.total >= MAX_PER_ORDER) return res.status(429).json({ error: 'This order has reached its message limit. Please call or message us on WhatsApp.' });
   await db.prepare(`INSERT INTO order_messages (order_ref, direction, body) VALUES (?, 'customer', ?)`).run(order.ref, body);
   const row = await db.prepare(`SELECT * FROM order_messages WHERE order_ref = ? AND direction = 'customer' ORDER BY id DESC LIMIT 1`).get(order.ref);
+  // Oct 12 2026 — tell staff devices that opted in, even if the ERP is closed. Never blocks or fails the send.
+  push.notifyStaffOfMessage({ ref: order.ref, customerName: order.customer_name }).catch(e => console.error('[order-messages] staff alert failed:', e.message));
   res.status(201).json(asPublic(row));
+});
+
+// Oct 12 2026 — "My orders" on the portal. The phone keeps a short list of the orders
+// placed on it (reference + phone number); this returns the current status of each,
+// and when EggScore last replied, so the portal can show "new reply" tags. An order
+// is only included if the phone number sent with it matches the one on the order, and
+// nothing else about an order is returned (no address, no prices, no other customers).
+// Declared before /:ref/... so "my-orders" is not mistaken for an order reference.
+router.post('/my-orders', requireEitherAuth(), async (req, res) => {
+  const input = Array.isArray(req.body && req.body.orders) ? req.body.orders.slice(0, 10) : [];
+  const wanted = input
+    .filter(o => o && /^BEL-ORD-[0-9-]{6,30}$/.test(String(o.ref || '')) && digitsOf(o.phone).length >= 7)
+    .map(o => ({ ref: String(o.ref), phone: last10(o.phone) }));
+  if(!wanted.length) return res.json([]);
+  const marks = wanted.map(() => '?').join(',');
+  const refs = wanted.map(w => w.ref);
+  const orders = await db.prepare(`SELECT ref, phone, status, payment_verified, crates, created_at FROM orders WHERE ref IN (${marks})`).all(...refs);
+  const staffRows = await db.prepare(`
+    SELECT order_ref, MAX(created_at) AS last_staff_at
+    FROM order_messages WHERE direction = 'staff' AND order_ref IN (${marks}) GROUP BY order_ref
+  `).all(...refs);
+  const lastStaff = {}; staffRows.forEach(r => { lastStaff[r.order_ref] = new Date(r.last_staff_at).toISOString(); });
+  const out = [];
+  for(const w of wanted) {
+    const o = orders.find(x => x.ref === w.ref);
+    if(!o || !last10(o.phone) || last10(o.phone) !== w.phone) continue;
+    out.push({
+      ref: o.ref, status: o.status || '', paid: Number(o.payment_verified) === 1,
+      crates: o.crates, createdAt: new Date(o.created_at).toISOString(),
+      lastStaffAt: lastStaff[o.ref] || null,
+    });
+  }
+  res.json(out);
 });
 
 // POST (not GET) so the phone number never travels in a web address.
@@ -116,7 +152,7 @@ router.post('/:ref/reply', requireSupabaseAuth(), async (req, res) => {
   if(!order) return res.status(404).json({ error: 'Order not found.' });
   const body = cleanText(req.body && req.body.message);
   if(!body) return res.status(400).json({ error: 'Type a reply first.' });
-  if(body.length > MAX_LEN) return res.status(400).json({ error: `Keep the reply under ${MAX_LEN} characters.` });
+  if(body.length > MAX_STAFF_LEN) return res.status(400).json({ error: `Keep the reply under ${MAX_STAFF_LEN} characters.` });
   const by = (req.user && req.user.email) || null;
   await db.prepare(`INSERT INTO order_messages (order_ref, direction, body, sender) VALUES (?, 'staff', ?, ?)`).run(ref, body, by);
   // Answering a thread also counts as having read everything the customer sent.
