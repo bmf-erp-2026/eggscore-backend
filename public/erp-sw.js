@@ -31,7 +31,8 @@ self.addEventListener('notificationclick', event => {
   event.notification.close();
   const target = (event.notification.data && event.notification.data.url) || '/famad-erp.html';
   let ref = null;
-  try { ref = new URL(target, self.location.origin).searchParams.get('ordmsg'); } catch(e) {}
+  let eod = false;
+  try { const sp = new URL(target, self.location.origin).searchParams; ref = sp.get('ordmsg'); eod = sp.get('eod') === '1'; } catch(e) {}
   event.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for(const w of wins) {
@@ -40,6 +41,7 @@ self.addEventListener('notificationclick', event => {
         // (no reload, so nothing the staff member was doing is lost).
         await w.focus();
         if(ref) w.postMessage({ type: 'ordmsg-open', ref });
+        if(eod) w.postMessage({ type: 'eod-open' });
         return;
       }
     }

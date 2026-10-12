@@ -1089,7 +1089,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(session) applyRoleUI();
     if(session) {
       // The sidebar may not be parsed yet when this runs, so paint the Owner's button once the page is ready.
-      const paintHoursRow = () => { const hr = document.getElementById('erp-hours-row'); if(hr) hr.style.display = ERP_ROLE === 'owner' ? 'block' : 'none'; };
+      const paintHoursRow = () => { const hr = document.getElementById('erp-hours-row'); if(hr) hr.style.display = ERP_ROLE === 'owner' ? 'block' : 'none'; if(typeof eodPaint === 'function') eodPaint(); };
       if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', paintHoursRow); else paintHoursRow();
       if(ERP_ROLE !== 'owner') {
         const st = await erpHoursStatus(session.access_token);
@@ -1144,7 +1144,14 @@ input[type=number]{-moz-appearance:textfield;}
     if(now >= erpHoursInfo.closesAt) { erpLockOut(null); return; }
     if(now >= erpHoursInfo.cobAt && b) {
       const mins = Math.max(1, Math.ceil((erpHoursInfo.closesAt - now) / 60000));
-      b.textContent = '🕕 Close of business. Finish up and submit your reports. You will be signed out at 6:30 PM (' + mins + ' min left).';
+      const need = (typeof eodNeedsReport === 'function') && eodNeedsReport();
+      const filed = (typeof eodIsFiled === 'function') && eodIsFiled();
+      b.textContent = need
+        ? '🕕 Close of business. File your End-of-Day report now (tap here). You will be signed out at 6:30 PM (' + mins + ' min left).'
+        : (filed ? '✓ Report filed. Finish up; you will be signed out at 6:30 PM (' + mins + ' min left).'
+                 : '🕕 Close of business. Finish up and submit your reports. You will be signed out at 6:30 PM (' + mins + ' min left).');
+      b.style.cursor = need ? 'pointer' : 'default';
+      b.onclick = need ? () => eodOpen() : null;
       b.style.display = 'block';
     }
   }
@@ -4972,6 +4979,76 @@ input[type=number]{-moz-appearance:textfield;}
     <div id="sh-list" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust)"></div>
   </div>
 </div>
+<div class="modal-overlay" id="modal-eod">
+  <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
+    <div class="modal-hdr">
+      <div class="modal-title">📝 End-of-Day report</div>
+      <button class="modal-close" onclick="closeModal('modal-eod')">✕</button>
+    </div>
+    <div id="eod-status" class="alert-banner info" style="margin-bottom:14px"></div>
+
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">1. TODAY IN NUMBERS (filled in by the ERP)</div>
+    <div id="eod-figures" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px"></div>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);margin-bottom:16px;cursor:pointer">
+      <input type="checkbox" id="eod-accurate" style="margin-top:2px"/> <span>These figures are accurate. (If something is wrong, say so under Issues.)</span>
+    </label>
+
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">2. CASH AND STOCK HANDOVER</div>
+    <div class="form-group" style="margin-bottom:8px">
+      <select class="form-select" id="eod-cash" onchange="eodCashChanged()">
+        <option value="">Choose one…</option>
+        <option value="yes">Cash and transfers collected today were handed over or banked</option>
+        <option value="no">Some cash is still with me (explain)</option>
+        <option value="none">Nothing was collected today</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:8px;display:none" id="eod-cashnote-wrap">
+      <input class="form-input" id="eod-cashnote" maxlength="300" placeholder="How much, and where is it now?"/>
+    </div>
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Damaged or broken crates today</label>
+      <input class="form-input" id="eod-damaged" type="number" min="0" value="0"/>
+    </div>
+
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">3. ISSUES AND PROBLEMS</div>
+    <div class="form-group" style="margin-bottom:6px">
+      <textarea class="form-textarea" id="eod-issues" maxlength="1500" placeholder="Customer complaints, payment disputes, stock or delivery problems, anything the Owner must know…" style="min-height:70px"></textarea>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);margin-bottom:16px;cursor:pointer">
+      <input type="checkbox" id="eod-noissues"/> <span>No issues today</span>
+    </label>
+
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--teal);margin-bottom:6px">4. LOOKAHEAD: PLAN FOR TOMORROW</div>
+    <div class="form-group" style="margin-bottom:16px">
+      <textarea class="form-textarea" id="eod-lookahead" maxlength="1500" placeholder="The follow-ups, deliveries and calls you will start with tomorrow morning…" style="min-height:70px"></textarea>
+    </div>
+
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">5. ANYTHING ELSE (not covered above)</div>
+    <div class="form-group" style="margin-bottom:12px">
+      <textarea class="form-textarea" id="eod-other" maxlength="1500" placeholder="Anything else the Owner should know that has no place above…" style="min-height:60px"></textarea>
+    </div>
+
+    <div id="eod-err" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--red);min-height:14px;margin-bottom:8px"></div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-eod')">Close</button>
+      <button class="btn btn-primary" id="eod-submit" onclick="eodSubmit()">File report</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-eod-roll">
+  <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto">
+    <div class="modal-hdr">
+      <div class="modal-title">📋 Daily Reports</div>
+      <button class="modal-close" onclick="closeModal('modal-eod-roll')">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <input class="form-input" type="date" id="eodr-date" onchange="eodRollLoad()" style="max-width:180px"/>
+      <button class="btn btn-ghost" onclick="eodRollLoad()">Refresh</button>
+    </div>
+    <div id="eodr-summary" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);margin-bottom:10px"></div>
+    <div id="eodr-list"></div>
+  </div>
+</div>
 <div class="modal-overlay" id="modal-overpayment">
   <div class="modal">
     <div class="modal-hdr">
@@ -5593,6 +5670,16 @@ input[type=number]{-moz-appearance:textfield;}
 
   <div id="erp-hours-row" style="display:none;margin:-4px 0 10px 0">
     <button onclick="erpHoursOpen()" style="width:100%;text-align:left;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">🕕 After-hours access…</button>
+  </div>
+
+  <!-- Oct 12 2026 — End-of-Day report: staff file it; the Owner reads the roll-up. -->
+  <div id="erp-eod-row" style="display:none;margin:-4px 0 10px 0">
+    <button id="erp-eod-btn" onclick="eodOpen()" style="width:100%;text-align:left;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">📝 End-of-Day report…</button>
+    <div id="erp-eod-note" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin:4px 2px 0 2px;line-height:1.5"></div>
+  </div>
+  <div id="erp-eodview-row" style="display:none;margin:-4px 0 10px 0">
+    <button onclick="eodRollOpen()" style="width:100%;text-align:left;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">📋 Daily Reports…</button>
+    <div id="erp-eodview-note" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin:4px 2px 0 2px;line-height:1.5"></div>
   </div>
 
   <div class="sl">Main Modules</div>
@@ -26659,6 +26746,191 @@ async function erpAlertsResume() {
     }
   } catch(e) {}
   window.addEventListener('load', () => { setTimeout(() => { try { erpAlertsResume(); } catch(e) {} }, 1500); });
+})();
+
+
+/* ═══════════════════════════════════════════════════════
+   END-OF-DAY REPORT (Oct 12 2026)
+   Staff file one report per working day: the day's figures (filled in from the ERP and
+   confirmed), cash and stock handover, issues, LOOKAHEAD (tomorrow's plan) and anything else.
+   On time before 6:00 PM, late until 6:30 PM. The Owner reads the roll-up (Daily Reports).
+═══════════════════════════════════════════════════════ */
+let EOD = { me: null, roll: null };
+async function eodFetch(path, opts) {
+  const token = await erpGetAuthToken();
+  if(!token) return null;
+  const o = { ...(opts || {}) };
+  o.headers = { 'Authorization': 'Bearer ' + token, ...(o.body ? { 'Content-Type': 'application/json' } : {}) };
+  try { return await fetch(BACKEND_URL + '/eod-reports' + path, o); } catch(e) { return null; }
+}
+function eodEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function eodTime(iso) {
+  if(!iso) return '';
+  const d = new Date(new Date(iso).getTime() + 3600000), h = d.getUTCHours(), m = d.getUTCMinutes();
+  return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM');
+}
+const EOD_LABEL = { on_time: 'On time', late: 'Late', missing: 'Missing', pending: 'Not yet filed', excused: 'Excused' };
+const EOD_COLOR = { on_time: 'var(--teal)', late: 'var(--amber)', missing: 'var(--red)', pending: 'var(--mist)', excused: 'var(--mist)' };
+function eodIsFiled() { return !!(EOD.me && EOD.me.filed); }
+function eodNeedsReport() { return ERP_ROLE !== 'owner' && !!EOD.me && EOD.me.workingDay && !EOD.me.filed; }
+
+async function eodPaint() {
+  const staffRow = document.getElementById('erp-eod-row'), ownerRow = document.getElementById('erp-eodview-row');
+  if(!staffRow || !ownerRow) return;
+  if(ERP_ROLE === 'owner') {
+    staffRow.style.display = 'none'; ownerRow.style.display = 'block';
+    let pend = null;
+    try { pend = sessionStorage.getItem('erp_pending_eod'); if(pend) sessionStorage.removeItem('erp_pending_eod'); } catch(e) {}
+    if(pend) eodRollOpen();
+    return;
+  }
+  ownerRow.style.display = 'none'; staffRow.style.display = 'block';
+  await eodLoadMe();
+}
+async function eodLoadMe() {
+  const r = await eodFetch('/me');
+  if(!r || !r.ok) return;
+  try { EOD.me = await r.json(); } catch(e) { return; }
+  const btn = document.getElementById('erp-eod-btn'), note = document.getElementById('erp-eod-note');
+  if(!btn || !note) return;
+  const me = EOD.me;
+  if(!me.workingDay) { btn.textContent = '📝 End-of-Day report'; note.textContent = 'No report is needed on Sundays.'; return; }
+  if(me.filed) {
+    btn.textContent = '📝 End-of-Day report: filed ✓'; btn.style.color = 'var(--teal)';
+    note.textContent = 'Filed at ' + eodTime(me.report.firstSubmittedAt) + ' (' + (EOD_LABEL[me.report.status] || '').toLowerCase() + '). Tap to read or update it.';
+  } else {
+    btn.textContent = '📝 End-of-Day report: due by 6:00 PM'; btn.style.color = 'var(--amber)';
+    note.textContent = 'File it before 6:00 PM to be on time. The ERP closes for you at 6:30 PM.';
+  }
+}
+
+// ── the day's figures, from the ERP's own records ──
+async function eodFigures(day) {
+  const { data: { session } } = await erpSupabase.auth.getSession();
+  const email = String((session && session.user && session.user.email) || '').toLowerCase();
+  const rep = ((typeof STATE !== 'undefined' && STATE.reps) || []).find(r => String(r.email || '').toLowerCase() === email);
+  const mine = who => !rep || who === rep.name;          // a login with no rep record (the manager) sees every sale
+  const lagosDay = iso => { const t = Date.parse(iso); return isNaN(t) ? '' : new Date(t + 3600000).toISOString().slice(0, 10); };
+  const sales = ((typeof STATE !== 'undefined' && STATE.sales) || []).filter(x => String(x.date || '').slice(0, 10) === day && mine(x.rep));
+  const pays = ((typeof STATE !== 'undefined' && STATE.settlementLog) || []).filter(e => !e.reversedAt && lagosDay(e.at) === day && mine(e.by) && Number(e.amount) > 0 && !/^wallet/.test(String(e.method || '')));
+  let openOrders = 0; try { openOrders = loadOrders().filter(o => ['pending', 'confirmed'].includes(o.status)).length; } catch(e) {}
+  const unread = (typeof ordMsgInbox !== 'undefined' ? ordMsgInbox : []).reduce((a, t) => a + (t.unread || 0), 0);
+  return {
+    salesCount: sales.length, cratesSold: sales.reduce((a, x) => a + (Number(x.crates) || 0), 0), salesValue: sales.reduce((a, x) => a + (Number(x.gross) || 0), 0),
+    paymentsCount: pays.length, paymentsTotal: pays.reduce((a, e) => a + (Number(e.amount) || 0), 0),
+    openOrders, unreadMessages: unread,
+  };
+}
+const EOD_FIG_ROWS = [['salesCount', 'Sales logged', n => n], ['cratesSold', 'Crates sold', n => n.toLocaleString()], ['salesValue', 'Sales value', n => fmt(n)],
+  ['paymentsCount', 'Payments recorded', n => n], ['paymentsTotal', 'Payments total', n => fmt(n)], ['openOrders', 'Orders still open (all EggScore)', n => n], ['unreadMessages', 'Customer messages unread (all EggScore)', n => n]];
+function eodFigHtml(f) {
+  return EOD_FIG_ROWS.map(([k, label, fn]) => '<div style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(label) + '</div><div style="font-size:15px;font-weight:700;color:var(--cream)">' + eodEsc(fn(Number((f || {})[k]) || 0)) + '</div></div>').join('');
+}
+function eodCashChanged() { document.getElementById('eod-cashnote-wrap').style.display = document.getElementById('eod-cash').value === 'no' ? 'block' : 'none'; }
+let eodCurrentFigures = null;
+async function eodOpen() {
+  await eodLoadMe();
+  const me = EOD.me;
+  const st = document.getElementById('eod-status'), err = document.getElementById('eod-err'), btn = document.getElementById('eod-submit');
+  err.textContent = '';
+  if(me && !me.workingDay) { st.textContent = 'There is no End-of-Day report on Sundays.'; btn.disabled = true; openModal('modal-eod'); return; }
+  btn.disabled = false;
+  const day = me ? me.day : new Date(Date.now() + 3600000).toISOString().slice(0, 10);
+  eodCurrentFigures = await eodFigures(day);
+  document.getElementById('eod-figures').innerHTML = eodFigHtml(eodCurrentFigures);
+  const d = me && me.report && me.report.data ? me.report.data : null;
+  document.getElementById('eod-accurate').checked = false;
+  document.getElementById('eod-cash').value = d ? d.cashHandover || '' : '';
+  document.getElementById('eod-cashnote').value = d ? d.cashNote || '' : '';
+  document.getElementById('eod-damaged').value = d ? d.damagedCrates || 0 : 0;
+  document.getElementById('eod-noissues').checked = !!(d && d.noIssues);
+  document.getElementById('eod-issues').value = d ? d.issues || '' : '';
+  document.getElementById('eod-lookahead').value = d ? d.lookahead || '' : '';
+  document.getElementById('eod-other').value = d ? d.other || '' : '';
+  eodCashChanged();
+  if(me && me.filed) { st.textContent = 'Filed at ' + eodTime(me.report.firstSubmittedAt) + ' (' + (EOD_LABEL[me.report.status] || '').toLowerCase() + '). You can update it until you are signed out. Tick the accuracy box again to resubmit.'; btn.textContent = 'Update report'; }
+  else { st.textContent = 'One report per working day. Before 6:00 PM it counts as on time; between 6:00 and 6:30 PM it counts as late.'; btn.textContent = 'File report'; }
+  openModal('modal-eod');
+}
+async function eodSubmit() {
+  const err = document.getElementById('eod-err'), btn = document.getElementById('eod-submit');
+  err.textContent = '';
+  const body = {
+    figures: eodCurrentFigures || {},
+    accurate: document.getElementById('eod-accurate').checked,
+    cashHandover: document.getElementById('eod-cash').value,
+    cashNote: document.getElementById('eod-cashnote').value,
+    damagedCrates: Number(document.getElementById('eod-damaged').value) || 0,
+    noIssues: document.getElementById('eod-noissues').checked,
+    issues: document.getElementById('eod-issues').value,
+    lookahead: document.getElementById('eod-lookahead').value,
+    other: document.getElementById('eod-other').value,
+  };
+  btn.disabled = true;
+  const r = await eodFetch('/me', { method: 'POST', body: JSON.stringify(body) });
+  btn.disabled = false;
+  if(!r) { err.textContent = 'Could not reach the server. Check your connection and try again.'; return; }
+  let j = null; try { j = await r.json(); } catch(e) {}
+  if(!r.ok) { err.textContent = (j && j.error) || 'Could not save the report.'; return; }
+  closeModal('modal-eod');
+  showToast('✓ End-of-Day report ' + (r.status === 201 ? 'filed' : 'updated') + ' (' + (EOD_LABEL[j.report.status] || '').toLowerCase() + ').');
+  await eodLoadMe();
+  if(typeof erpHoursTick === 'function') erpHoursTick();
+}
+
+// ── Owner: Daily Reports ──
+async function eodRollOpen() {
+  openModal('modal-eod-roll');
+  await eodRollLoad(true);
+}
+async function eodRollLoad(first) {
+  const dateEl = document.getElementById('eodr-date'), sum = document.getElementById('eodr-summary'), list = document.getElementById('eodr-list');
+  const q = (!first && dateEl.value) ? '?date=' + encodeURIComponent(dateEl.value) : '';
+  const r = await eodFetch('/day' + q);
+  if(!r || !r.ok) { sum.textContent = 'Could not load the reports. Check your connection.'; list.innerHTML = ''; return; }
+  const d = await r.json(); EOD.roll = d;
+  dateEl.value = d.day;
+  if(!d.workingDay) { sum.textContent = 'Sunday: no reports are expected.'; list.innerHTML = ''; return; }
+  const c = d.counts;
+  sum.textContent = c.filed + ' of ' + c.expected + ' filed' + (c.late ? ' · ' + c.late + ' late' : '') + (c.missing ? ' · ' + c.missing + ' missing' : '') + (c.pending ? ' · ' + c.pending + ' not yet filed' : '') + (c.excused ? ' · ' + c.excused + ' excused' : '');
+  if(!d.rows.length) { list.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No staff reports expected.</div>'; return; }
+  list.innerHTML = d.rows.map((x, i) => {
+    const chip = '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:' + EOD_COLOR[x.status] + ';border:1px solid ' + EOD_COLOR[x.status] + ';border-radius:10px;padding:1px 8px">' + EOD_LABEL[x.status] + (x.firstSubmittedAt ? ' · ' + eodTime(x.firstSubmittedAt) : '') + '</span>';
+    let act = '';
+    if(x.status === 'missing' || x.status === 'pending') act = '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();eodExcuse(\'' + eodEsc(x.email) + '\')">Excuse</button>';
+    if(x.status === 'excused' && x.id) act = '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();eodUnexcuse(' + x.id + ')">Undo</button>';
+    const head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:' + (x.data && x.data.figures ? 'pointer' : 'default') + '" ' + (x.data && x.data.figures ? 'onclick="eodRollToggle(' + i + ')"' : '') + '><div><div style="font-weight:600;color:var(--cream)">' + eodEsc(x.name) + '</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(x.email) + '</div></div><div style="display:flex;gap:8px;align-items:center">' + chip + act + '</div></div>';
+    return head + '<div id="eodr-d-' + i + '" style="display:none;padding:8px 0 12px 0">' + eodRollDetail(x) + '</div>';
+  }).join('');
+}
+function eodRollToggle(i) { const el = document.getElementById('eodr-d-' + i); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
+function eodRollDetail(x) {
+  const d = x.data || {};
+  if(!d.figures) return d.excusedNote ? '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">Excused: ' + eodEsc(d.excusedNote) + '</div>' : '';
+  const block = (title, text, color) => text ? '<div style="margin-top:8px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:' + (color || 'var(--mist)') + '">' + title + '</div><div style="font-size:12px;color:var(--dust);white-space:pre-wrap">' + eodEsc(text) + '</div></div>' : '';
+  const cash = { yes: 'Cash and transfers handed over or banked', no: 'Cash still with the staff member', none: 'Nothing collected' }[d.cashHandover] || '';
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">' + eodFigHtml(d.figures) + '</div>'
+    + block('CASH AND STOCK HANDOVER', cash + (d.cashNote ? ': ' + d.cashNote : '') + (d.damagedCrates ? '\nDamaged or broken crates: ' + d.damagedCrates : ''))
+    + block('ISSUES AND PROBLEMS', d.noIssues && !d.issues ? 'No issues today.' : d.issues)
+    + block('LOOKAHEAD: PLAN FOR TOMORROW', d.lookahead, 'var(--teal)')
+    + block('ANYTHING ELSE', d.other);
+}
+async function eodExcuse(email) {
+  const r = await eodFetch('/excuse', { method: 'POST', body: JSON.stringify({ email, day: EOD.roll && EOD.roll.day }) });
+  if(r && r.ok) { showToast('Excused.'); eodRollLoad(); } else showToast('Could not excuse that report.');
+}
+async function eodUnexcuse(id) {
+  const r = await eodFetch('/excuse/' + id, { method: 'DELETE' });
+  if(r && r.ok) { eodRollLoad(); } else showToast('Could not undo that.');
+}
+// Arrived from the 6:30 PM summary alert (?eod=1) — remembered until the Owner is signed in.
+(function() {
+  try { if(new URLSearchParams(location.search).get('eod') === '1') sessionStorage.setItem('erp_pending_eod', '1'); } catch(e) {}
+  try {
+    if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', ev => {
+      if(ev && ev.data && ev.data.type === 'eod-open' && ERP_ROLE === 'owner') eodRollOpen();
+    });
+  } catch(e) {}
 })();
 
 function initVolReqChannel() {
