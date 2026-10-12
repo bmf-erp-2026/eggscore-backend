@@ -1110,7 +1110,6 @@ input[type=number]{-moz-appearance:textfield;}
   }
 
   async function erpLogout() {
-    try { if(typeof erpAlertsOnLogout === 'function') await erpAlertsOnLogout(); } catch(e) {}   // Oct 12 2026 — stop staff alerts for this device while signed out
     await erpSupabase.auth.signOut();
     document.getElementById('erp-login-email').value = '';
     document.getElementById('erp-login-password').value = '';
@@ -26335,8 +26334,8 @@ async function sendOrderMessageReply() {
    BEL-ORD-…") even if the ERP is closed. The alert never shows the
    customer's name or words. Tapping it opens that order's thread.
    Works through its own small worker (erp-sw.js), so the customer portal's
-   worker is untouched. Signing out stops alerts for this device; signing
-   back in resumes them (unless the switch was turned off on purpose).
+   worker is untouched. Alerts stay on when the ERP is closed or signed out;
+   only the switch turns them off.
    ═══════════════════════════════════════════════════════ */
 function erpAlertsSupported() {
   return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window) &&
@@ -26424,12 +26423,10 @@ async function erpAlertsResume() {
   const sub = await erpAlertsCurrentSub();
   if(sub) await staffPushFetch('/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON() }) });
 }
-// Sign-out: stop alerts for this device (the browser keeps its subscription so signing back in resumes them).
-async function erpAlertsOnLogout() {
-  if(!erpAlertsSupported()) return;
-  const sub = await erpAlertsCurrentSub();
-  if(sub) await staffPushFetch('/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
-}
+// Oct 12 2026 (later) — signing out or closing the ERP does NOT switch alerts off. An alert
+// exists to reach you when the ERP is closed or signed out, so it is a setting of the device,
+// switched off only by the switch itself. (A first version stopped alerts at sign-out; the
+// Owner's first test showed that defeats the purpose.)
 // Arrived from an alert: ?ordmsg=ORDER-REF (ERP was closed) — remembered until the inbox has loaded.
 (function() {
   try {
