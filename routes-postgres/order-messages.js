@@ -19,6 +19,8 @@ const MAX_STAFF_LEN = 500;       // characters per staff reply
 const MAX_PER_HOUR = 2;          // customer messages per order per hour (more than that = pick up the phone)
 const MAX_PER_ORDER = 30;        // customer messages per order, ever
 const ORDER_WINDOW_DAYS = 60;    // a customer can write about an order for 60 days after it was placed
+const PAY_QUESTION_AFTER_MIN = 30;   // "I have paid" quick question appears this long after the order, if payment is not yet confirmed
+const NO_DAY_FALLBACK_DAYS = 7;      // an order with no recorded delivery day counts as due 7 days after it was placed
 
 const digitsOf = s => String(s || '').replace(/\D/g, '');
 const last10 = s => digitsOf(s).slice(-10);
@@ -38,13 +40,44 @@ async function ownedOrder(req, res) {
   const ref = String(req.params.ref || '');
   const phone = req.body && req.body.phone;
   if(!/^BEL-ORD-[0-9-]{6,30}$/.test(ref) || !phone) { res.status(400).json({ error: 'Order reference and phone number are required.' }); return null; }
-  const order = await db.prepare('SELECT ref, customer_id, customer_name, phone, created_at FROM orders WHERE ref = ?').get(ref);
+  const order = await db.prepare('SELECT ref, customer_id, customer_name, phone, created_at, status, payment_verified, preferred_delivery_day FROM orders WHERE ref = ?').get(ref);
   if(!order) { res.status(404).json({ error: 'Order not found.' }); return null; }
   if(!last10(order.phone) || last10(order.phone) !== last10(phone)) {
     res.status(403).json({ error: 'That phone number does not match this order.' });
     return null;
   }
   return order;
+}
+
+
+// Oct 12 2026 — which quick questions make sense right now for an order.
+// "I have paid" only while payment is NOT confirmed and a short wait has passed;
+// "Where is my delivery?" only once payment IS confirmed and the delivery day
+// the customer chose has arrived. Finished or cancelled orders get neither.
+// Decided here (server clock, Lagos date) so the portal only shows what this says.
+const DAY_INDEX = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
+const LAGOS_MS = 3600000;   // Africa/Lagos = UTC+1, no daylight saving
+const ymd = ms => new Date(ms + LAGOS_MS).toISOString().slice(0, 10);
+// Same rule the portal uses when it offers a day: the next such weekday AFTER the order date, never the same day.
+function deliveryDateOf(order) {
+  const placed = new Date(order.created_at).getTime();
+  const wd = new Date(placed + LAGOS_MS).getUTCDay();
+  const target = DAY_INDEX[String(order.preferred_delivery_day || '')];
+  const add = target === undefined ? NO_DAY_FALLBACK_DAYS : ((target - wd + 7) % 7 || 7);
+  return ymd(placed + add * 86400000);
+}
+function quickState(order, nowMs) {
+  const now = nowMs == null ? Date.now() : nowMs;
+  const status = String(order.status || '');
+  const closed = ['fulfilled', 'cancelled', 'rejected'].includes(status);
+  const paid = Number(order.payment_verified) === 1;
+  const minutes = (now - new Date(order.created_at).getTime()) / 60000;
+  const deliveryOn = deliveryDateOf(order);
+  return {
+    pay: !closed && !paid && minutes >= PAY_QUESTION_AFTER_MIN,
+    delivery: !closed && paid && ymd(now) >= deliveryOn,
+    deliveryOn, paid, closed,
+  };
 }
 
 // ═══════════════════════ CUSTOMER SIDE (portal key) ═══════════════════════
@@ -101,6 +134,12 @@ router.post('/my-orders', requireEitherAuth(), async (req, res) => {
     });
   }
   res.json(out);
+});
+
+// Which quick questions the portal may offer for this order right now.
+router.post('/:ref/quick', requireEitherAuth(), async (req, res) => {
+  const order = await ownedOrder(req, res); if(!order) return;
+  res.json(quickState(order));
 });
 
 // POST (not GET) so the phone number never travels in a web address.
@@ -164,3 +203,4 @@ router.post('/:ref/reply', requireSupabaseAuth(), async (req, res) => {
 });
 
 module.exports = router;
+module.exports.quickState = quickState;   // exported for the test suite

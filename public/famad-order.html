@@ -1093,6 +1093,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       <div class="om-thread" id="om-thread"></div>
       <div class="om-chips-label" id="om-chips-label"></div>
       <div class="om-chips" id="om-chips"></div>
+      <div class="om-chips-label" id="om-chips-hint" style="margin-top:-4px;"></div>
       <textarea class="form-input" id="om-text" rows="3" maxlength="300" style="width:100%;resize:vertical" oninput="omCount()"></textarea>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
         <span id="om-count" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)"></span>
@@ -1412,6 +1413,8 @@ const UI_STRINGS = {
     'om.not_found': "We can't find this order yet. Please try again in a minute.",
     'om.net': "We couldn't reach EggScore just now. Check your network and try again.",
     'om.urgent': 'Something urgent? Please call us or message us on WhatsApp.',
+    'om.hint_deliv': 'The delivery question opens on your delivery day ({d}).',
+    'om.hint_pay': 'If you have already paid, a payment question will appear here shortly.',
     'om.quick': 'Quick questions — tap one to fill it in:',
     'om.q1': 'Where is my delivery?',
     'om.q2': 'I have paid — please confirm my payment.',
@@ -1526,6 +1529,8 @@ const UI_STRINGS = {
     'om.not_found': 'We no see this order yet. Abeg try again small time.',
     'om.net': 'We no fit reach EggScore now. Check your network make you try again.',
     'om.urgent': 'E dey urgent? Abeg call us or message us for WhatsApp.',
+    'om.hint_deliv': 'Delivery question go open for your delivery day ({d}).',
+    'om.hint_pay': 'If you don don pay, payment question go show here soon.',
     'om.quick': 'Quick questions — tap one make e fill am for you:',
     'om.q1': 'Where my delivery dey?',
     'om.q2': 'I don pay — abeg confirm my payment.',
@@ -4971,7 +4976,7 @@ window.addEventListener('load', () => {
    on order updates, a short "EggScore replied" notification brings them back
    here (the notification never contains the reply itself).
 ═══════════════════════════════════════════════════════ */
-let omCurrent = null, omTimer = null, omBusy = false, omFromList = false;
+let omCurrent = null, omTimer = null, omBusy = false, omFromList = false, omQuick = null;
 const OM_MAX = 300;   // characters per customer message (the server enforces the same limit)
 function omEl(id) { return document.getElementById(id); }
 function omHeaders() { return { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY }; }
@@ -4997,19 +5002,50 @@ function omOpen(ctx) {
   omEl('om-send').textContent = pushStr('om.send');
   omEl('om-urgent').textContent = pushStr('om.urgent');
   omEl('om-chips-label').textContent = pushStr('om.quick');
-  omEl('om-chips').innerHTML = [1,2,3,4].map(i => `<button type="button" class="om-chip" onclick="omChip(${i})">${escapeHtmlPortal(pushStr('om.q' + i))}</button>`).join('');
+  omQuick = null; omPaintChips();   // until the server says otherwise only the two always-safe questions show
   omEl('om-err').textContent = '';
   omEl('om-overlay').classList.add('active');
   omCount();
-  if(omCurrent.phone) { omStep('chat'); omLoad(false); }
+  if(omCurrent.phone) { omStep('chat'); omLoad(false); omQuickLoad(); }
   else { omStep('phone'); omEl('om-phone').value = ''; }
   clearInterval(omTimer);
-  omTimer = setInterval(() => { if(document.visibilityState === 'visible' && omCurrent && omCurrent.phone) omLoad(true); }, 30000);
+  omTimer = setInterval(() => { if(document.visibilityState === 'visible' && omCurrent && omCurrent.phone) { omLoad(true); omQuickLoad(); } }, 30000);
 }
 function omClose() {
   omEl('om-overlay').classList.remove('active');
   clearInterval(omTimer); omTimer = null;
   if(omFromList) { omFromList = false; moShow(); }   // came from "My orders" — go back to the list
+}
+// Oct 12 2026 — time-gated quick questions. Questions 3 and 4 are always offered.
+// Question 2 ("I have paid") only while payment is not yet confirmed (after a short wait);
+// question 1 ("Where is my delivery?") only once payment is confirmed AND the chosen
+// delivery day has arrived. The server decides (POST /order-messages/:ref/quick).
+function omPaintChips() {
+  const q = omQuick;
+  const show = [3, 4];
+  if(q && q.pay) show.push(2);
+  if(q && q.delivery) show.push(1);
+  show.sort();
+  omEl('om-chips').innerHTML = show.map(i => `<button type="button" class="om-chip" onclick="omChip(${i})">${escapeHtmlPortal(pushStr('om.q' + i))}</button>`).join('');
+  let hint = '';
+  if(q && !q.closed) {
+    if(q.paid && !q.delivery && /^\d{4}-\d{2}-\d{2}$/.test(q.deliveryOn || '')) {
+      const p = q.deliveryOn.split('-').map(Number);
+      const d = new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+      hint = pushStr('om.hint_deliv').replace('{d}', d);
+    } else if(!q.paid && !q.pay) hint = pushStr('om.hint_pay');
+  }
+  omEl('om-chips-hint').textContent = hint;
+}
+async function omQuickLoad() {
+  if(!omCurrent || !omCurrent.phone) return;
+  const ref = omCurrent.ref;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/order-messages/${encodeURIComponent(ref)}/quick`, {
+      method: 'POST', headers: omHeaders(), body: JSON.stringify({ phone: omCurrent.phone }),
+    });
+    if(resp.ok && omCurrent && omCurrent.ref === ref) { omQuick = await resp.json(); omPaintChips(); }
+  } catch(e) { /* keep what is showing */ }
 }
 // A quick question fills the box (the customer can still edit it before sending).
 function omChip(i) {
@@ -5027,7 +5063,7 @@ function omPhoneGo() {
   const v = (omEl('om-phone').value || '').trim();
   if(v.replace(/\D/g, '').length < 7) return;
   omCurrent.phone = v;
-  omStep('chat'); omLoad(false);
+  omStep('chat'); omLoad(false); omQuickLoad();
 }
 function omCount() {
   const t = omEl('om-text'); if(!t) return;
