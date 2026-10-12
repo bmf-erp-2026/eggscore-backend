@@ -20,6 +20,7 @@ const MAX_PER_HOUR = 2;          // customer messages per order per hour (more t
 const MAX_PER_ORDER = 30;        // customer messages per order, ever
 const ORDER_WINDOW_DAYS = 60;    // a customer can write about an order for 60 days after it was placed
 const PAY_QUESTION_AFTER_MIN = 30;   // "I have paid" quick question appears this long after the order, if payment is not yet confirmed
+const DELIVERY_QUESTION_HOUR = 18;   // "Where is my delivery?" opens at this Lagos hour (close of business, 6 PM) on the delivery day
 const NO_DAY_FALLBACK_DAYS = 7;      // an order with no recorded delivery day counts as due 7 days after it was placed
 
 const digitsOf = s => String(s || '').replace(/\D/g, '');
@@ -52,8 +53,8 @@ async function ownedOrder(req, res) {
 
 // Oct 12 2026 — which quick questions make sense right now for an order.
 // "I have paid" only while payment is NOT confirmed and a short wait has passed;
-// "Where is my delivery?" only once payment IS confirmed and the delivery day
-// the customer chose has arrived. Finished or cancelled orders get neither.
+// "Where is my delivery?" only once payment IS confirmed and close of business (6 PM Lagos)
+// on the delivery day the customer chose has passed. Finished or cancelled orders get neither.
 // Decided here (server clock, Lagos date) so the portal only shows what this says.
 const DAY_INDEX = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
 const LAGOS_MS = 3600000;   // Africa/Lagos = UTC+1, no daylight saving
@@ -75,7 +76,7 @@ function quickState(order, nowMs) {
   const deliveryOn = deliveryDateOf(order);
   return {
     pay: !closed && !paid && minutes >= PAY_QUESTION_AFTER_MIN,
-    delivery: !closed && paid && ymd(now) >= deliveryOn,
+    delivery: !closed && paid && now >= new Date(deliveryOn + 'T' + String(DELIVERY_QUESTION_HOUR).padStart(2, '0') + ':00:00+01:00').getTime(),
     deliveryOn, paid, closed,
   };
 }
