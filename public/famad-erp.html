@@ -862,6 +862,17 @@ input[type=number]{-moz-appearance:textfield;}
 <script defer
   src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCz-R0fq7giNk0nMYwZBsWimwzGZBKCEb4&callback=initEggScoreMaps&loading=async">
 </script>
+<!-- Oct 12 2026 — staff working hours (Mon-Sat 6:00 AM to 6:30 PM Lagos; the Owner is never locked out). -->
+<div id="erp-closed-overlay" style="position:fixed;inset:0;z-index:100000;background:#0a0e17;display:none;align-items:center;justify-content:center;font-family:'Syne',sans-serif;">
+  <div style="width:100%;max-width:380px;padding:32px;background:#131826;border:1px solid #232938;border-radius:14px;text-align:center">
+    <div style="font-weight:800;font-size:22px;color:#4a9eff">EggScore</div>
+    <div style="font-size:34px;margin:16px 0 6px 0">🌙</div>
+    <div id="erp-closed-title" style="font-weight:700;font-size:16px;color:#f5f5f5;margin-bottom:10px">Closed for the day</div>
+    <div id="erp-closed-text" style="font-family:'DM Mono',monospace;font-size:11px;color:#9ca3af;line-height:1.7"></div>
+    <button onclick="location.reload()" style="margin-top:18px;width:100%;padding:12px;background:#1a2030;color:#f5f5f5;border:1px solid #2a3142;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer">Back to sign-in</button>
+  </div>
+</div>
+<div id="erp-cob-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99990;background:#f0a028;color:#1a1200;font-family:'DM Mono',monospace;font-size:11.5px;line-height:1.5;padding:8px 14px;text-align:center;font-weight:600"></div>
 <div id="erp-login-overlay" style="position:fixed;inset:0;z-index:99999;background:#0a0e17;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;">
   <div style="width:100%;max-width:360px;padding:32px;background:#131826;border:1px solid #232938;border-radius:14px;">
     <div style="text-align:center;margin-bottom:24px">
@@ -931,6 +942,20 @@ input[type=number]{-moz-appearance:textfield;}
   const ERP_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwbXVkeW9wa2x4bmlhcmZvYm13Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTY2MTksImV4cCI6MjA5NDE3MjYxOX0.ZKTggPV565wIxBGMEfcMIqiLtmsgWZ0XnggmEsjIoP0';
   const erpSupabase = window.supabase.createClient(ERP_SUPABASE_URL, ERP_SUPABASE_ANON_KEY, { auth: { storage: window.sessionStorage } });
   const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
+
+  // Oct 12 2026 — staff working hours. If the server ever answers "closed for staff" (403 with
+  // code OUTSIDE_HOURS), lock this screen at once — even if the clock check in this page missed it.
+  const _erpFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    const resp = await _erpFetch(input, init);
+    try {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if(resp.status === 403 && url.indexOf(BACKEND_URL) === 0) {
+        resp.clone().json().then(j => { if(j && j.code === 'OUTSIDE_HOURS') erpLockOut(j.opensAt); }).catch(() => {});
+      }
+    } catch(e) {}
+    return resp;
+  };
 
   // Password recovery (Sep 3 2026, Sales Rep Access) — Supabase JS v2
   // auto-detects a recovery token in the URL on load (detectSessionInUrl
@@ -1062,6 +1087,131 @@ input[type=number]{-moz-appearance:textfield;}
     // says or whether this code even runs.
     ERP_ROLE = session?.user?.app_metadata?.role || 'owner';
     if(session) applyRoleUI();
+    if(session) {
+      // The sidebar may not be parsed yet when this runs, so paint the Owner's button once the page is ready.
+      const paintHoursRow = () => { const hr = document.getElementById('erp-hours-row'); if(hr) hr.style.display = ERP_ROLE === 'owner' ? 'block' : 'none'; };
+      if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', paintHoursRow); else paintHoursRow();
+      if(ERP_ROLE !== 'owner') {
+        const st = await erpHoursStatus(session.access_token);
+        if(st && !st.allowed) { await erpLockOut(st.opensAt); return; }
+        if(st) erpHoursStart(st);
+      }
+    }
+  }
+
+  // ── Staff working hours (Oct 12 2026) ──────────────────────────
+  // Staff: Monday to Saturday, 6:00 AM to 6:30 PM Lagos. 6:00 PM is close of business and starts the
+  // 30-minute grace period for reports; at 6:30 PM the server refuses staff and this screen signs out.
+  // All times come from the SERVER clock (offset below), so a wrong device clock changes nothing.
+  async function erpHoursStatus(token) {
+    try {
+      const r = await fetch(BACKEND_URL + '/staff-hours/status', { headers: { 'Authorization': 'Bearer ' + token } });
+      if(!r.ok) return null;                     // cannot check: do not lock anyone out by mistake
+      return await r.json();
+    } catch(e) { return null; }
+  }
+  function erpHoursFmt(iso) {
+    if(!iso) return 'the next working day at 6:00 AM';
+    const d = new Date(new Date(iso).getTime() + 3600000);   // Lagos = UTC+1
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const h = d.getUTCHours(), m = d.getUTCMinutes();
+    const t = ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM');
+    return days[d.getUTCDay()] + ' at ' + t;
+  }
+  let erpLocked = false;
+  async function erpLockOut(opensAt) {
+    if(erpLocked) return;
+    erpLocked = true;
+    clearInterval(erpHoursTimer);
+    try { await erpSupabase.auth.signOut(); } catch(e) {}
+    const b = document.getElementById('erp-cob-banner'); if(b) b.style.display = 'none';
+    document.getElementById('erp-closed-text').textContent =
+      'EggScore is closed for staff right now. Staff hours are Monday to Saturday, 6:00 AM to 6:30 PM. It opens again ' + erpHoursFmt(opensAt) + '. If you need to work late, ask the Owner to allow you.';
+    document.getElementById('erp-closed-overlay').style.display = 'flex';
+  }
+  let erpHoursTimer = null, erpHoursInfo = null;
+  function erpHoursStart(st) {
+    clearInterval(erpHoursTimer);
+    if(!st || !st.open) return;                  // an exception holder has no clock; the server enforces midnight
+    erpHoursInfo = { offset: new Date(st.now).getTime() - Date.now(), cobAt: new Date(st.cobAt).getTime(), closesAt: new Date(st.closesAt).getTime() };
+    erpHoursTick();
+    erpHoursTimer = setInterval(erpHoursTick, 20000);
+  }
+  function erpHoursTick() {
+    if(!erpHoursInfo || erpLocked) return;
+    const now = Date.now() + erpHoursInfo.offset;
+    const b = document.getElementById('erp-cob-banner');
+    if(now >= erpHoursInfo.closesAt) { erpLockOut(null); return; }
+    if(now >= erpHoursInfo.cobAt && b) {
+      const mins = Math.max(1, Math.ceil((erpHoursInfo.closesAt - now) / 60000));
+      b.textContent = '🕕 Close of business. Finish up and submit your reports. You will be signed out at 6:30 PM (' + mins + ' min left).';
+      b.style.display = 'block';
+    }
+  }
+
+  // Owner: allow one person to work late, for today only
+  async function erpHoursFetch(path, opts) {
+    const token = await erpGetAuthToken();
+    if(!token) return null;
+    const o = { ...(opts || {}) };
+    o.headers = { 'Authorization': 'Bearer ' + token, ...(o.body ? { 'Content-Type': 'application/json' } : {}) };
+    try { return await fetch(BACKEND_URL + '/staff-hours' + path, o); } catch(e) { return null; }
+  }
+  function erpHoursMsg(t) { const m = document.getElementById('sh-msg'); if(m) { m.textContent = t || ''; m.style.display = t ? 'block' : 'none'; } }
+  async function erpHoursOpen() {
+    erpHoursMsg('');
+    const dl = document.getElementById('sh-emails');
+    if(dl) {
+      const seen = new Set();
+      dl.innerHTML = '';
+      ((typeof STATE !== 'undefined' && STATE.reps) || []).forEach(r => {
+        const e = String(r.email || '').trim().toLowerCase();
+        if(e && !seen.has(e)) { seen.add(e); const o = document.createElement('option'); o.value = e; o.label = r.name || ''; dl.appendChild(o); }
+      });
+    }
+    openModal('modal-staff-hours');
+    await erpHoursLoad();
+  }
+  async function erpHoursLoad() {
+    const box = document.getElementById('sh-list');
+    if(!box) return;
+    const r = await erpHoursFetch('/exceptions');
+    if(!r || !r.ok) { box.textContent = 'Could not load the list. Check your connection.'; return; }
+    const rows = await r.json();
+    box.innerHTML = '';
+    if(!rows.length) { box.textContent = 'No one. Everyone follows the normal hours today.'; return; }
+    rows.forEach(x => {
+      const d = document.createElement('div');
+      d.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)';
+      const l = document.createElement('span');
+      l.textContent = x.email + (x.note ? ' · ' + x.note : '');
+      const b = document.createElement('button');
+      b.textContent = 'Revoke';
+      b.style.cssText = "font-family:'DM Mono',monospace;font-size:10px;color:var(--red);background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer";
+      b.onclick = () => erpHoursRevoke(x.id);
+      d.appendChild(l); d.appendChild(b); box.appendChild(d);
+    });
+  }
+  async function erpHoursGrant() {
+    const email = document.getElementById('sh-email').value.trim().toLowerCase();
+    const note = document.getElementById('sh-note').value.trim();
+    if(!email) { erpHoursMsg('Enter the staff member\'s sign-in email.'); return; }
+    const r = await erpHoursFetch('/exceptions', { method: 'POST', body: JSON.stringify({ email, note }) });
+    if(!r || !r.ok) {
+      let t = 'Could not save. Check your connection and try again.';
+      try { const j = await r.json(); if(j && j.error) t = j.error; } catch(e) {}
+      erpHoursMsg(t); return;
+    }
+    document.getElementById('sh-email').value = ''; document.getElementById('sh-note').value = '';
+    erpHoursMsg('');
+    showToast('✓ ' + email + ' may work late until midnight.');
+    await erpHoursLoad();
+  }
+  async function erpHoursRevoke(id) {
+    const r = await erpHoursFetch('/exceptions/' + id, { method: 'DELETE' });
+    if(!r || !r.ok) { erpHoursMsg('Could not revoke. Try again.'); return; }
+    showToast('Late access removed.');
+    await erpHoursLoad();
   }
 
   async function erpHandleLogin() {
@@ -1087,6 +1237,11 @@ input[type=number]{-moz-appearance:textfield;}
       errEl.textContent = error.message || 'Login failed — check your email and password.';
       errEl.style.display = 'block';
       return;
+    }
+    // Oct 12 2026 — staff working hours: a non-Owner signing in outside Mon-Sat 6:00-18:30 is turned away here.
+    if(((data?.user?.app_metadata?.role) || 'owner') !== 'owner') {
+      const st = await erpHoursStatus(data?.session?.access_token);
+      if(st && !st.allowed) { await erpLockOut(st.opensAt); return; }
     }
     document.getElementById('erp-login-overlay').style.display = 'none';
     const label = document.getElementById('erp-logged-in-as');
@@ -4790,6 +4945,33 @@ input[type=number]{-moz-appearance:textfield;}
 </div>
 
 <!-- Overpayment Recorder Modal -->
+<div class="modal-overlay" id="modal-staff-hours">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">🕕 After-hours access</div>
+      <button class="modal-close" onclick="closeModal('modal-staff-hours')">✕</button>
+    </div>
+    <div class="alert-banner info" style="margin-bottom:14px">
+      Staff can use the ERP Monday to Saturday, 6:00 AM to 6:30 PM (Lagos). You are never locked out. To let one person work late, add their sign-in email here. It lasts until midnight tonight and then lapses by itself.
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Staff sign-in email <span class="req">*</span></label>
+      <input class="form-input" id="sh-email" type="email" list="sh-emails" placeholder="name@example.com"/>
+      <datalist id="sh-emails"></datalist>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Reason <span style="color:var(--mist)">(optional)</span></label>
+      <input class="form-input" id="sh-note" maxlength="140" placeholder="e.g. late delivery close-out"/>
+    </div>
+    <div class="submit-btns" style="margin-bottom:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-staff-hours')">Close</button>
+      <button class="btn btn-primary" id="sh-grant-btn" onclick="erpHoursGrant()">Allow until midnight</button>
+    </div>
+    <div id="sh-msg" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--amber);margin-bottom:8px;display:none"></div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">ALLOWED TO WORK LATE TODAY</div>
+    <div id="sh-list" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust)"></div>
+  </div>
+</div>
 <div class="modal-overlay" id="modal-overpayment">
   <div class="modal">
     <div class="modal-hdr">
@@ -5407,6 +5589,10 @@ input[type=number]{-moz-appearance:textfield;}
   <div id="erp-alerts-row" style="display:none;margin:-4px 0 10px 0">
     <button id="erp-alerts-btn" onclick="erpAlertsToggle()" style="width:100%;text-align:left;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">🔔 Message alerts…</button>
     <div id="erp-alerts-note" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin:4px 2px 0 2px;line-height:1.5"></div>
+  </div>
+
+  <div id="erp-hours-row" style="display:none;margin:-4px 0 10px 0">
+    <button onclick="erpHoursOpen()" style="width:100%;text-align:left;font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer">🕕 After-hours access…</button>
   </div>
 
   <div class="sl">Main Modules</div>

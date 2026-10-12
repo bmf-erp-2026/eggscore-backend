@@ -23,6 +23,12 @@ app.use(express.static('public'));
 app.use(cors());
 app.use(express.json());
 
+// Oct 12 2026 — staff working hours: outside Monday to Saturday 06:00-18:30 (Lagos) every request
+// that carries a staff login is refused unless the person is the Owner or has a one-day exception.
+// Customer-portal and public requests carry no staff login and are never affected.
+try { app.use(require('./lib/staff-hours').guard()); }
+catch(e) { console.error('[startup] WARNING: staff hours guard did not load:', e && e.message); }
+
 app.get('/', (req, res) => res.redirect('/famad-order.html'));
 
 // Oct 10 2026 (Stage 2) — startup safeguard. Each route file is loaded on its
@@ -87,6 +93,8 @@ mount('/ops-records', './routes-postgres/ops-records');
 mount('/order-messages', './routes-postgres/order-messages');
 // Oct 12 2026 — staff devices opt in to a "New customer message" alert that works with the ERP closed.
 mount('/staff-push', './routes-postgres/staff-push');
+// Oct 12 2026 — staff working hours status and the Owner's one-day exceptions.
+mount('/staff-hours', './routes-postgres/staff-hours');
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides
