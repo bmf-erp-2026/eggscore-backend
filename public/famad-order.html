@@ -251,6 +251,14 @@ input[type=number]{-moz-appearance:textfield;}
 .vr-success{display:none;text-align:center;padding:20px 0;}
 .vr-success.active{display:block;}
 .vr-success-icon{font-size:40px;margin-bottom:12px;}
+/* ── ORDER MESSAGES (Oct 12 2026) ───────────────────── */
+.om-thread{max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin:0 0 12px 0;padding:2px;}
+.om-b{max-width:84%;padding:8px 11px;border-radius:10px;font-family:'DM Mono',monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
+.om-b.me{align-self:flex-end;background:rgba(74,158,255,0.16);color:var(--cream);}
+.om-b.us{align-self:flex-start;background:rgba(61,214,192,0.12);color:var(--cream);}
+.om-meta{display:block;font-size:9px;color:var(--mist);margin-top:3px;}
+.om-empty{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);text-align:center;padding:14px 4px;}
+.om-err{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber, #f0a830);margin:6px 0;min-height:14px;}
 .form-select option{background:var(--surface);}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 
@@ -981,6 +989,8 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
       <span>💬</span><span data-i18n="ss.wa_complaints">Send your payment complaints via WhatsApp</span>
     </a>
 
+    <button class="submit-btn" id="om-open-btn" style="display:none;margin-top:12px;background:var(--surface);border:1px solid var(--border);color:var(--cream)" onclick="omOpenFromSuccess()"></button>
+
     <button class="submit-btn" onclick="resetPortal()" style="margin-top:16px;background:var(--surface);border:1px solid var(--border);color:var(--cream)">
       <span data-i18n="ss.place_another">↩ Place Another Order</span>
     </button>
@@ -1049,6 +1059,36 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 </div><!-- /portal-wrap -->
 
 <!-- VOLUME REQUEST MODAL -->
+<!-- ORDER MESSAGES — Oct 12 2026. A customer can send EggScore a short message
+     about ONE order and read the replies. Not a broadcast and not a general chat:
+     it is tied to the order, and the customer proves who they are with the phone
+     number on that order. Opened from the confirmation screen, or from a
+     "EggScore replied" notification (?msgs=ORDER-REF). -->
+<div class="vr-overlay" id="om-overlay">
+  <div class="vr-modal">
+    <div class="vr-hdr">
+      <div class="vr-title" id="om-title">Messages about this order</div>
+      <button class="vr-close" onclick="omClose()" aria-label="Close">✕</button>
+    </div>
+    <div class="vr-sub" id="om-sub"></div>
+    <div id="om-phone-step" style="display:none;margin-bottom:12px">
+      <label class="form-label" id="om-phone-label" style="font-size:11px"></label>
+      <input class="form-input" id="om-phone" type="tel" inputmode="tel" autocomplete="tel" style="margin:6px 0 8px 0"/>
+      <button class="submit-btn" id="om-phone-btn" style="margin-top:0" onclick="omPhoneGo()"></button>
+    </div>
+    <div id="om-chat-step" style="display:none">
+      <div class="om-thread" id="om-thread"></div>
+      <textarea class="form-input" id="om-text" rows="3" maxlength="500" style="width:100%;resize:vertical" oninput="omCount()"></textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+        <span id="om-count" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)"></span>
+        <button class="submit-btn" id="om-send" style="width:auto;padding:8px 18px;font-size:12px;margin-top:0" onclick="omSend()"></button>
+      </div>
+    </div>
+    <div class="om-err" id="om-err"></div>
+    <div id="om-urgent" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:4px"></div>
+  </div>
+</div>
+
 <div class="vr-overlay" id="vr-overlay">
   <div class="vr-modal">
 
@@ -1324,6 +1364,22 @@ const UI_STRINGS = {
     'push.blocked': 'Notifications are blocked in your phone settings. Allow them for EggScore there to get updates.',
     'push.ios': 'To get order updates on iPhone, first tap the Share icon <strong>⬆</strong> and choose <strong>"Add to Home Screen"</strong>, then open EggScore from your home screen.',
     'push.failed': "We couldn't switch updates on just now. Please try again later.",
+    'om.btn': '💬 Ask about this order',
+    'om.title': 'Messages about this order',
+    'om.sub': 'Ask us about this order only. We reply here, and send a notification if you turned on order updates.',
+    'om.phone_label': 'Phone number used on this order',
+    'om.phone_btn': 'Show my messages',
+    'om.placeholder': 'Type your question about this order…',
+    'om.send': 'Send',
+    'om.sending': 'Sending…',
+    'om.empty': 'No messages yet. Ask your question below.',
+    'om.us': 'EggScore',
+    'om.me': 'You',
+    'om.left': 'characters left',
+    'om.bad_phone': "That phone number doesn't match this order.",
+    'om.not_found': "We can't find this order yet. Please try again in a minute.",
+    'om.net': "We couldn't reach EggScore just now. Check your network and try again.",
+    'om.urgent': 'Something urgent? Message us on WhatsApp.',
     'wa.order_here': 'Prefer WhatsApp? Order here →',
     'stock.available': 'Stock Available', 'stock.ready': 'crates ready to order',
     'stock.price_note': 'Price reflects current stock costs and may shift slightly between orders. Questions about a price? Chat with us any time.',
@@ -1405,6 +1461,22 @@ const UI_STRINGS = {
     'push.blocked': 'Notification dey blocked for your phone settings. Allow am for EggScore there make you dey get updates.',
     'push.ios': 'To get order updates for iPhone, first tap the Share icon <strong>⬆</strong> then tap <strong>"Add to Home Screen"</strong>, after that open EggScore from your home screen.',
     'push.failed': 'We no fit on updates now. Abeg try again later.',
+    'om.btn': '💬 Ask question about this order',
+    'om.title': 'Messages for this order',
+    'om.sub': 'Ask us about this order only. We go reply here, and ping you if you don turn on order updates.',
+    'om.phone_label': 'Phone number wey you use for this order',
+    'om.phone_btn': 'Show my messages',
+    'om.placeholder': 'Type your question about this order…',
+    'om.send': 'Send',
+    'om.sending': 'E dey go…',
+    'om.empty': 'No message yet. Ask your question below.',
+    'om.us': 'EggScore',
+    'om.me': 'You',
+    'om.left': 'letters remain',
+    'om.bad_phone': 'That phone number no match this order.',
+    'om.not_found': 'We no see this order yet. Abeg try again small time.',
+    'om.net': 'We no fit reach EggScore now. Check your network make you try again.',
+    'om.urgent': 'E dey urgent? Message us for WhatsApp.',
     'wa.order_here': 'You prefer WhatsApp? Order here →',
     'stock.available': 'Stock Wey Dey', 'stock.ready': 'crates ready make you order',
     'stock.price_note': 'Price dey follow how stock dey cost now, e fit shift small between orders. You get question about price? Buzz us anytime.',
@@ -4399,6 +4471,7 @@ function showSuccess(order, paid) {
   }
   markWizardStopReached(7); // reached regardless of the "remember me" tap itself
   if(typeof maybeShowPushOptIn === 'function') maybeShowPushOptIn(order);
+  if(typeof omShowButton === 'function') omShowButton(order);   // Oct 12 2026 — ask about this order
   document.getElementById('success-ref').textContent = order.ref;
   document.getElementById('bank-narration').textContent = order.ref;
 
@@ -4819,6 +4892,124 @@ window.addEventListener('load', () => {
     } catch(e) {}
     paintPushBell();
   }, 1500);
+});
+
+
+/* ═══════════════════════════════════════════════════════
+   ORDER MESSAGES (Oct 12 2026)
+   A customer can send EggScore a short message about ONE order and read the
+   replies. It is not a broadcast and not a general chat. The customer proves
+   who they are with the order reference plus the phone number on that order
+   (checked by the server). Staff answer from the ERP; if the customer turned
+   on order updates, a short "EggScore replied" notification brings them back
+   here (the notification never contains the reply itself).
+═══════════════════════════════════════════════════════ */
+let omCurrent = null, omTimer = null, omBusy = false;
+function omEl(id) { return document.getElementById(id); }
+function omHeaders() { return { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY }; }
+function omOkRef(ref) { return /^BEL-ORD-[0-9-]{6,30}$/.test(String(ref || '')); }
+
+function omShowButton(order) {
+  const b = omEl('om-open-btn');
+  if(!b || !order || !omOkRef(order.ref) || !order.phone) return;
+  omCurrent = { ref: order.ref, phone: order.phone };
+  b.textContent = pushStr('om.btn');
+  b.style.display = 'block';
+}
+function omOpenFromSuccess() { if(omCurrent) omOpen(omCurrent); }
+
+function omOpen(ctx) {
+  omCurrent = { ref: ctx.ref, phone: ctx.phone || '' };
+  omEl('om-title').textContent = pushStr('om.title') + ' · ' + omCurrent.ref;
+  omEl('om-sub').textContent = pushStr('om.sub');
+  omEl('om-phone-label').textContent = pushStr('om.phone_label');
+  omEl('om-phone-btn').textContent = pushStr('om.phone_btn');
+  omEl('om-text').placeholder = pushStr('om.placeholder');
+  omEl('om-send').textContent = pushStr('om.send');
+  omEl('om-urgent').textContent = pushStr('om.urgent');
+  omEl('om-err').textContent = '';
+  omEl('om-overlay').classList.add('active');
+  omCount();
+  if(omCurrent.phone) { omStep('chat'); omLoad(false); }
+  else { omStep('phone'); omEl('om-phone').value = ''; }
+  clearInterval(omTimer);
+  omTimer = setInterval(() => { if(document.visibilityState === 'visible' && omCurrent && omCurrent.phone) omLoad(true); }, 30000);
+}
+function omClose() {
+  omEl('om-overlay').classList.remove('active');
+  clearInterval(omTimer); omTimer = null;
+}
+function omStep(which) {
+  omEl('om-phone-step').style.display = which === 'phone' ? 'block' : 'none';
+  omEl('om-chat-step').style.display = which === 'chat' ? 'block' : 'none';
+}
+function omPhoneGo() {
+  const v = (omEl('om-phone').value || '').trim();
+  if(v.replace(/\D/g, '').length < 7) return;
+  omCurrent.phone = v;
+  omStep('chat'); omLoad(false);
+}
+function omCount() {
+  const t = omEl('om-text'); if(!t) return;
+  omEl('om-count').textContent = (500 - t.value.length) + ' ' + pushStr('om.left');
+}
+function omFmt(iso) {
+  try { return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  catch(e) { return ''; }
+}
+function omRender(list) {
+  const el = omEl('om-thread'); if(!el) return;
+  if(!list.length) { el.innerHTML = `<div class="om-empty">${escapeHtmlPortal(pushStr('om.empty'))}</div>`; return; }
+  const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  el.innerHTML = list.map(m => {
+    const mine = m.direction === 'customer';
+    return `<div class="om-b ${mine ? 'me' : 'us'}">${escapeHtmlPortal(m.body)}<span class="om-meta">${escapeHtmlPortal(pushStr(mine ? 'om.me' : 'om.us'))} · ${escapeHtmlPortal(omFmt(m.at))}</span></div>`;
+  }).join('');
+  if(nearEnd || !el.dataset.painted) el.scrollTop = el.scrollHeight;
+  el.dataset.painted = '1';
+}
+function omProblem(status) {
+  if(status === 403) { omCurrent.phone = ''; omStep('phone'); return pushStr('om.bad_phone'); }
+  if(status === 404) return pushStr('om.not_found');
+  return null;
+}
+async function omLoad(silent) {
+  if(!omCurrent || !omCurrent.phone) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/order-messages/${encodeURIComponent(omCurrent.ref)}/thread`, {
+      method: 'POST', headers: omHeaders(), body: JSON.stringify({ phone: omCurrent.phone }),
+    });
+    if(resp.ok) { omRender(await resp.json()); if(!silent) omEl('om-err').textContent = ''; return; }
+    if(!silent) omEl('om-err').textContent = omProblem(resp.status) || pushStr('om.net');
+  } catch(e) { if(!silent) omEl('om-err').textContent = pushStr('om.net'); }
+}
+async function omSend() {
+  if(omBusy || !omCurrent) return;
+  const t = omEl('om-text'); const text = (t.value || '').trim();
+  if(!text) return;
+  omBusy = true; const btn = omEl('om-send'); btn.disabled = true; btn.textContent = pushStr('om.sending');
+  omEl('om-err').textContent = '';
+  try {
+    const resp = await fetch(`${BACKEND_URL}/order-messages/${encodeURIComponent(omCurrent.ref)}/send`, {
+      method: 'POST', headers: omHeaders(), body: JSON.stringify({ phone: omCurrent.phone, message: text }),
+    });
+    if(resp.ok) { t.value = ''; omCount(); await omLoad(true); }
+    else {
+      let msg = omProblem(resp.status);
+      if(!msg) { try { msg = (await resp.json()).error; } catch(e) {} }
+      omEl('om-err').textContent = msg || pushStr('om.net');
+    }
+  } catch(e) { omEl('om-err').textContent = pushStr('om.net'); }
+  finally { omBusy = false; btn.disabled = false; btn.textContent = pushStr('om.send'); }
+}
+// Opened from an "EggScore replied" notification: ?msgs=BEL-ORD-...
+window.addEventListener('load', () => {
+  try {
+    const ref = new URLSearchParams(location.search).get('msgs');
+    if(!omOkRef(ref)) return;
+    const me = loadMyDetails();
+    setTimeout(() => omOpen({ ref, phone: (me && me.phone) || '' }), 600);
+  } catch(e) {}
 });
 
 if ('serviceWorker' in navigator) {

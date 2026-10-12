@@ -83,6 +83,8 @@ mount('/large-first-timers', './routes-postgres/large-first-timers');
 // live on the server too (Owner only).
 mount('/owner-records', './routes-postgres/owner-records');
 mount('/ops-records', './routes-postgres/ops-records');
+// Oct 12 2026 — a customer can message EggScore about one order; staff reply from the ERP.
+mount('/order-messages', './routes-postgres/order-messages');
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides

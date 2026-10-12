@@ -3234,6 +3234,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(typeof syncLargeFirstTimersFromBackend === 'function') await syncLargeFirstTimersFromBackend();
     if(typeof ownerRecPull === 'function') await ownerRecPull();
     if(typeof opsRecPull === 'function') await opsRecPull();   // Oct 11 2026 — stock log + price history
+    if(typeof syncOrderMessagesFromBackend === 'function') await syncOrderMessagesFromBackend();   // Oct 12 2026 — customer messages about orders
     if(typeof syncCreditBlockedFromBackend === 'function') await syncCreditBlockedFromBackend();
     // Oct 10 2026 — a "Mark Paid" done on another device used to appear here
     // only after a full page reload (this sync ran at page load and nowhere
@@ -3295,6 +3296,23 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="btn btn-ghost" onclick="closeModal('modal-tax-setting')">Cancel</button>
       <button class="btn btn-ghost" id="tax-set-unknown-btn" onclick="saveTaxSetting(true)">Mark as unknown</button>
       <button class="btn btn-primary" onclick="saveTaxSetting(false)">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-ordmsg">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-hdr">
+      <div class="modal-title" id="ordmsg-title">Customer messages</div>
+      <button class="modal-close" onclick="closeOrderMessage()">✕</button>
+    </div>
+    <div id="ordmsg-meta" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px;line-height:1.6"></div>
+    <div id="ordmsg-thread" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+    <textarea class="form-textarea" id="ordmsg-text" maxlength="500" placeholder="Type your reply (max 500 characters)…" style="min-height:70px"></textarea>
+    <div id="ordmsg-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--red);min-height:14px;margin:6px 0"></div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeOrderMessage()">Close</button>
+      <button class="btn btn-primary" id="ordmsg-send" onclick="sendOrderMessageReply()">Send reply</button>
     </div>
   </div>
 </div>
@@ -5362,7 +5380,7 @@ input[type=number]{-moz-appearance:textfield;}
 
   <div class="sl">Main Modules</div>
   <div class="si active" onclick="switchModule('dashboard')"><span class="icon">◈</span><span>Dashboard</span></div>
-  <div class="si" onclick="switchModule('orders')"><span class="icon">🛒</span><span>Orders Inbox <span class="si-badge" id="orders-badge">0</span><span class="si-badge" id="volreq-badge" style="display:none;background:rgba(240,160,40,0.15);color:var(--amber);margin-left:4px">⚡0</span><span class="si-badge" id="lft-badge" style="display:none;background:rgba(224,72,72,0.18);color:var(--red);margin-left:4px" title="Large first-time orders blocked by the new-customer cap — needs fast follow-up">🚨0</span></span></div>
+  <div class="si" onclick="switchModule('orders')"><span class="icon">🛒</span><span>Orders Inbox <span class="si-badge" id="orders-badge">0</span><span class="si-badge" id="volreq-badge" style="display:none;background:rgba(240,160,40,0.15);color:var(--amber);margin-left:4px">⚡0</span><span class="si-badge" id="ordmsg-badge" style="display:none;background:rgba(61,214,192,0.15);color:var(--teal);margin-left:4px" title="Unread customer messages about orders">💬0</span><span class="si-badge" id="lft-badge" style="display:none;background:rgba(224,72,72,0.18);color:var(--red);margin-left:4px" title="Large first-time orders blocked by the new-customer cap — needs fast follow-up">🚨0</span></span></div>
   <div class="si" onclick="switchModule('reservations')"><span class="icon">🕐</span><span>Reservations</span></div>
   <div class="si" onclick="switchModule('sales')"><span class="icon">🥚</span><span>Sales Log</span></div>
   <div class="si" onclick="switchModule('inventory')"><span class="icon">📦</span><span>Inventory</span></div>
@@ -7842,6 +7860,21 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 
   <!-- VOLUME REQUESTS — customers whose need exceeded shown stock -->
+  <!-- CUSTOMER MESSAGES — Oct 12 2026. A customer can message EggScore about ONE order
+       from the portal; every signed-in staff member sees it here and can answer. -->
+  <div class="panel" id="ordmsg-panel" style="display:none">
+    <div class="panel-hdr">
+      <div class="panel-title">💬 Customer Messages</div>
+      <div class="panel-hdr-actions">
+        <div class="panel-tag" style="color:var(--teal)" id="ordmsg-count">0 unread</div>
+      </div>
+    </div>
+    <div class="alert-banner warn" style="margin:0 0 10px">
+      Questions customers sent about one of their orders. Open a thread to read it and reply; the customer is notified if they turned on order updates. Anything urgent still goes to WhatsApp.
+    </div>
+    <div class="panel-body panel-scroll" id="ordmsg-list"></div>
+  </div>
+
   <div class="panel" id="volreq-panel" style="display:none">
     <div class="panel-hdr">
       <div class="panel-title">⚡ Volume Requests</div>
@@ -11671,6 +11704,7 @@ function switchModule(name) {
   // Oct 11 2026 — opening these pages pulls the newest log rows from the server
   // straight away (the page then redraws itself), instead of waiting for a reload.
   if(name === 'eventlog' && typeof syncEventLogFromBackend === 'function') syncEventLogFromBackend();
+  if(name === 'orders' && typeof syncOrderMessagesFromBackend === 'function') syncOrderMessagesFromBackend();   // Oct 12 2026
   if((name === 'credit' || name === 'timevalue') && typeof syncCreditOverrideLogFromBackend === 'function') syncCreditOverrideLogFromBackend();
 }
 
@@ -26178,6 +26212,111 @@ async function opsRecPull() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════
+   OCT 12 2026 — CUSTOMER MESSAGES ABOUT ORDERS
+   A customer can send EggScore a short message about ONE order from the portal
+   (never a broadcast). Every signed-in staff member sees the threads here and
+   can answer; the customer's phone is notified of a reply if they turned on
+   order updates. Messages live on the server only (routes-postgres/
+   order-messages.js); this page just asks for them every 75 seconds.
+═══════════════════════════════════════════════════════ */
+let ordMsgInbox = [], ordMsgPrevUnread = null, ordMsgOpenRef = null, ordMsgBusy = false;
+async function ordMsgFetch(path, opts) {
+  const token = await erpGetAuthToken();
+  if(!token) return null;
+  const o = { ...(opts || {}) };
+  o.headers = { 'Authorization': `Bearer ${token}`, ...(o.body ? { 'Content-Type': 'application/json' } : {}) };
+  try { return await fetch(`${BACKEND_URL}/order-messages${path}`, o); } catch(e) { return null; }
+}
+function paintOrdMsgBadge() {
+  const unread = ordMsgInbox.reduce((a, t) => a + (t.unread || 0), 0);
+  const b = document.getElementById('ordmsg-badge');
+  if(b) { if(unread > 0) { b.textContent = '💬' + unread; b.style.display = 'inline-block'; } else b.style.display = 'none'; }
+  return unread;
+}
+async function syncOrderMessagesFromBackend() {
+  const resp = await ordMsgFetch('/inbox');
+  if(!resp || !resp.ok) return;
+  let list; try { list = await resp.json(); } catch(e) { return; }
+  if(!Array.isArray(list)) return;
+  ordMsgInbox = list;
+  const unread = paintOrdMsgBadge();
+  if(ordMsgPrevUnread !== null && unread > ordMsgPrevUnread) showToast(`💬 New customer message — ${unread} unread (Orders Inbox)`);
+  ordMsgPrevUnread = unread;
+  if(window.currentModule === 'orders') renderOrderMessages();
+  if(ordMsgOpenRef && document.getElementById('modal-ordmsg').classList.contains('open')) loadOrderMessageThread(ordMsgOpenRef, true);
+}
+function renderOrderMessages() {
+  const panel = document.getElementById('ordmsg-panel'), list = document.getElementById('ordmsg-list');
+  if(!panel || !list) return;
+  if(!ordMsgInbox.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  const unread = ordMsgInbox.reduce((a, t) => a + (t.unread || 0), 0);
+  const cnt = document.getElementById('ordmsg-count'); if(cnt) cnt.textContent = unread + ' unread';
+  list.innerHTML = ordMsgInbox.map(t => {
+    const when = new Date(t.lastAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const who = (t.lastDirection === 'staff' ? 'You: ' : '') + (t.lastBody || '');
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(74,158,255,0.07)">
+      <div style="min-width:0">
+        <div style="font-size:12px;color:var(--cream)">${t.unread ? '<span style="color:var(--teal)">● </span>' : ''}${escapeHtml(t.customerName || 'Customer')} <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">${escapeHtml(t.ref)}${t.crates ? ' · ' + t.crates + ' crates' : ''}</span></div>
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px">${escapeHtml(who)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">${escapeHtml(when)}${t.unread ? ' · ' + t.unread + ' unread' : ''}</div>
+      </div>
+      <button class="btn ${t.unread ? 'btn-primary' : 'btn-ghost'}" style="font-size:10px;padding:5px 12px" onclick="openOrderMessage('${escapeHtml(t.ref)}')">${t.unread ? 'Read &amp; reply' : 'Open'}</button>
+    </div>`;
+  }).join('');
+}
+async function loadOrderMessageThread(ref, quiet) {
+  const resp = await ordMsgFetch('/' + encodeURIComponent(ref) + '/staff');
+  const box = document.getElementById('ordmsg-thread');
+  if(!resp || !resp.ok || !box) { if(!quiet) document.getElementById('ordmsg-err').textContent = 'Could not load this thread. Check your connection.'; return; }
+  const msgs = await resp.json();
+  const nearEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  box.innerHTML = msgs.map(m => {
+    const mine = m.direction === 'staff';
+    const when = new Date(m.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return `<div style="max-width:86%;align-self:${mine ? 'flex-end' : 'flex-start'};background:${mine ? 'rgba(74,158,255,0.16)' : 'rgba(61,214,192,0.12)'};border-radius:10px;padding:8px 11px;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:var(--cream)">${escapeHtml(m.body)}<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px">${mine ? escapeHtml((m.sender || 'EggScore staff')) : 'Customer'} · ${escapeHtml(when)}</div></div>`;
+  }).join('') || '<div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">No messages.</div>';
+  if(nearEnd || !box.dataset.painted) box.scrollTop = box.scrollHeight;
+  box.dataset.painted = '1';
+  if(msgs.some(m => m.direction === 'customer' && !m.read)) {
+    await ordMsgFetch('/' + encodeURIComponent(ref) + '/read', { method: 'POST', body: '{}' });
+    syncOrderMessagesFromBackend();
+  }
+}
+async function openOrderMessage(ref) {
+  ordMsgOpenRef = ref;
+  const t = ordMsgInbox.find(x => x.ref === ref);
+  document.getElementById('ordmsg-title').textContent = 'Messages · ' + ref;
+  document.getElementById('ordmsg-meta').textContent = t ? `${t.customerName || 'Customer'}${t.phone ? ' · ' + t.phone : ''}${t.crates ? ' · ' + t.crates + ' crates' : ''}${t.status ? ' · order ' + t.status : ''}` : '';
+  document.getElementById('ordmsg-text').value = '';
+  document.getElementById('ordmsg-err').textContent = '';
+  const box = document.getElementById('ordmsg-thread'); if(box) { box.innerHTML = ''; delete box.dataset.painted; }
+  openModal('modal-ordmsg');
+  await loadOrderMessageThread(ref, false);
+}
+function closeOrderMessage() { ordMsgOpenRef = null; closeModal('modal-ordmsg'); }
+async function sendOrderMessageReply() {
+  if(ordMsgBusy || !ordMsgOpenRef) return;
+  const ta = document.getElementById('ordmsg-text'), err = document.getElementById('ordmsg-err'), btn = document.getElementById('ordmsg-send');
+  const text = (ta.value || '').trim();
+  if(!text) { err.textContent = 'Type a reply first.'; return; }
+  ordMsgBusy = true; btn.disabled = true; err.textContent = '';
+  try {
+    const resp = await ordMsgFetch('/' + encodeURIComponent(ordMsgOpenRef) + '/reply', { method: 'POST', body: JSON.stringify({ message: text }) });
+    if(resp && resp.ok) {
+      ta.value = '';
+      await loadOrderMessageThread(ordMsgOpenRef, true);
+      syncOrderMessagesFromBackend();
+      showToast('✓ Reply sent.');
+    } else {
+      let msg = 'Could not send the reply. Check your connection and try again.';
+      if(resp) { try { msg = (await resp.json()).error || msg; } catch(e) {} }
+      err.textContent = msg;
+    }
+  } finally { ordMsgBusy = false; btn.disabled = false; }
+}
+
 function initVolReqChannel() {
   try {
     const bc = new BroadcastChannel(VOLREQ_CH);
@@ -35601,6 +35740,7 @@ window.addEventListener('load', () => {
   syncPortalPersistenceFromBackend();   // blocklist + large first-timer alerts
   if(typeof ownerRecPull === 'function') ownerRecPull();   // commission disputes, overpayments, write-offs
   if(typeof opsRecPull === 'function') opsRecPull();       // Oct 11 2026 — stock movement log + price history
+  if(typeof syncOrderMessagesFromBackend === 'function') syncOrderMessagesFromBackend();   // Oct 12 2026 — customer messages
   if(typeof pushVolumePricingIfChanged === 'function') pushVolumePricingIfChanged();
 });
 

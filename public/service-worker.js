@@ -1,4 +1,4 @@
-// EggScore portal service worker — v3 (Oct 9 2026: adds push notifications).
+// EggScore portal service worker — v4 (Oct 9 2026: adds push notifications; Oct 12 2026: reply links open the order messages).
 //
 // IMPORTANT: the actual order page (famad-order.html) is NEVER cached
 // and NEVER served from cache. Prices and stock change in real time,
@@ -88,6 +88,11 @@ self.addEventListener('notificationclick', event => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for(const w of wins) {
       if(w.url.indexOf('/famad-order.html') !== -1 && 'focus' in w) {
+        // Oct 12 2026 — a "EggScore replied" notification points at ?msgs=ORDER-REF.
+        // An already-open portal tab is sent there too, so the messages open.
+        if(target.indexOf('msgs=') !== -1 && 'navigate' in w) {
+          try { await w.focus(); return await w.navigate(target); } catch(e) { /* fall through to a plain focus */ }
+        }
         return w.focus();
       }
     }
