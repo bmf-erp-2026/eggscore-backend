@@ -44,15 +44,50 @@ function cleanText(s) {
 const ADD_WORDS = /\b(add|adding|added|more|extra|additional|increase|increment|top[ -]?up|another|plus|increasing)\b/i;
 const CUT_WORDS = /\b(reduce|reduction|less|fewer|cut|remove|decrease|lower|reducing|decreasing)\b/i;
 const QTY_WORDS = /\b(crate|crates|volume|quantity|qty|tray|trays|carton|cartons)\b/i;
+const CHANGE_WORDS = /\b(change|changing|amend|adjust|update|instead|make it|raise|raising|revise)\b/i;
+const MONTHS = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+const DAYS = '(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)';
+// Removes the numbers that are NOT quantities: dates ("Saturday, 17th", "14 October", "October 14"), times, money, phone-like
+// and long numbers. What is left are the numbers that could be a number of crates.
+function stripNonQuantities(t) {
+  return String(t || '')
+    .replace(/\b\d{1,2}\s*(?:st|nd|rd|th)\b/gi, ' ')
+    .replace(new RegExp('\\b' + DAYS + '\\b[\\s,.-]*\\d{1,2}\\b(?!\\s*(?:crate|crates|tray|trays|carton|cartons|more|extra)\\b)', 'gi'), ' ')
+    .replace(new RegExp('\\b\\d{1,2}\\s*(?:of\\s+)?' + MONTHS + '\\b', 'gi'), ' ')
+    .replace(new RegExp('\\b' + MONTHS + '\\b[\\s,.-]*\\d{1,2}\\b', 'gi'), ' ')
+    .replace(/\b\d{1,2}\s*[:.]\s*\d{2}(?!\d)(?:\s*(?:am|pm)\b)?/gi, ' ')
+    .replace(/\b\d{1,2}\s*(?:am|pm)\b/gi, ' ')
+    .replace(/[\u20A6]\s*[\d,.]+|\bN\s?\d[\d,.]*|\bNGN\s?[\d,.]+/gi, ' ')
+    .replace(/\d[\d,]*\.\d+|\d{1,3}(?:,\d{3})+|\d{5,}/g, ' ');
+}
+// Which number is the change? A number is trusted only when it sits next to a quantity or change word
+// ("25 more", "add 30", "reduce it to 20"). A number that is only a date, a time or an amount is never used.
+// If two different numbers both qualify the answer is left open (null) and the staff member types it,
+// instead of the system guessing.
 function detectVolumeChange(text) {
-  const t = String(text || '');
-  const adds = ADD_WORDS.test(t), cuts = CUT_WORDS.test(t);
-  if(!(adds || cuts)) return null;
-  const nums = (t.match(/(?<![\d.,])\d{1,4}(?![\d.,]|\s*(?:am|pm)\b)/gi) || []).map(Number).filter(n => n > 0);
-  if(!QTY_WORDS.test(t) && !nums.length) return null;
-  // a number with no quantity word is only trusted next to a change word ("add 30")
-  const n = nums.length ? nums[0] : null;
-  return { crates: n === null ? null : (cuts && !adds ? -n : n) };
+  const t0 = String(text || '');
+  const adds = ADD_WORDS.test(t0), cuts = CUT_WORDS.test(t0);
+  const t = stripNonQuantities(t0);
+  const qty = QTY_WORDS.test(t0);
+  if(!(adds || cuts || (CHANGE_WORDS.test(t0) && qty))) return null;
+  const nums = (t.match(/(?<![\d.,])\d{1,4}(?![\d.,])/g) || []).map(Number).filter(n => n > 0);
+  if(!qty && !nums.length) return null;
+  const NUM = '(?<![\\d.,])(\\d{1,4})(?![\\d.,])';
+  const strong = new Set(), weak = new Set();
+  let m;
+  const reMore = new RegExp(NUM + '\\s*(?:more|extra|additional|new|fresh|other)\\b', 'gi');
+  while((m = reMore.exec(t))) strong.add(Number(m[1]));
+  const reWord = new RegExp('\\b(?:add|adding|added|increase|increasing|increment|top[ -]?up|another|plus|extra|additional|more|reduce|reducing|reduction|cut|remove|decrease|decreasing|lower|less|fewer)\\b(?:\\s+(?:it|my\\s+order|the\\s+order|this\\s+order|order|by|to|of|with|an?|the))*\\s+' + NUM, 'gi');
+  while((m = reWord.exec(t))) strong.add(Number(m[1]));
+  const reQty = new RegExp(NUM + '\\s*(?:crate|crates|tray|trays|carton|cartons)\\b', 'gi');
+  while((m = reQty.exec(t))) weak.add(Number(m[1]));
+  let pick = null;
+  if(strong.size === 1) pick = [...strong][0];
+  else if(strong.size === 0 && weak.size === 1) pick = [...weak][0];
+  else if(strong.size === 0 && weak.size === 0 && nums.length === 1) pick = nums[0];
+  // a message that only says "change / make it" gives a new total, not an amount to add or remove, so it is never turned into a +/- figure
+  if(pick === null || !(adds || cuts)) return { crates: null };
+  return { crates: (cuts && !adds) ? -pick : pick };
 }
 const followupOut = r => ({
   id: Number(r.id), orderRef: r.order_ref, kind: r.kind, status: r.status, crates: r.crates === null ? null : Number(r.crates),

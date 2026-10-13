@@ -26919,7 +26919,7 @@ function openFollowupModal(id) {
   document.getElementById('fu-meta').innerHTML = '<strong style="color:var(--cream)">' + escapeHtml(o.customerName || 'Customer') + '</strong> · <span style="color:var(--blue)">' + escapeHtml(o.ref) + '</span> · ' + o.crates + ' crates · order ' + escapeHtml(o.status) + '<br><span style="color:var(--amber)">Customer wants to ' + escapeHtml(ordFollowupWhat(f)) + '.</span>';
   document.getElementById('fu-words').textContent = '“' + (f.sourceText || '') + '”';
   const sug = f.crates ? Math.max(1, Number(o.crates) + Number(f.crates)) : Number(o.crates);
-  document.getElementById('fu-newcrates').value = already ? o.crates : sug;
+  document.getElementById('fu-newcrates').value = already ? o.crates : (f.crates ? sug : '');
   document.getElementById('fu-pin').value = ''; document.getElementById('fu-note').value = ''; document.getElementById('fu-err').textContent = '';
   const radios = document.querySelectorAll('input[name="fu-out"]'); radios.forEach(r => { r.checked = false; });
   const applied = document.querySelector('input[name="fu-out"][value="applied"]');
