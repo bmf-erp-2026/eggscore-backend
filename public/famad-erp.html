@@ -3532,6 +3532,11 @@ input[type=number]{-moz-appearance:textfield;}
       <input class="form-input" id="ordmsg-flag-n" type="number" placeholder="how many (+/−)" style="width:120px;padding:3px 8px;font-size:11px"/>
       <button class="btn btn-ghost" style="font-size:10px;padding:3px 10px" onclick="ordFlagVolume()">📦 Hold the order</button>
     </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">
+      <span>Customer is changing:</span>
+      <button class="btn btn-ghost" id="ordmsg-flag-addr" style="font-size:10px;padding:3px 10px" onclick="ordFlagOther('address_change')">📍 The delivery address</button>
+      <button class="btn btn-ghost" id="ordmsg-flag-day" style="font-size:10px;padding:3px 10px" onclick="ordFlagOther('day_change')">📅 The delivery day</button>
+    </div>
     <textarea class="form-textarea" id="ordmsg-text" maxlength="500" placeholder="Type your reply (max 500 characters)…" style="min-height:70px"></textarea>
     <div id="ordmsg-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--red);min-height:14px;margin:6px 0"></div>
     <div class="submit-btns">
@@ -3569,6 +3574,39 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="closeModal('modal-followup')">Not now</button>
       <button class="btn btn-primary" id="fu-submit" onclick="fuSubmit()">Done: tell the customer and release the order</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-followup-ww">
+  <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
+    <div class="modal-hdr">
+      <div class="modal-title" id="ww-title">📍 Customer change request</div>
+      <button class="modal-close" onclick="closeModal('modal-followup-ww')">✕</button>
+    </div>
+    <div id="ww-meta" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--mist);line-height:1.7;margin-bottom:8px"></div>
+    <div id="ww-late" style="display:none;padding:8px 12px;background:rgba(255,92,92,0.10);border:1px solid rgba(255,92,92,0.5);border-radius:7px;margin-bottom:10px;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--red);line-height:1.6"></div>
+    <div id="ww-words" style="font-size:12.5px;color:var(--cream);background:rgba(61,214,192,0.10);border-radius:8px;padding:8px 11px;margin-bottom:10px;white-space:pre-wrap"></div>
+    <div id="ww-prop" style="display:none;padding:8px 12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.3);border-radius:7px;margin-bottom:10px;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--blue);line-height:1.6"></div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">WHAT WAS DONE? (the order stays on hold until this is closed)</div>
+    <div id="ww-opts" style="margin-bottom:8px"></div>
+    <div id="ww-addr-box" style="display:none;margin-bottom:10px">
+      <label class="form-label" id="ww-addr-label">New delivery address</label>
+      <textarea class="form-textarea" id="ww-addr" maxlength="300" oninput="wwChanged()" style="min-height:60px"></textarea>
+    </div>
+    <div id="ww-day-box" style="display:none;margin-bottom:10px">
+      <label class="form-label">New delivery day</label>
+      <select class="form-input" id="ww-day" onchange="wwChanged()"></select>
+      <div id="ww-day-prev" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust);line-height:1.6;margin-top:6px"></div>
+    </div>
+    <div id="ww-note-wrap" class="form-group" style="display:none;margin-bottom:10px"><label class="form-label" id="ww-note-label">Note</label><input class="form-input" id="ww-note" maxlength="300"/></div>
+    <div id="ww-msg-wrap" style="display:none;margin-bottom:10px">
+      <label class="form-label">Message to the customer (they are notified when you press the button)</label>
+      <textarea class="form-textarea" id="ww-msg" maxlength="500" oninput="WW.msgDirty=true" style="min-height:70px"></textarea>
+    </div>
+    <div id="ww-err" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--red);min-height:14px;margin-bottom:8px"></div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-followup-ww')">Not now</button>
+      <button class="btn btn-primary" id="ww-submit" onclick="wwSubmit()">Done</button>
     </div>
   </div>
 </div>
@@ -26736,10 +26774,13 @@ function renderOrderMessages() {
 }
 function ordMsgStrip(ref) {
   const el = document.getElementById('ordmsg-hold'); if(!el) return;
-  const f = ordOpenFollowup(ref);
-  if(f) { el.style.display = 'block'; el.innerHTML = '📦 Open change request: the customer wants to ' + escapeHtml(ordFollowupWhat(f)) + '. This order is on hold. <button class="btn btn-primary" style="font-size:10px;padding:3px 10px" onclick="closeOrderMessage();openFollowupModal(' + f.id + ')">Deal with it</button>'; }
+  const fs = ordOpenFollowups(ref);
+  if(fs.length) { el.style.display = 'block'; el.innerHTML = fs.map(f => ordFollowupIcon(f) + ' Open change request: the customer wants to ' + escapeHtml(ordFollowupWhat(f)) + (ordFollowupLate(f) ? ' <strong style="color:var(--red)">(LATE)</strong>' : '') + '. This order is on hold. <button class="btn btn-primary" style="font-size:10px;padding:3px 10px" onclick="closeOrderMessage();openFollowupModal(' + f.id + ')">Deal with it</button>').join('<br>'); }
   else { el.style.display = 'none'; el.innerHTML = ''; }
-  const fl = document.getElementById('ordmsg-flag'); if(fl) fl.style.display = f ? 'none' : 'flex';
+  const has = k => fs.some(f => f.kind === k);
+  const fl = document.getElementById('ordmsg-flag'); if(fl) fl.style.display = has('volume_change') ? 'none' : 'flex';
+  const fa = document.getElementById('ordmsg-flag-addr'); if(fa) fa.style.display = has('address_change') ? 'none' : 'inline-block';
+  const fd = document.getElementById('ordmsg-flag-day'); if(fd) fd.style.display = has('day_change') ? 'none' : 'inline-block';
 }
 async function loadOrderMessageThread(ref, quiet) {
   const resp = await ordMsgFetch('/' + encodeURIComponent(ref) + '/staff');
@@ -26870,8 +26911,16 @@ async function ordFollowupsRefresh() {
   if(before !== after && window.currentModule === 'orders') { try { renderOrders(); } catch(e) {} if(typeof renderOrderMessages === 'function') renderOrderMessages(); }
   return true;
 }
-function ordOpenFollowup(ref) { return ORD_FOLLOWUPS.find(f => f.orderRef === ref && f.status === 'open') || null; }
-function ordFollowupWhat(f) { return f && f.crates ? ((f.crates > 0 ? 'add ' : 'remove ') + Math.abs(f.crates) + ' crate' + (Math.abs(f.crates) === 1 ? '' : 's')) : 'change the number of crates'; }
+function ordOpenFollowups(ref) { return ORD_FOLLOWUPS.filter(f => f.orderRef === ref && f.status === 'open'); }
+function ordOpenFollowup(ref) { return ordOpenFollowups(ref)[0] || null; }
+function ordFuById(id) { return ORD_FOLLOWUPS.find(f => f.id === id && f.status === 'open') || null; }
+function ordFollowupWhat(f) {
+  if(f && f.kind === 'address_change') return 'change the delivery address';
+  if(f && f.kind === 'day_change') return 'move the delivery' + (f.detail && f.detail.requestedDay ? ' to ' + f.detail.requestedDay : ' to another day');
+  return f && f.crates ? ((f.crates > 0 ? 'add ' : 'remove ') + Math.abs(f.crates) + ' crate' + (Math.abs(f.crates) === 1 ? '' : 's')) : 'change the number of crates';
+}
+function ordFollowupIcon(f) { return f && f.kind === 'address_change' ? '📍' : (f && f.kind === 'day_change' ? '📅' : '📦'); }
+function ordFollowupLate(f) { return !!(f && f.detail && f.detail.late); }
 // Sync check from what the page already knows. true = clear to go.
 function ordFollowupClear(ref) {
   const f = ordOpenFollowup(ref);
@@ -26894,14 +26943,16 @@ function ordFollowupPaint() {
   list.innerHTML = ORD_FOLLOWUPS.map(f => {
     const o = (loadOrders().find(x => x.ref === f.orderRef)) || {};
     const when = new Date(f.openedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(240,160,40,0.15)"><div style="min-width:0"><div style="font-size:12px;color:var(--cream)">' + escapeHtml(o.customerName || 'Customer') + ' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + escapeHtml(f.orderRef) + (o.crates ? ' · now ' + o.crates + ' crates' : '') + '</span></div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">Wants to ' + escapeHtml(ordFollowupWhat(f)) + ' · ' + escapeHtml(when) + '</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--dust);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px">“' + escapeHtml(f.sourceText) + '”</div></div><button class="btn btn-primary" style="font-size:10px;padding:5px 12px" onclick="openFollowupModal(' + f.id + ')">Deal with it</button></div>';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(240,160,40,0.15)"><div style="min-width:0"><div style="font-size:12px;color:var(--cream)">' + escapeHtml(o.customerName || 'Customer') + ' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + escapeHtml(f.orderRef) + (o.crates ? ' · now ' + o.crates + ' crates' : '') + '</span></div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">' + ordFollowupIcon(f) + ' Wants to ' + escapeHtml(ordFollowupWhat(f)) + ' · ' + escapeHtml(when) + (ordFollowupLate(f) ? ' · <span style="color:var(--red)">⏰ LATE</span>' : '') + '</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--dust);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px">“' + escapeHtml(f.sourceText) + '”</div></div><button class="btn btn-primary" style="font-size:10px;padding:5px 12px" onclick="openFollowupModal(' + f.id + ')">Deal with it</button></div>';
   }).join('');
 }
 // The strips shown on an order card: not due yet / change request open.
 function orderGateBanners(o) {
   let h = '';
-  const f = ordOpenFollowup(o.ref);
-  if(f) h += '<div style="width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:rgba(240,160,40,0.10);border:1px solid rgba(240,160,40,0.4);border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">📦 ON HOLD: the customer asked to ' + escapeHtml(ordFollowupWhat(f)) + '. No waybill, Sales Log or closing until this is dealt with. <button class="btn btn-primary" style="font-size:10px;padding:3px 10px" onclick="openFollowupModal(' + f.id + ')">Deal with it</button></div>';
+  ordOpenFollowups(o.ref).forEach(f => {
+    const late = ordFollowupLate(f), prop = f.kind === 'address_change' && f.detail && f.detail.proposal;
+    h += '<div style="width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:rgba(240,160,40,0.10);border:1px solid ' + (late ? 'rgba(255,92,92,0.6)' : 'rgba(240,160,40,0.4)') + ';border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">' + ordFollowupIcon(f) + ' ON HOLD: the customer asked to ' + escapeHtml(ordFollowupWhat(f)) + '.' + (late ? ' <strong style="color:var(--red)">LATE: asked after 3 PM the day before delivery.</strong>' : '') + (prop ? ' New address sent to the Owner for approval.' : '') + ' No waybill, Sales Log or closing until this is dealt with. <button class="btn btn-primary" style="font-size:10px;padding:3px 10px" onclick="openFollowupModal(' + f.id + ')">Deal with it</button></div>';
+  });
   const due = orderNotDueYet(o);
   if(due && ['pending', 'confirmed'].includes(o.status)) h += '<div style="width:100%;padding:8px 12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.3);border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--blue)">📅 Not due yet: the customer chose <strong>' + escapeHtml(ordDateLabel(due)) + '</strong>. A waybill cannot be made before then' + (typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner' ? ' (you can release it early with a reason)' : ' (only the Owner can release it early)') + '.</div>';
   else if(o.earlyDispatch && ['pending', 'confirmed', 'in_transit'].includes(o.status)) h += '<div style="width:100%;padding:6px 12px;background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.25);border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:9.5px;color:var(--teal)">Released early by the Owner (customer chose ' + escapeHtml(o.earlyDispatch.dueDate) + '): ' + escapeHtml(o.earlyDispatch.reason) + '</div>';
@@ -26911,6 +26962,7 @@ function fuOutcome() { const r = document.querySelector('input[name="fu-out"]:ch
 function openFollowupModal(id) {
   const f = ORD_FOLLOWUPS.find(x => x.id === id);
   if(!f) { showToast('That request is already closed.'); return; }
+  if(f.kind === 'address_change' || f.kind === 'day_change') { openWhereWhenModal(f); return; }
   const o = loadOrders().find(x => x.ref === f.orderRef);
   if(!o) { showToast('⚠ Order not found on this device yet. Refresh and try again.'); return; }
   FU = { id, msgDirty: false, ref: f.orderRef };
@@ -26931,7 +26983,7 @@ function openFollowupModal(id) {
 }
 function fuMsgTouched() { FU.msgDirty = true; }
 function fuPreview() {
-  const o = loadOrders().find(x => x.ref === FU.ref), f = ordOpenFollowup(FU.ref);
+  const o = loadOrders().find(x => x.ref === FU.ref), f = ordFuById(FU.id);
   const box = document.getElementById('fu-preview'); if(!o || !f) return null;
   const n = parseInt(document.getElementById('fu-newcrates').value, 10);
   if(!Number.isInteger(n) || n < 1) { box.innerHTML = '<span style="color:var(--red)">Enter the new total number of crates.</span>'; return null; }
@@ -26945,7 +26997,7 @@ function fuPreview() {
   return { n, d, grand, extra };
 }
 function fuChanged(first) {
-  const out = fuOutcome(), o = loadOrders().find(x => x.ref === FU.ref), f = ordOpenFollowup(FU.ref);
+  const out = fuOutcome(), o = loadOrders().find(x => x.ref === FU.ref), f = ordFuById(FU.id);
   if(!o || !f) return;
   document.getElementById('fu-applied-box').style.display = out === 'applied' ? 'block' : 'none';
   document.getElementById('fu-note-wrap').style.display = (out && out !== 'applied') ? 'block' : 'none';
@@ -26965,7 +27017,7 @@ async function fuSubmit() {
   const err = document.getElementById('fu-err'), btn = document.getElementById('fu-submit');
   err.textContent = '';
   const out = fuOutcome();
-  const orders = loadOrders(), o = orders.find(x => x.ref === FU.ref), f = ordOpenFollowup(FU.ref);
+  const orders = loadOrders(), o = orders.find(x => x.ref === FU.ref), f = ordFuById(FU.id);
   if(!o || !f) { err.textContent = 'This request is no longer open.'; return; }
   if(!out) { err.textContent = 'Choose what was done.'; return; }
   const note = (document.getElementById('fu-note').value || '').trim();
@@ -27006,11 +27058,123 @@ async function fuSubmit() {
     if(!r) { err.textContent = 'Could not reach the server. If the crates were already changed, open this again and close it.'; return; }
     if(!r.ok) { let m = 'Could not close the request.'; try { m = (await r.json()).error || m; } catch(e) {} err.textContent = m; return; }
     closeModal('modal-followup');
-    showToast('✓ Done' + (out === 'dismissed' ? '' : ': the customer has been told') + '. The order is released.');
     await ordFollowupsRefresh();
+    { const left = ordOpenFollowups(o.ref); showToast('✓ Done' + (out === 'dismissed' ? '' : ': the customer has been told') + (left.length ? '. The order is still on hold: the customer also asked to ' + left.map(ordFollowupWhat).join(' and ') + '.' : '. The order is released.')); }
     try { renderOrders(); } catch(e) {}
     syncOrderMessagesFromBackend();
   } finally { btn.disabled = false; }
+}
+// ── address and delivery-day change requests (Oct 13 2026) ──
+// Address: staff record the new address and send it to the Owner; only the Owner approves. Day: only the Owner approves.
+// Anyone can decline or mark a false alarm. A LATE request (after 3 PM the day before delivery, or on the day)
+// needs the Owner's written reason. Every outcome tells the customer, except a false alarm.
+let WW = { id: null, ref: null, msgDirty: false };
+const WW_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function wwIsOwner() { return typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner'; }
+function wwOutcome() { const r = document.querySelector('input[name="ww-out"]:checked'); return r ? r.value : ''; }
+function wwShortDate(ymd) { return ymd ? ordDateLabel(ymd) : ''; }
+function openWhereWhenModal(f) {
+  const o = loadOrders().find(x => x.ref === f.orderRef);
+  if(!o) { showToast('⚠ Order not found on this device yet. Refresh and try again.'); return; }
+  WW = { id: f.id, ref: f.orderRef, msgDirty: false };
+  const isAddr = f.kind === 'address_change', owner = wwIsOwner(), gone = ['in_transit', 'fulfilled'].includes(o.status);
+  const late = ordFollowupLate(f), prop = f.detail && f.detail.proposal;
+  document.getElementById('ww-title').textContent = isAddr ? '📍 Customer wants a different delivery address' : '📅 Customer wants a different delivery day';
+  const due = orderDueDate(o);
+  document.getElementById('ww-meta').innerHTML = '<strong style="color:var(--cream)">' + escapeHtml(o.customerName || 'Customer') + '</strong> · <span style="color:var(--blue)">' + escapeHtml(o.ref) + '</span> · order ' + escapeHtml(o.status || '') +
+    '<br>Address now: ' + escapeHtml(o.location || '(none on file)') + '<br>Delivery day now: ' + escapeHtml(o.preferredDeliveryDay || '(none)') + (due ? ' (' + escapeHtml(wwShortDate(due)) + ')' : '');
+  const lateEl = document.getElementById('ww-late');
+  if(late) { lateEl.style.display = 'block'; lateEl.innerHTML = '⏰ <strong>LATE:</strong> this was asked after 3 PM on the day before delivery' + (f.detail && f.detail.deliveryOn ? ' (' + escapeHtml(wwShortDate(f.detail.deliveryOn)) + ')' : '') + ', or on the delivery day. Delivery is already planned. ' + (owner ? 'You can still approve it, but you must write why.' : 'Only the Owner can approve it, and must write why.'); }
+  else lateEl.style.display = 'none';
+  document.getElementById('ww-words').textContent = '“' + (f.sourceText || '') + '”';
+  const pe = document.getElementById('ww-prop');
+  if(prop) { pe.style.display = 'block'; pe.innerHTML = 'New address sent for approval by <strong>' + escapeHtml(prop.by || 'staff') + '</strong>: ' + escapeHtml(prop.address); }
+  else pe.style.display = 'none';
+  const opts = [];
+  if(!gone) {
+    if(isAddr) opts.push(owner ? ['applied', 'Approve: change the delivery address'] : ['propose', prop ? 'Update the new address and send it to the Owner again' : 'Record the new address and send it to the Owner for approval']);
+    else if(owner) opts.push(['applied', 'Approve: move the delivery to another day']);
+    else opts.push(['info', 'Only the Owner can approve a change of day. The Owner has been alerted.', true]);
+  }
+  opts.push(['declined', 'Decline the change (the order goes as planned)']);
+  opts.push(['dismissed', isAddr ? 'This is not an address change (false alarm)' : 'This is not a change of day (false alarm)']);
+  document.getElementById('ww-opts').innerHTML = opts.map(([v, label, dis]) => dis
+    ? '<div style="font-size:12px;color:var(--amber);margin:0 0 6px 24px">' + escapeHtml(label) + '</div>'
+    : '<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--dust);margin-bottom:6px;cursor:pointer"><input type="radio" name="ww-out" value="' + v + '" onchange="wwChanged()" style="margin-top:3px"/> <span>' + escapeHtml(label) + '</span></label>').join('');
+  const first = document.querySelector('input[name="ww-out"]'); if(first) first.checked = true;
+  document.getElementById('ww-addr').value = prop ? prop.address : '';
+  const sel = document.getElementById('ww-day');
+  sel.innerHTML = WW_DAYS.filter(d => d !== o.preferredDeliveryDay).map(d => '<option value="' + d + '">' + d + '</option>').join('');
+  if(f.detail && f.detail.requestedDay && WW_DAYS.includes(f.detail.requestedDay) && f.detail.requestedDay !== o.preferredDeliveryDay) sel.value = f.detail.requestedDay;
+  document.getElementById('ww-note').value = ''; document.getElementById('ww-err').textContent = '';
+  wwChanged(true);
+  openModal('modal-followup-ww');
+}
+function wwChanged(first) {
+  const f = ordFuById(WW.id), o = loadOrders().find(x => x.ref === WW.ref); if(!f || !o) return;
+  const out = wwOutcome(), isAddr = f.kind === 'address_change', late = ordFollowupLate(f), owner = wwIsOwner();
+  document.getElementById('ww-addr-box').style.display = isAddr && (out === 'applied' || out === 'propose') ? 'block' : 'none';
+  document.getElementById('ww-addr-label').textContent = out === 'propose' ? 'New delivery address (sent to the Owner)' : 'New delivery address';
+  document.getElementById('ww-day-box').style.display = !isAddr && out === 'applied' ? 'block' : 'none';
+  const day = document.getElementById('ww-day').value, newDue = day ? orderDueDate({ ...o, preferredDeliveryDay: day }) : null;
+  document.getElementById('ww-day-prev').textContent = newDue ? 'Delivery would be on ' + wwShortDate(newDue) + '.' : '';
+  const needNote = out === 'declined' || out === 'dismissed' || (out === 'applied' && late);
+  document.getElementById('ww-note-wrap').style.display = needNote ? 'block' : 'none';
+  document.getElementById('ww-note-label').textContent = out === 'applied' && late ? 'Why are you approving a late change? (kept on record)' : (out === 'declined' ? 'Why it was declined (kept on record)' : 'Why this is not a change');
+  document.getElementById('ww-msg-wrap').style.display = (out === 'applied' || out === 'declined') ? 'block' : 'none';
+  const btn = document.getElementById('ww-submit');
+  btn.textContent = out === 'propose' ? 'Send to the Owner for approval' : out === 'applied' ? 'Approve and tell the customer' : out === 'declined' ? 'Decline and tell the customer' : 'Not a change: release the order';
+  if(first || !WW.msgDirty) {
+    const addr = (document.getElementById('ww-addr').value || '').trim();
+    let m = '';
+    if(out === 'applied' && isAddr) m = 'We have updated the delivery address for order ' + o.ref + (addr ? ' to: ' + addr : '') + '.';
+    else if(out === 'applied') m = 'Your delivery for order ' + o.ref + ' is now moved to ' + (newDue ? wwShortDate(newDue) : day) + '.';
+    else if(out === 'declined' && isAddr) m = 'Sorry, we are not able to change the delivery address on order ' + o.ref + '. It will go to the address we have. Please message us on WhatsApp if you would like to talk it through.';
+    else if(out === 'declined') { const due = orderDueDate(o); m = 'Sorry, we are not able to move the delivery of order ' + o.ref + '. It stays on ' + (due ? wwShortDate(due) : (o.preferredDeliveryDay || 'the day you chose')) + '. Please message us on WhatsApp if you would like to talk it through.'; }
+    document.getElementById('ww-msg').value = m; WW.msgDirty = false;
+  }
+}
+async function wwSubmit() {
+  const err = document.getElementById('ww-err'), btn = document.getElementById('ww-submit');
+  err.textContent = '';
+  const f = ordFuById(WW.id), orders = loadOrders(), o = orders.find(x => x.ref === WW.ref);
+  if(!f || !o) { err.textContent = 'This request is no longer open.'; return; }
+  const out = wwOutcome(); if(!out) { err.textContent = 'Choose what was done.'; return; }
+  const isAddr = f.kind === 'address_change', late = ordFollowupLate(f);
+  const note = (document.getElementById('ww-note').value || '').trim(), message = (document.getElementById('ww-msg').value || '').trim();
+  const address = (document.getElementById('ww-addr').value || '').trim(), day = document.getElementById('ww-day').value;
+  if(isAddr && (out === 'applied' || out === 'propose') && address.length < 5) { err.textContent = 'Type the full new delivery address.'; return; }
+  if((out === 'declined' || out === 'dismissed') && !note) { err.textContent = 'Write a short note on what was decided.'; return; }
+  if(out === 'applied' && late && note.length < 5) { err.textContent = 'This change is late. Write why you are approving it anyway.'; return; }
+  if((out === 'applied' || out === 'declined') && message.length < 3) { err.textContent = 'Write the message to the customer: they must be told.'; return; }
+  btn.disabled = true;
+  try {
+    const r = await ordMsgFetch('/followups/' + WW.id + '/resolve', { method: 'POST', body: JSON.stringify({ outcome: out, note, message, address, day }) });
+    if(!r) { err.textContent = 'Could not reach the server. Nothing was changed.'; return; }
+    if(!r.ok) { let m = 'Could not close the request.'; try { m = (await r.json()).error || m; } catch(e) {} err.textContent = m; return; }
+    if(out === 'applied') {
+      const old = { location: o.location, day: o.preferredDeliveryDay };
+      if(isAddr) o.location = address; else o.preferredDeliveryDay = day;
+      o.changeLog = o.changeLog || [];
+      o.changeLog.push({ kind: f.kind, from: isAddr ? old.location : old.day, to: isAddr ? address : day, late, reason: note || null, approvedBy: 'owner', at: new Date().toISOString() });
+      saveOrders(orders);
+      logWarn('orders', (isAddr ? 'Delivery address changed' : 'Delivery day changed') + ' after order — ' + (o.customerName || '') + ' · ' + o.ref, (isAddr ? (old.location || '') + ' → ' + address : (old.day || 'none') + ' → ' + day) + (late ? ' · LATE, approved: ' + note : ''));
+    }
+    closeModal('modal-followup-ww');
+    await ordFollowupsRefresh();
+    const left = ordOpenFollowups(o.ref);
+    if(out === 'propose') showToast('✓ Sent to the Owner for approval. The order stays on hold until the Owner approves it.');
+    else showToast('✓ Done' + (out === 'dismissed' ? '' : ': the customer has been told') + (left.length ? '. The order is still on hold: the customer also asked to ' + left.map(ordFollowupWhat).join(' and ') + '.' : '. The order is released.'));
+    try { renderOrders(); } catch(e) {}
+    syncOrderMessagesFromBackend();
+  } finally { btn.disabled = false; }
+}
+// Staff flag a conversation (or a phone call) as an address or day change
+async function ordFlagOther(kind) {
+  if(!ordMsgOpenRef) return;
+  const r = await ordMsgFetch('/' + encodeURIComponent(ordMsgOpenRef) + '/followup', { method: 'POST', body: JSON.stringify({ kind, text: ordMsgLastCustomer || 'Flagged by staff' }) });
+  if(r && r.ok) { await ordFollowupsRefresh(); showToast('Order is now on hold until this is dealt with.'); const f = ordOpenFollowups(ordMsgOpenRef).find(x => x.kind === kind); closeOrderMessage(); if(f) openFollowupModal(f.id); }
+  else { let m = 'Could not flag it.'; if(r) { try { m = (await r.json()).error || m; } catch(e) {} } document.getElementById('ordmsg-err').textContent = m; }
 }
 // Staff flag a conversation (or a phone call) as a crates change
 async function ordFlagVolume() {

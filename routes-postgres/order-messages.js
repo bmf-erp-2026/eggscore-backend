@@ -89,11 +89,50 @@ function detectVolumeChange(text) {
   if(pick === null || !(adds || cuts)) return { crates: null };
   return { crates: (cuts && !adds) ? -pick : pick };
 }
+// ── Oct 13 2026 — address and delivery-day changes ──
+// A customer who asks to change WHERE or WHEN the order is delivered must not be left to memory either. These two
+// kinds of request hold the order exactly like a change of crates. Detection is deliberately generous: a false alarm
+// costs one tap ("not a change"), a missed one costs a delivery to the wrong place or on the wrong day.
+const ADDR_NOUN = /\b(address|location|street|junction|estate|landmark|drop[ -]?off|delivery point)\b/i;
+const ADDR_CHANGE = /\b(change|changing|changed|new|different|another|instead|update|updating|move|moved|moving|wrong|correct|correction|relocat\w*|rather|alter\w*)\b/i;
+function detectAddressChange(text) {
+  const t = String(text || '');
+  return ADDR_NOUN.test(t) && ADDR_CHANGE.test(t);
+}
+const DAY_CHANGE = /\b(instead|rather|change|changing|changed|reschedul\w*|postpone\w*|move|moved|moving|earlier|later|push(?:ed)?|bring(?:ing)? (?:it )?forward|another day|different day|new (?:day|date)|switch\w*)\b/i;
+const WD_FULL = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+// Returns null when the message is not about changing the day, else { requestedDay } where requestedDay is the
+// weekday the customer WANTS (days after "instead of", "rather than", "not", "from" are the old day), or null if it
+// cannot be told from the words.
+function detectDayChange(text, currentDay) {
+  const t = String(text || '');
+  const days = [];
+  const re = /\b(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b/gi;
+  let m;
+  while((m = re.exec(t))) days.push({ day: WD_FULL[m[1].slice(0, 3).toLowerCase()], idx: m.index });
+  if(!(days.length || /\b(day|date|tomorrow|next week)\b/i.test(t))) return null;
+  if(!DAY_CHANGE.test(t)) return null;
+  const old = /(instead of|rather than|and not|not on|not|from|in place of)\s*$/i;
+  const wanted = days.filter(d => !old.test(t.slice(Math.max(0, d.idx - 16), d.idx))).map(d => d.day).filter(d => d !== currentDay);
+  const distinct = [...new Set(wanted)];
+  return { requestedDay: distinct.length === 1 ? distinct[0] : null };
+}
+// Planning for a delivery day is settled by 3 PM the day before: a change asked for after that, or on the day
+// itself, is LATE and only the Owner can approve it, with a recorded reason.
+const CHANGE_CUTOFF_HOUR = 15;
+function isLateChange(order, nowMs) {
+  const now = nowMs == null ? Date.now() : nowMs;
+  const due = deliveryDateOf(order);
+  const cutoff = new Date(due + 'T00:00:00+01:00').getTime() - 86400000 + CHANGE_CUTOFF_HOUR * 3600000;
+  return now >= cutoff;
+}
+const KIND_WORDS = { volume_change: 'change the crates', address_change: 'change the delivery address', day_change: 'change the delivery day' };
 const followupOut = r => ({
   id: Number(r.id), orderRef: r.order_ref, kind: r.kind, status: r.status, crates: r.crates === null ? null : Number(r.crates),
   orderCratesAtOpen: r.order_crates_at_open === null || r.order_crates_at_open === undefined ? null : Number(r.order_crates_at_open),
   source: r.source, sourceText: r.source_text || '', openedBy: r.opened_by || null, openedAt: new Date(r.opened_at).toISOString(),
   resolvedBy: r.resolved_by || null, resolvedAt: r.resolved_at ? new Date(r.resolved_at).toISOString() : null, note: r.note || '',
+  detail: (r.detail && typeof r.detail === 'object') ? r.detail : {},
 });
 // Opens (or updates) the single open volume follow-up for an order. Returns { followup, created }.
 async function openVolumeFollowup(order, crates, text, source, by) {
@@ -112,13 +151,27 @@ async function openVolumeFollowup(order, crates, text, source, by) {
   return { followup: followupOut(row), created: true };
 }
 async function alertOwnerOfFollowup(order, f) {
-  const what = f.crates ? `${f.crates > 0 ? 'add' : 'remove'} ${Math.abs(f.crates)} crates` : 'change the crates';
+  const what = f.kind === 'address_change' ? 'change the delivery address'
+    : f.kind === 'day_change' ? 'change the delivery day' + (f.detail && f.detail.requestedDay ? ' to ' + f.detail.requestedDay : '')
+    : (f.crates ? `${f.crates > 0 ? 'add' : 'remove'} ${Math.abs(f.crates)} crates` : 'change the crates');
+  const late = f.detail && f.detail.late;
   return push.notifyOwners({
-    title: '📦 Order change needs action', body: `${order.customer_name || 'A customer'} (${order.ref}) wants to ${what}. The order is held until this is dealt with.`,
-    url: `/famad-erp.html?ordmsg=${encodeURIComponent(order.ref)}`, tag: `followup-${order.ref}`, kind: 'order_followup',
+    title: (late ? '⏰ LATE order change needs you' : '📦 Order change needs action'),
+    body: `${order.customer_name || 'A customer'} (${order.ref}) wants to ${what}.${late ? ' This is after 3 PM the day before delivery.' : ''} The order is held until this is dealt with.`,
+    url: `/famad-erp.html?ordmsg=${encodeURIComponent(order.ref)}`, tag: `followup-${order.ref}-${f.kind}`, kind: 'order_followup',
   });
 }
-
+// Opens (once) an address or delivery-day follow-up. Returns { followup, created }.
+async function openOtherFollowup(order, kind, text, source, by, extra) {
+  const open = await db.prepare("SELECT * FROM order_followups WHERE order_ref = ? AND kind = ? AND status = 'open' ORDER BY id DESC LIMIT 1").get(order.ref, kind);
+  if(open) return { followup: followupOut(open), created: false };
+  const detail = { ...(extra || {}), late: isLateChange(order), deliveryOn: deliveryDateOf(order), oldAddress: order.location || '', oldDay: order.preferred_delivery_day || '' };
+  await db.prepare(`INSERT INTO order_followups (order_ref, kind, status, order_crates_at_open, source, source_text, opened_by, detail)
+                    VALUES (?, ?, 'open', ?, ?, ?, ?, CAST(? AS jsonb))`)
+    .run(order.ref, kind, order.crates === undefined ? null : order.crates, source, String(text || '').slice(0, 300), by || null, JSON.stringify(detail));
+  const row = await db.prepare("SELECT * FROM order_followups WHERE order_ref = ? AND kind = ? AND status = 'open' ORDER BY id DESC LIMIT 1").get(order.ref, kind);
+  return { followup: followupOut(row), created: true };
+}
 // Oct 12 2026 — office hours. A message is never refused out of hours, but the customer
 // is told when it will be answered: after 7 PM (Lagos), or any time on a Sunday, the next
 // working day, Monday to Saturday.
@@ -140,7 +193,7 @@ async function ownedOrder(req, res) {
   const ref = String(req.params.ref || '');
   const phone = req.body && req.body.phone;
   if(!/^BEL-ORD-[0-9-]{6,30}$/.test(ref) || !phone) { res.status(400).json({ error: 'Order reference and phone number are required.' }); return null; }
-  const order = await db.prepare('SELECT ref, customer_id, customer_name, phone, created_at, status, payment_verified, preferred_delivery_day, crates FROM orders WHERE ref = ?').get(ref);
+  const order = await db.prepare('SELECT ref, customer_id, customer_name, phone, created_at, status, payment_verified, preferred_delivery_day, crates, location FROM orders WHERE ref = ?').get(ref);
   if(!order) { res.status(404).json({ error: 'Order not found.' }); return null; }
   if(!last10(order.phone) || last10(order.phone) !== last10(phone)) {
     res.status(403).json({ error: 'That phone number does not match this order.' });
@@ -202,12 +255,27 @@ router.post('/:ref/send', requireEitherAuth(), async (req, res) => {
   push.notifyStaffOfMessage({ ref: order.ref, customerName: order.customer_name }).catch(e => console.error('[order-messages] staff alert failed:', e.message));
   // Oct 13 2026 — a message that asks to change the crates opens a follow-up that holds the order. Never fails the send.
   try {
-    const hit = ['cancelled', 'rejected'].includes(String(order.status)) ? null : detectVolumeChange(body);
+    const closedOrder = ['cancelled', 'rejected'].includes(String(order.status));
+    const hit = closedOrder ? null : detectVolumeChange(body);
     if(hit) {
       const r = await openVolumeFollowup(order, hit.crates, body, 'auto', null);
       if(r.created) alertOwnerOfFollowup(order, r.followup).catch(e => console.error('[order-messages] follow-up alert failed:', e.message));
     }
   } catch(e) { console.error('[order-messages] follow-up check failed:', e.message); }
+  // Oct 13 2026 — the same for a change of delivery address or delivery day (separate try so one failing never hides the other)
+  try {
+    if(!['cancelled', 'rejected'].includes(String(order.status))) {
+      if(detectAddressChange(body)) {
+        const r = await openOtherFollowup(order, 'address_change', body, 'auto', null, {});
+        if(r.created) alertOwnerOfFollowup(order, r.followup).catch(e => console.error('[order-messages] follow-up alert failed:', e.message));
+      }
+      const dh = detectDayChange(body, order.preferred_delivery_day);
+      if(dh) {
+        const r = await openOtherFollowup(order, 'day_change', body, 'auto', null, { requestedDay: dh.requestedDay });
+        if(r.created) alertOwnerOfFollowup(order, r.followup).catch(e => console.error('[order-messages] follow-up alert failed:', e.message));
+      }
+    }
+  } catch(e) { console.error('[order-messages] address/day follow-up check failed:', e.message); }
   res.status(201).json({ ...asPublic(row), ...officeNotice() });
 });
 
@@ -272,12 +340,25 @@ router.get('/:ref/followups', requireSupabaseAuth(), async (req, res) => {
 });
 // Staff flag a message (or a phone call) as a volume change.
 router.post('/:ref/followup', requireSupabaseAuth(), async (req, res) => {
-  const order = await db.prepare('SELECT ref, customer_name, crates, status FROM orders WHERE ref = ?').get(String(req.params.ref));
+  const order = await db.prepare('SELECT ref, customer_name, crates, status, location, created_at, preferred_delivery_day FROM orders WHERE ref = ?').get(String(req.params.ref));
   if(!order) return res.status(404).json({ error: 'Order not found.' });
   if(['cancelled', 'rejected'].includes(String(order.status))) return res.status(400).json({ error: 'That order is closed.' });
-  const n = parseInt(req.body && req.body.crates, 10);
-  const crates = Number.isFinite(n) && n !== 0 && Math.abs(n) <= 100000 ? n : null;
-  const r = await openVolumeFollowup(order, crates, cleanText(req.body && req.body.text).slice(0, 300) || 'Flagged by staff', 'staff', (req.user && req.user.email) || null);
+  const kind = String((req.body && req.body.kind) || 'volume_change');
+  if(!['volume_change', 'address_change', 'day_change'].includes(kind)) return res.status(400).json({ error: 'Unknown kind of change.' });
+  const text = cleanText(req.body && req.body.text).slice(0, 300) || 'Flagged by staff';
+  const by = (req.user && req.user.email) || null;
+  let r;
+  if(kind === 'volume_change') {
+    const n = parseInt(req.body && req.body.crates, 10);
+    const crates = Number.isFinite(n) && n !== 0 && Math.abs(n) <= 100000 ? n : null;
+    r = await openVolumeFollowup(order, crates, text, 'staff', by);
+  } else {
+    const dh = kind === 'day_change' ? detectDayChange(text, order.preferred_delivery_day) : null;
+    const asked = String((req.body && req.body.requestedDay) || '');
+    const requestedDay = DAY_INDEX[asked] !== undefined ? asked : (dh && dh.requestedDay) || null;
+    r = await openOtherFollowup(order, kind, text, 'staff', by, kind === 'day_change' ? { requestedDay } : {});
+  }
+  if(r.created) alertOwnerOfFollowup(order, r.followup).catch(e => console.error('[order-messages] follow-up alert failed:', e.message));
   res.status(r.created ? 201 : 200).json(r.followup);
 });
 // Close a follow-up with a recorded outcome. The customer is always told, except when it was a false alarm.
@@ -286,6 +367,7 @@ router.post('/followups/:id/resolve', requireSupabaseAuth(), async (req, res) =>
   const f = Number.isInteger(id) ? await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(id) : null;
   if(!f) return res.status(404).json({ error: 'Follow-up not found.' });
   if(f.status !== 'open') return res.status(409).json({ error: 'That follow-up is already closed.' });
+  if(f.kind === 'address_change' || f.kind === 'day_change') return resolveWhereWhen(req, res, f);
   const outcome = String((req.body && req.body.outcome) || '');
   if(!['applied', 'new_order', 'declined', 'dismissed'].includes(outcome)) return res.status(400).json({ error: 'Choose what was done.' });
   const note = cleanText(req.body && req.body.note).slice(0, 300);
@@ -310,6 +392,71 @@ router.post('/followups/:id/resolve', requireSupabaseAuth(), async (req, res) =>
   console.log(`[audit] Follow-up ${id} on ${order.ref} closed as ${outcome} by ${by}`);
   res.json(followupOut(await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(id)));
 });
+
+// ── address and delivery-day requests ──
+// Address: any staff member records the new address and sends it to the Owner ("propose"); only the Owner approves
+// ("applied"), and the Owner can also type the address and approve in one step. Day: only the Owner approves.
+// Anyone may decline or mark a false alarm. A LATE request (after 3 PM the day before delivery, or on the day)
+// needs the Owner's written reason to approve. Every outcome tells the customer, except a false alarm.
+async function resolveWhereWhen(req, res, f) {
+  const isOwner = !!(req.user && req.user.role === 'owner');
+  const by = (req.user && req.user.email) || null;
+  const outcome = String((req.body && req.body.outcome) || '');
+  const allowed = f.kind === 'address_change' ? ['propose', 'applied', 'declined', 'dismissed'] : ['applied', 'declined', 'dismissed'];
+  if(!allowed.includes(outcome)) return res.status(400).json({ error: 'Choose what was done.' });
+  const note = cleanText(req.body && req.body.note).slice(0, 300);
+  const message = cleanText(req.body && req.body.message);
+  const order = await db.prepare('SELECT ref, customer_id, customer_name, crates, status, location, created_at, preferred_delivery_day FROM orders WHERE ref = ?').get(f.order_ref);
+  if(!order) return res.status(404).json({ error: 'Order not found.' });
+  const detail = (f.detail && typeof f.detail === 'object') ? { ...f.detail } : {};
+  const gone = ['in_transit', 'fulfilled'].includes(String(order.status));
+  if(outcome === 'propose') {
+    const address = cleanText(req.body && req.body.address).slice(0, 300);
+    if(address.length < 5) return res.status(400).json({ error: 'Type the full new delivery address.' });
+    detail.proposal = { address, by, at: new Date().toISOString(), note };
+    await db.prepare('UPDATE order_followups SET detail = CAST(? AS jsonb) WHERE id = ?').run(JSON.stringify(detail), f.id);
+    push.notifyOwners({
+      title: '📍 Address change needs your approval', body: `${order.customer_name || 'A customer'} (${order.ref}): new address proposed by ${by || 'staff'}.${detail.late ? ' LATE: after 3 PM the day before delivery.' : ''}`,
+      url: `/famad-erp.html?ordmsg=${encodeURIComponent(order.ref)}`, tag: `followup-${order.ref}-${f.kind}`, kind: 'order_followup',
+    }).catch(e => console.error('[order-messages] follow-up alert failed:', e.message));
+    console.log(`[audit] Address proposal on ${order.ref} by ${by}`);
+    return res.json(followupOut(await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(f.id)));
+  }
+  if(outcome === 'applied') {
+    if(!isOwner) return res.status(403).json({ error: 'Only the Owner can approve this change.', code: 'OWNER_ONLY' });
+    if(gone) return res.status(409).json({ error: 'The order has already gone out, so this cannot be changed. Choose "Decline".' });
+  }
+  if(outcome !== 'dismissed' && (!message || message.length < 3)) return res.status(400).json({ error: 'Write the message to the customer: they must be told the outcome.' });
+  if(message.length > MAX_STAFF_LEN) return res.status(400).json({ error: `Keep the message under ${MAX_STAFF_LEN} characters.` });
+  if(outcome !== 'applied' && !note) return res.status(400).json({ error: 'Write a short note on what was decided.' });
+  let finalNote = note;
+  if(outcome === 'applied') {
+    if(detail.late && note.length < 5) return res.status(400).json({ error: 'This request came in late (after 3 PM the day before delivery, or on the day). Write why you are approving it anyway.' });
+    if(f.kind === 'address_change') {
+      const address = cleanText(req.body && req.body.address).slice(0, 300) || (detail.proposal && detail.proposal.address) || '';
+      if(address.length < 5) return res.status(400).json({ error: 'Type the new delivery address.' });
+      await db.prepare('UPDATE orders SET location = ?, updated_at = now() WHERE ref = ?').run(address, order.ref);
+      detail.oldAddress = detail.oldAddress || order.location || ''; detail.newAddress = address; detail.approvedBy = by;
+      finalNote = `Address: ${(order.location || '').slice(0, 80)} to ${address.slice(0, 120)}${note ? ' (' + note + ')' : ''}`.slice(0, 300);
+    } else {
+      const day = String((req.body && req.body.day) || '');
+      if(!['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(day)) return res.status(400).json({ error: 'Choose the new delivery day (Monday to Saturday).' });
+      if(day === String(order.preferred_delivery_day || '')) return res.status(409).json({ error: 'That is already the delivery day on this order.' });
+      await db.prepare('UPDATE orders SET preferred_delivery_day = ?, updated_at = now() WHERE ref = ?').run(day, order.ref);
+      const nowOn = deliveryDateOf({ ...order, preferred_delivery_day: day });
+      detail.oldDay = detail.oldDay || order.preferred_delivery_day || ''; detail.newDay = day; detail.newDeliveryOn = nowOn; detail.approvedBy = by;
+      finalNote = `Day: ${order.preferred_delivery_day || 'none'} to ${day} (delivery ${nowOn})${note ? ' (' + note + ')' : ''}`.slice(0, 300);
+    }
+  }
+  await db.prepare('UPDATE order_followups SET status = ?, resolved_by = ?, resolved_at = now(), note = ?, detail = CAST(? AS jsonb) WHERE id = ?').run(outcome, by, finalNote, JSON.stringify(detail), f.id);
+  if(message && outcome !== 'dismissed') {
+    await db.prepare(`INSERT INTO order_messages (order_ref, direction, body, sender) VALUES (?, 'staff', ?, ?)`).run(order.ref, message, by);
+    await db.prepare(`UPDATE order_messages SET read_at = now() WHERE order_ref = ? AND direction = 'customer' AND read_at IS NULL`).run(order.ref);
+    push.notifyOrderReply(order, message).catch(e => console.error('[order-messages] push failed:', e.message));
+  }
+  console.log(`[audit] ${f.kind} follow-up ${f.id} on ${order.ref} closed as ${outcome} by ${by}`);
+  res.json(followupOut(await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(f.id)));
+}
 
 // One line per order that has messages (last 30 days) with the unread count.
 router.get('/inbox', requireSupabaseAuth(), async (req, res) => {
@@ -379,4 +526,7 @@ if(repeatPurge.unref) repeatPurge.unref();
 module.exports = router;
 module.exports.officeNotice = officeNotice;   // exported for the test suite
 module.exports.quickState = quickState;   // exported for the test suite
-module.exports.detectVolumeChange = detectVolumeChange;   // exported for the test suite
+module.exports.detectVolumeChange = detectVolumeChange;
+module.exports.detectAddressChange = detectAddressChange;
+module.exports.detectDayChange = detectDayChange;
+module.exports.isLateChange = isLateChange;   // exported for the test suite
