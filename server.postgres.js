@@ -97,6 +97,7 @@ mount('/staff-push', './routes-postgres/staff-push');
 mount('/staff-hours', './routes-postgres/staff-hours');
 // Oct 12 2026 — End-of-Day reports (staff file one a day; the Owner reads the roll-up and gets a 6:30 PM summary alert).
 mount('/eod-reports', './routes-postgres/eod-reports');
+mount('/attendance', './routes-postgres/attendance');
 
 // Aug 29 — 3 previously local-only-forever logs migrated to real
 // backend persistence: Commission Payout status, the System Overrides

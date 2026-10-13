@@ -1027,7 +1027,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'suppliers', 'supplierscorecard', 'pnl', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -1097,6 +1097,7 @@ input[type=number]{-moz-appearance:textfield;}
         const st = await erpHoursStatus(session.access_token);
         if(st && !st.allowed) { await erpLockOut(st.opensAt); return; }
         if(st) erpHoursStart(st);
+        erpAttStart();
       }
     }
   }
@@ -1120,6 +1121,32 @@ input[type=number]{-moz-appearance:textfield;}
     const t = ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM');
     return days[d.getUTCDay()] + ' at ' + t;
   }
+  // ── Clock-in / clock-out record (Oct 13 2026) ──────────────────
+  // Staff logins (never the Owner) tell the server "still here" every 2 minutes while the ERP is open;
+  // the first ping of the day is the clock-in. Log Out, the idle lock and the 6:30 PM sign-out say so too.
+  // If someone just closes the browser, the last ping stands in for the clock-out. Failures are silent.
+  let erpAttTimer = null, erpAttWired = false;
+  async function erpAttCall(path) {
+    try {
+      const token = await erpGetAuthToken();
+      if(!token) return;
+      const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 4000);
+      try { await fetch(BACKEND_URL + '/attendance' + path, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token }, keepalive: true, signal: ac.signal }); }
+      finally { clearTimeout(t); }
+    } catch(e) { /* the record is a convenience; never block the work */ }
+  }
+  function erpAttStart() {
+    clearInterval(erpAttTimer);
+    if(ERP_ROLE === 'owner') return;
+    erpAttCall('/ping');
+    erpAttTimer = setInterval(() => { if(!erpLocked) erpAttCall('/ping'); }, 120000);
+    if(!erpAttWired) {
+      erpAttWired = true;
+      document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible' && !erpLocked && ERP_ROLE !== 'owner') erpAttCall('/ping'); });
+    }
+  }
+  async function erpAttOut() { clearInterval(erpAttTimer); if(ERP_ROLE !== 'owner') await erpAttCall('/out'); }
+
   let erpLocked = false;
   async function erpLockOut(opensAt) {
     if(erpLocked) return;
@@ -1143,7 +1170,7 @@ input[type=number]{-moz-appearance:textfield;}
     if(!erpHoursInfo || erpLocked) return;
     const now = Date.now() + erpHoursInfo.offset;
     const b = document.getElementById('erp-cob-banner');
-    if(now >= erpHoursInfo.closesAt) { erpLockOut(null); return; }
+    if(now >= erpHoursInfo.closesAt) { erpAttOut().then(() => erpLockOut(null)); return; }
     if(now >= erpHoursInfo.cobAt && b) {
       const mins = Math.max(1, Math.ceil((erpHoursInfo.closesAt - now) / 60000));
       const need = (typeof eodNeedsReport === 'function') && eodNeedsReport();
@@ -1274,6 +1301,7 @@ input[type=number]{-moz-appearance:textfield;}
   }
 
   async function erpLogout() {
+    await erpAttOut();
     await erpSupabase.auth.signOut();
     document.getElementById('erp-login-email').value = '';
     document.getElementById('erp-login-password').value = '';
@@ -1304,7 +1332,8 @@ input[type=number]{-moz-appearance:textfield;}
         // a real reload guarantees idle auto-lock also means a fresh
         // page, catching exactly the kind of stale-cache confusion
         // that prompted this fix in the first place.
-        erpSupabase.auth.signOut().then(() => location.reload());
+        // Oct 13 2026 — the clock-out is recorded first (idle lock counts as signing out).
+        erpAttOut().then(() => erpSupabase.auth.signOut()).then(() => location.reload());
       });
     }, IDLE_TIMEOUT_MS);
   }
@@ -5706,6 +5735,7 @@ input[type=number]{-moz-appearance:textfield;}
   <hr class="sdiv"/>
   <div class="sl">Finance</div>
   <div class="si" onclick="switchModule('voltrack')"><span class="icon">🥚</span><span>Volume Tracker</span></div>
+  <div class="si" onclick="switchModule('receivables')"><span class="icon">⏳</span><span>Receivables Aging</span></div>
   <div class="si" onclick="switchModule('pnl')"><span class="icon">📈</span><span>P&amp;L Calculator</span></div>
   <div class="si" onclick="switchModule('taxpanel')"><span class="icon">🧾</span><span>Tax Panel</span></div>
   <div class="si" onclick="switchModule('commission')"><span class="icon">💰</span><span>Commission</span></div>
@@ -7189,6 +7219,30 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="panel"><div class="panel-hdr"><div class="panel-title">By Sales Rep</div><div class="panel-tag">crates this period vs the one before</div></div><div class="panel-body panel-scroll" id="vt-rep"></div></div>
   <div class="panel"><div class="panel-hdr"><div class="panel-title">By route / zone</div><div class="panel-tag">zone recorded on each sale</div></div><div class="panel-body panel-scroll" id="vt-zone"></div></div>
   <div class="panel"><div class="panel-hdr"><div class="panel-title">Month by month</div><div class="panel-tag">newest first · the month in progress is compared with the same days last month</div></div><div class="panel-body panel-scroll" id="vt-hist"></div></div>
+</div>
+
+<!-- ════ MODULE: RECEIVABLES AGING (Owner only, Oct 12 2026) ═════════════════ -->
+<div class="module-page" id="mod-receivables">
+  <div class="ph">
+    <div>
+      <h2>Receivables Aging</h2>
+      <div class="ph-sub">Who owes money, how old each balance is, and how fast each customer and rep gets paid</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-ghost" onclick="printModule('Receivables Aging')">🖨 Print</button>
+    </div>
+  </div>
+  <div id="rc-asof" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px"></div>
+  <div class="kpi-strip-4">
+    <div class="kc c6"><div class="kc-label">Money still owed</div><div class="kc-val" id="rc-k-owed">₦0</div><div class="kc-sub" id="rc-k-owed-sub"></div></div>
+    <div class="kc c4"><div class="kc-label">Past its due date</div><div class="kc-val" id="rc-k-past">₦0</div><div class="kc-sub" id="rc-k-past-sub"></div></div>
+    <div class="kc c1"><div class="kc-label">Over 90 days old</div><div class="kc-val" id="rc-k-90">₦0</div><div class="kc-sub" id="rc-k-90-sub"></div></div>
+    <div class="kc c7"><div class="kc-label">Average days to collect</div><div class="kc-val" id="rc-k-days">—</div><div class="kc-sub" id="rc-k-days-sub"></div></div>
+  </div>
+  <div class="alert-banner info" id="rc-reading" style="margin:12px 0"></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title">By customer</div><div class="panel-tag">balance by age of the sale · biggest first</div></div><div class="panel-body panel-scroll" id="rc-cust"></div></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title">By Sales Rep</div><div class="panel-tag">balances on the sales each rep made</div></div><div class="panel-body panel-scroll" id="rc-rep"></div></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title">Open invoices</div><div class="panel-tag">oldest first</div></div><div class="panel-body panel-scroll" id="rc-inv"></div></div>
 </div>
 
 <!-- ════ MODULE: TIME-VALUE (internal analytics only) ═════════════════ -->
@@ -11991,6 +12045,7 @@ function switchModule(name) {
        (name==='suppliers' && txt.includes('suppliers')) ||
        (name==='supplierscorecard' && txt.includes('supplier scorecard')) ||
        (name==='voltrack' && txt.includes('volume tracker')) ||
+       (name==='receivables' && txt.includes('receivables aging')) ||
        (name==='pnl' && txt.includes('p&l calculator')) ||
        (name==='taxpanel' && txt.includes('tax panel')) ||
        (name==='doccentre' && txt.includes('document centre'))) {
@@ -12004,7 +12059,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -12025,6 +12080,7 @@ function switchModule(name) {
     credit: renderCredit,
     timevalue: renderTimeValue,
     voltrack: renderVolTracker,
+    receivables: renderReceivables,
     reservations: renderReservationIntelligence,
     scorecard: renderCustomerScorecard,
     whatsapp: renderWhatsapp,
@@ -26800,6 +26856,15 @@ function eodTime(iso) {
   const d = new Date(new Date(iso).getTime() + 3600000), h = d.getUTCHours(), m = d.getUTCMinutes();
   return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM');
 }
+// Oct 13 2026 — clock-in / clock-out line under each name in Daily Reports.
+function eodDur(min) { const h = Math.floor(min / 60), m = min % 60; return h ? h + 'h ' + String(m).padStart(2, '0') + 'm' : m + 'm'; }
+function eodAttHtml(a, closed) {
+  const sty = 'font-family:\'DM Mono\',monospace;font-size:10px;margin-top:3px;';
+  if(!a) return '<div style="' + sty + 'color:' + (closed ? 'var(--red)' : 'var(--mist)') + '">' + (closed ? 'Did not sign in' : 'Not signed in yet') + '</div>';
+  const late = a.late ? ' <span style="color:var(--amber);border:1px solid var(--amber);border-radius:10px;padding:0 6px">Late arrival</span>' : '';
+  if(a.online) return '<div style="' + sty + 'color:var(--teal)">● Online now · In ' + eodTime(a.clockIn) + ' · ' + eodDur(a.minutes) + late + '</div>';
+  return '<div style="' + sty + 'color:var(--dust)">In ' + eodTime(a.clockIn) + ' · Out ' + eodTime(a.clockOut) + (a.estimated ? ' (last seen)' : '') + ' · ' + eodDur(a.minutes) + late + '</div>';
+}
 const EOD_LABEL = { on_time: 'On time', late: 'Late', missing: 'Missing', pending: 'Not yet filed', excused: 'Excused' };
 const EOD_COLOR = { on_time: 'var(--teal)', late: 'var(--amber)', missing: 'var(--red)', pending: 'var(--mist)', excused: 'var(--mist)' };
 function eodIsFiled() { return !!(EOD.me && EOD.me.filed); }
@@ -26923,14 +26988,14 @@ async function eodRollLoad(first) {
   dateEl.value = d.day;
   if(!d.workingDay) { sum.textContent = 'Sunday: no reports are expected.'; list.innerHTML = ''; return; }
   const c = d.counts;
-  sum.textContent = c.filed + ' of ' + c.expected + ' filed' + (c.late ? ' · ' + c.late + ' late' : '') + (c.missing ? ' · ' + c.missing + ' missing' : '') + (c.pending ? ' · ' + c.pending + ' not yet filed' : '') + (c.excused ? ' · ' + c.excused + ' excused' : '');
+  sum.textContent = c.filed + ' of ' + c.expected + ' filed' + (c.late ? ' · ' + c.late + ' late' : '') + (c.missing ? ' · ' + c.missing + ' missing' : '') + (c.pending ? ' · ' + c.pending + ' not yet filed' : '') + (c.excused ? ' · ' + c.excused + ' excused' : '') + (d.attendance && d.attendance.lateArrivals ? ' · ' + d.attendance.lateArrivals + ' late arrival' + (d.attendance.lateArrivals === 1 ? '' : 's') : '');
   if(!d.rows.length) { list.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No staff reports expected.</div>'; return; }
   list.innerHTML = d.rows.map((x, i) => {
     const chip = '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:' + EOD_COLOR[x.status] + ';border:1px solid ' + EOD_COLOR[x.status] + ';border-radius:10px;padding:1px 8px">' + EOD_LABEL[x.status] + (x.firstSubmittedAt ? ' · ' + eodTime(x.firstSubmittedAt) : '') + '</span>';
     let act = '';
     if(x.status === 'missing' || x.status === 'pending') act = '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();eodExcuse(\'' + eodEsc(x.email) + '\')">Excuse</button>';
     if(x.status === 'excused' && x.id) act = '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();eodUnexcuse(' + x.id + ')">Undo</button>';
-    const head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:' + (x.data && x.data.figures ? 'pointer' : 'default') + '" ' + (x.data && x.data.figures ? 'onclick="eodRollToggle(' + i + ')"' : '') + '><div><div style="font-weight:600;color:var(--cream)">' + eodEsc(x.name) + '</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(x.email) + '</div></div><div style="display:flex;gap:8px;align-items:center">' + chip + act + '</div></div>';
+    const head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:' + (x.data && x.data.figures ? 'pointer' : 'default') + '" ' + (x.data && x.data.figures ? 'onclick="eodRollToggle(' + i + ')"' : '') + '><div><div style="font-weight:600;color:var(--cream)">' + eodEsc(x.name) + '</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(x.email) + '</div>' + eodAttHtml(x.attendance, d.closed) + '</div><div style="display:flex;gap:8px;align-items:center">' + chip + act + '</div></div>';
     return head + '<div id="eodr-d-' + i + '" style="display:none;padding:8px 0 12px 0">' + eodRollDetail(x) + '</div>';
   }).join('');
 }
@@ -27062,6 +27127,107 @@ function renderVolTracker() {
   document.getElementById('vt-zone').innerHTML = volTable(volRows(sales, x => (x.repZone && x.repZone !== '—') ? x.repZone : 'No zone recorded', rg), 'Zone');
   const h = volHistory(sales, today);
   document.getElementById('vt-hist').innerHTML = h.length ? '<table class="data-table"><thead><tr><th>Month</th><th>Crates</th><th>Change</th><th>₦/crate</th><th>Egg revenue</th><th>Change</th><th></th></tr></thead><tbody>' + h.map(r => '<tr><td style="color:var(--cream);font-weight:600">' + volMonthName(r.month) + (r.partial ? ' (so far)' : '') + '</td><td>' + r.crates.toLocaleString() + '</td><td>' + volPctTxt(r.dCrates) + '</td><td>' + (r.crates ? fmt(r.price) : '—') + '</td><td>' + fmt(r.rev) + '</td><td>' + volPctTxt(r.dRev) + '</td><td>' + (r.priceDriven ? '<span class="badge" style="background:rgba(240,160,40,0.15);color:var(--amber)">⚠ price-driven</span>' : '') + '</td></tr>').join('') + '</tbody></table><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);margin-top:6px">The current month is part-way through, so its change against a whole month is not a fair comparison; use the top of this page for that.</div>' : 'No sales recorded yet.';
+}
+
+/* ═══════════════════════════════════════════════════════
+   RECEIVABLES AGING (Oct 12 2026, Owner only)
+   Money owed on credit sales, grouped by how old the sale is, per customer and per rep, plus
+   how many days customers and reps take to collect. Read from the Sales Log and the payment
+   (settlement) log; nothing is stored. "Owed" is the egg balance only, exactly as the Credit
+   screen counts it (getOutstandingCreditSales / getRemainingBalance), so the numbers agree.
+═══════════════════════════════════════════════════════ */
+const RECV_BUCKETS = ['0–7 d', '8–30 d', '31–60 d', '61–90 d', '90+ d'];
+const RECV_CREDIT_KEYS = ['credit7', 'credit30', 'part'];
+function recvToday() { return new Date(Date.now() + 3600000).toISOString().slice(0, 10); }
+function recvDayDiff(fromYmd, toYmd) {
+  const a = Date.parse(String(fromYmd).slice(0, 10) + 'T00:00:00Z'), b = Date.parse(String(toYmd).slice(0, 10) + 'T00:00:00Z');
+  return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 86400000) : 0;
+}
+function recvBucketIdx(age) { return age <= 7 ? 0 : age <= 30 ? 1 : age <= 60 ? 2 : age <= 90 ? 3 : 4; }
+// The credit term the customer was given. A partly paid sale is relabelled 'part', so the original
+// term is recovered from the payment log; if nothing says 30 days, 7 days is used.
+function recvTerm(s) {
+  if(s.payment === 'credit30') return 30;
+  if(s.payment === 'credit7') return 7;
+  return (STATE.settlementLog || []).some(l => settlementMatchesSale(l, s) && l.previousPayment === 'credit30') ? 30 : 7;
+}
+function recvOpenItems(todayYmd) {
+  return getOutstandingCreditSales().filter(s => s && s.date && !s.fullyReversed).map(s => {
+    const age = Math.max(0, recvDayDiff(s.date, todayYmd)), term = recvTerm(s);
+    return { inv: s.inv || s.id, date: String(s.date).slice(0, 10), customer: s.customer || '—', rep: s.rep || '—',
+      balance: getRemainingBalance(s), age, term, late: Math.max(0, age - term), bucket: recvBucketIdx(age) };
+  }).filter(x => x.balance > 0);
+}
+// Credit sales that were paid off in full within the last `windowDays`, and how many days that took.
+function recvCollected(todayYmd, windowDays) {
+  const out = [];
+  (STATE.sales || []).forEach(s => {
+    if(!s || !s.date || s.fullyReversed) return;
+    const logs = (STATE.settlementLog || []).filter(l => settlementMatchesSale(l, s) && !l.reversedAt && l.action !== 'reversed');
+    const fin = logs.find(l => l.action === 'settled' && l.at);
+    if(!fin) return;
+    const wasCredit = RECV_CREDIT_KEYS.includes(s.payment) || logs.some(l => RECV_CREDIT_KEYS.includes(l.previousPayment));
+    if(!wasCredit) return;
+    const paid = new Date(Date.parse(fin.at) + 3600000).toISOString().slice(0, 10);
+    const ago = recvDayDiff(paid, todayYmd);
+    if(ago < 0 || ago > windowDays) return;
+    out.push({ customer: s.customer || '—', rep: s.rep || '—', days: Math.max(0, recvDayDiff(s.date, paid)) });
+  });
+  return out;
+}
+function recvRows(items, collected, keyFn) {
+  const m = new Map();
+  const get = n => { if(!m.has(n)) m.set(n, { name: n, balance: 0, b: [0, 0, 0, 0, 0], late: 0, wAge: 0, n: 0, cDays: 0, cN: 0 }); return m.get(n); };
+  items.forEach(x => { const r = get(keyFn(x)); r.balance += x.balance; r.b[x.bucket] += x.balance; r.wAge += x.balance * x.age; r.n++; if(x.late > 0) r.late += x.balance; });
+  collected.forEach(x => { const r = get(keyFn(x)); r.cDays += x.days; r.cN++; });
+  return [...m.values()].map(r => ({ ...r, avgAge: r.balance > 0 ? r.wAge / r.balance : null, avgDays: r.cN ? r.cDays / r.cN : null }))
+    .sort((a, b) => (b.balance - a.balance) || a.name.localeCompare(b.name));
+}
+function recvTable(rows, noun) {
+  if(!rows.length) return '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">Nothing owed.</div>';
+  const z = v => v > 0 ? fmt(v) : '<span style="color:var(--mist)">—</span>';
+  const TD = '<td style="padding-right:14px;white-space:nowrap">';
+  const tot = rows.reduce((t, r) => { t.balance += r.balance; t.late += r.late; r.b.forEach((v, i) => t.b[i] += v); return t; }, { balance: 0, late: 0, b: [0, 0, 0, 0, 0] });
+  return '<table class="data-table"><thead><tr><th>' + noun + '</th><th>Owed</th>' + RECV_BUCKETS.map(b => '<th>' + b + '</th>').join('') + '<th>Past due</th><th>Avg age</th><th>Days to collect</th><th></th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td style="color:var(--cream);font-weight:600;padding-right:14px">' + escapeHtml(r.name) + '</td><td style="font-weight:600;padding-right:14px;white-space:nowrap">' + fmt(r.balance) + '</td>' + r.b.map(z).map(v => TD + v + '</td>').join('') +
+      '<td style="padding-right:14px;white-space:nowrap;color:' + (r.late > 0 ? 'var(--amber)' : 'var(--mist)') + '">' + (r.late > 0 ? fmt(r.late) : '—') + '</td>' + TD + (r.avgAge === null ? '—' : Math.round(r.avgAge) + ' d') + '</td>' + TD + (r.avgDays === null ? '—' : r.avgDays.toFixed(1) + ' d') + '</td><td style="white-space:nowrap">' +
+      (r.b[4] > 0 ? '<span class="badge" style="background:rgba(255,90,90,0.15);color:var(--red)" title="Part of this balance is more than 90 days old">⚠ 90+ days</span>' : '') + '</td></tr>').join('') +
+    '<tr style="border-top:1px solid var(--border)"><td style="font-weight:700">Total</td><td style="font-weight:700;padding-right:14px;white-space:nowrap">' + fmt(tot.balance) + '</td>' + tot.b.map(v => '<td style="font-weight:700;padding-right:14px;white-space:nowrap">' + (v > 0 ? fmt(v) : '—') + '</td>').join('') + '<td style="font-weight:700;padding-right:14px;white-space:nowrap">' + (tot.late > 0 ? fmt(tot.late) : '—') + '</td><td></td><td></td><td></td></tr></tbody></table>';
+}
+function renderReceivables() {
+  const el = document.getElementById('rc-cust');
+  if(!el) return;
+  const today = recvToday(), WIN = 90;
+  const items = recvOpenItems(today), coll = recvCollected(today, WIN);
+  const owed = items.reduce((a, x) => a + x.balance, 0);
+  const past = items.filter(x => x.late > 0).reduce((a, x) => a + x.balance, 0);
+  const over90 = items.filter(x => x.bucket === 4).reduce((a, x) => a + x.balance, 0);
+  const wAge = owed > 0 ? items.reduce((a, x) => a + x.balance * x.age, 0) / owed : null;
+  const avgDays = coll.length ? coll.reduce((a, x) => a + x.days, 0) / coll.length : null;
+  const pct = v => owed > 0 ? ' (' + Math.round(v / owed * 100) + '%)' : '';
+  document.getElementById('rc-asof').textContent = 'As of ' + today + ' · age is counted in days from the date of the sale · written-off debts are not included (see Bad Debt)';
+  document.getElementById('rc-k-owed').textContent = fmt(owed);
+  document.getElementById('rc-k-owed-sub').textContent = items.length + ' open invoice' + (items.length === 1 ? '' : 's') + (wAge === null ? '' : ' · average age ' + Math.round(wAge) + ' days');
+  document.getElementById('rc-k-past').textContent = fmt(past);
+  document.getElementById('rc-k-past-sub').textContent = owed > 0 ? Math.round(past / owed * 100) + '% of what is owed' : 'nothing owed';
+  document.getElementById('rc-k-90').textContent = fmt(over90);
+  document.getElementById('rc-k-90-sub').textContent = over90 > 0 ? 'credit is blocked for these customers' : 'none';
+  document.getElementById('rc-k-days').textContent = avgDays === null ? '—' : avgDays.toFixed(1) + ' days';
+  document.getElementById('rc-k-days-sub').textContent = coll.length ? 'on ' + coll.length + ' credit sale' + (coll.length === 1 ? '' : 's') + ' paid in full in the last ' + WIN + ' days' : 'no credit sale paid in full in the last ' + WIN + ' days';
+  const custRows = recvRows(items, coll, x => x.customer);
+  let txt;
+  if(!items.length) txt = 'Nothing is owed on credit sales right now.';
+  else {
+    txt = fmt(owed) + ' is owed on ' + items.length + ' invoice' + (items.length === 1 ? '' : 's') + '. ' + fmt(past) + pct(past) + ' is past its due date' + (over90 > 0 ? ' and ' + fmt(over90) + pct(over90) + ' is more than 90 days old' : '') + '.';
+    if(custRows[0]) txt += ' The largest balance is ' + custRows[0].name + ' (' + fmt(custRows[0].balance) + ').';
+  }
+  document.getElementById('rc-reading').textContent = txt;
+  document.getElementById('rc-cust').innerHTML = recvTable(custRows, 'Customer');
+  document.getElementById('rc-rep').innerHTML = recvTable(recvRows(items, coll, x => x.rep), 'Sales Rep');
+  const inv = items.slice().sort((a, b) => (b.age - a.age) || (b.balance - a.balance));
+  document.getElementById('rc-inv').innerHTML = inv.length ? '<table class="data-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Sales Rep</th><th>Sale date</th><th>Owed</th><th>Age</th><th>Term</th><th>Days late</th></tr></thead><tbody>' +
+    inv.map(x => '<tr><td>' + escapeHtml(String(x.inv)) + '</td><td style="color:var(--cream)">' + escapeHtml(x.customer) + '</td><td>' + escapeHtml(x.rep) + '</td><td>' + x.date + '</td><td>' + fmt(x.balance) + '</td><td>' + x.age + ' d</td><td>' + x.term + ' d</td><td style="color:' + (x.late > 0 ? 'var(--amber)' : 'var(--mist)') + '">' + (x.late > 0 ? x.late + ' d' : 'on time') + '</td></tr>').join('') + '</tbody></table>'
+    : '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No open invoices.</div>';
 }
 function initVolReqChannel() {
   try {

@@ -3,6 +3,7 @@ const { db } = require('../db.postgres');
 const { requireSupabaseAuth, requireRole } = require('../auth.postgres');
 const hours = require('../lib/staff-hours');
 const push = require('../lib/push');
+const attendance = require('./attendance');
 
 const router = express.Router();
 
@@ -144,6 +145,10 @@ async function rollup(day, nowMs) {
   staff.filter(s => !filedEmails.has(s.email)).forEach(s => {
     out.push({ id: null, email: s.email, name: s.name, role: s.role, status: closed ? 'missing' : 'pending', firstSubmittedAt: null, updatedAt: null, data: null, excusedBy: null });
   });
+  // Oct 13 2026 — clock-in / clock-out beside each person (null = never signed in that day)
+  let att = new Map();
+  try { att = await attendance.forDay(day, nowMs); } catch(e) { console.error('[eod] attendance lookup failed:', e.message); }
+  out.forEach(r => { r.attendance = att.get(r.email) || null; });
   // Someone who filed but is not in the expected list (role changed since) still shows.
   const order = { missing: 0, pending: 1, late: 2, on_time: 3, excused: 4 };
   out.sort((a, b) => (order[a.status] - order[b.status]) || a.name.localeCompare(b.name));
@@ -151,6 +156,7 @@ async function rollup(day, nowMs) {
   const expected = out.filter(r => r.status !== 'excused').length;
   return {
     day, workingDay: working, closed,
+    attendance: { signedIn: out.filter(r => r.attendance).length, lateArrivals: out.filter(r => r.attendance && r.attendance.late).length, lateAfter: '08:00' },
     counts: { expected, filed: count('on_time') + count('late'), onTime: count('on_time'), late: count('late'), missing: count('missing'), pending: count('pending'), excused: count('excused') },
     rows: out,
   };
