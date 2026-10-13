@@ -1334,7 +1334,7 @@ input[type=number]{-moz-appearance:textfield;}
         const state = x.email ? (x.loginFound === false ? '<span style="color:var(--amber)">no such login exists</span>' : '<span style="color:var(--teal)">linked</span>') : '<span style="color:var(--mist)">no login</span>';
         return '<div style="border-top:1px solid var(--border);padding:8px 0"><div><b>' + erpEsc(x.name) + '</b> · ' + erpEsc(x.zone || '') + ' — ' + state + (x.email ? ' · ' + erpEsc(x.email) : '') + '</div>' +
           (x.email
-            ? '<button class="btn btn-ghost" style="font-size:10px;margin-top:6px" onclick="erpRaLink(\'' + id + '\',null)">Unlink</button>'
+            ? '<div style="display:flex;gap:6px;margin-top:6px"><button class="btn btn-ghost" style="font-size:10px" onclick="erpRaLink(\'' + id + '\',null)">Unlink</button>' + (x.loginFound === false ? '' : '<button class="btn btn-ghost" style="font-size:10px" id="erp-ra-reset-' + id + '" onclick="erpRaReset(\'' + id + '\')">Reset password</button>') + '</div>'
             : '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input id="erp-ra-' + id + '" list="erp-free-logins" class="form-input" style="flex:1;min-width:200px" placeholder="rep\'s e-mail address">' +
               '<button class="btn btn-ghost" style="font-size:10px" onclick="erpRaLink(\'' + id + '\')">Link existing login</button>' +
               '<button class="btn btn-primary" style="font-size:10px" onclick="erpRaCreate(\'' + id + '\')">Create new login</button></div>') + '</div>';
@@ -1358,8 +1358,36 @@ input[type=number]{-moz-appearance:textfield;}
     const rep = STATE.reps.find(x => x.id === repId); if(rep) rep.email = r.json.email;
     saveState();
     erpRaNotice = '<b>Login created for ' + erpEsc(r.json.name) + '.</b><br>E-mail: ' + erpEsc(r.json.email) + '<br>Starting password: <b style="font-size:15px;user-select:all">' + erpEsc(r.json.startingPassword) +
-      '</b><br><span style="color:var(--amber)">Copy it now and send it to the rep privately. It is shown only this once. The rep should use "Forgot password" on the sign-in screen to choose their own.</span>';
+      '</b><br><span style="color:var(--amber)">Copy it now and send it to the rep privately. It is shown only this once. After signing in, the rep can choose their own with "Change password" in the side menu. If a password is ever lost, use Reset password on this screen.</span>';
     erpRepLoginsDlg();
+  }
+
+  async function erpRaReset(repId) {
+    const b = document.getElementById('erp-ra-reset-' + repId);
+    if(b && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Click again to confirm'; setTimeout(() => { if(b) { b.dataset.sure = ''; b.textContent = 'Reset password'; } }, 6000); return; }
+    erpDlgMsg('Resetting…');
+    const r = await erpApi('POST', '/rep-accounts/reset', { repId });
+    if(!r.ok) return erpDlgMsg(r.json.error || 'Could not reset the password.', true);
+    erpRaNotice = '<b>New password for ' + erpEsc(r.json.name) + '.</b><br>E-mail: ' + erpEsc(r.json.email) + '<br>New password: <b style="font-size:15px;user-select:all">' + erpEsc(r.json.newPassword) +
+      '</b><br><span style="color:var(--amber)">The old password no longer works. Copy this one now and send it to the rep privately. It is shown only this once.</span>';
+    erpRepLoginsDlg();
+  }
+  // Any signed-in person can choose their own password (no e-mail needed).
+  function erpChangePwDlg() {
+    erpDlg('Change password', '<div style="color:var(--dust);margin-bottom:8px">Choose a new password (at least 8 characters). You stay signed in.</div>' +
+      '<input id="erp-pw-1" type="password" autocomplete="new-password" class="form-input" style="width:100%;margin-bottom:8px" placeholder="New password">' +
+      '<input id="erp-pw-2" type="password" autocomplete="new-password" class="form-input" style="width:100%;margin-bottom:8px" placeholder="Type it again">' +
+      '<button class="btn btn-primary" onclick="erpChangePwGo()">Save new password</button><div id="erp-dlg-msg" style="min-height:16px;margin-top:8px"></div>');
+  }
+  async function erpChangePwGo() {
+    const a = (document.getElementById('erp-pw-1') || {}).value || '', b = (document.getElementById('erp-pw-2') || {}).value || '';
+    if(a.length < 8) return erpDlgMsg('Use at least 8 characters.', true);
+    if(a !== b) return erpDlgMsg('The two passwords are not the same.', true);
+    erpDlgMsg('Saving…');
+    const { error } = await erpSupabase.auth.updateUser({ password: a });
+    if(error) return erpDlgMsg(error.message || 'Could not change the password.', true);
+    erpDlgMsg('Password changed. Use it the next time you sign in.');
+    const e1 = document.getElementById('erp-pw-1'), e2 = document.getElementById('erp-pw-2'); if(e1) e1.value = ''; if(e2) e2.value = '';
   }
 
   // 5. The permanent hand-over log
@@ -6198,6 +6226,7 @@ input[type=number]{-moz-appearance:textfield;}
     <span id="erp-logged-in-as" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px"></span>
     <button onclick="erpLogout()" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--red);background:none;border:none;cursor:pointer;padding:2px 6px">Log Out</button>
   </div>
+  <button onclick="erpChangePwDlg()" style="width:100%;margin:-4px 0 10px;font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);background:none;border:1px dashed var(--border);border-radius:8px;cursor:pointer;padding:6px">🔑 Change password</button>
 
   <!-- Oct 12 2026 — staff alert switch: a "New customer message" notification on THIS device, even with the ERP closed. -->
   <div id="erp-alerts-row" style="display:none;margin:-4px 0 10px 0">

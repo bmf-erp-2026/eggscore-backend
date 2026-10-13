@@ -6,6 +6,7 @@
 //   POST /rep-accounts/link     { repId, email }  link an existing login to a rep ({ email: null } unlinks)
 //   POST /rep-accounts/create   { repId, email }  make a NEW login for a rep (role rep) and link it; the
 //                               one-time starting password is shown to the Owner once and never stored or logged
+//   POST /rep-accounts/reset    { repId }         give a rep's login a NEW one-time password (rep logins only; shown once)
 const express = require('express');
 const crypto = require('crypto');
 const { db } = require('../db.postgres');
@@ -30,6 +31,16 @@ function realAdmin() {
       const { data, error } = await c.auth.admin.createUser({ email, password, email_confirm: true, app_metadata: { role: 'rep' } });
       if(error) throw new Error(error.message);
       return { email: data.user.email };
+    },
+    async setPassword(email, password) {
+      const { data, error } = await c.auth.admin.listUsers({ page: 1, perPage: 200 });
+      if(error || !data) throw new Error(error ? error.message : 'no user list');
+      const u = data.users.find(x => String(x.email || '').toLowerCase() === email);
+      if(!u) throw new Error('no such login');
+      if(((u.app_metadata && u.app_metadata.role) || 'owner') !== 'rep') throw new Error('not a rep login');
+      const r = await c.auth.admin.updateUserById(u.id, { password });
+      if(r.error) throw new Error(r.error.message);
+      return { email };
     },
   };
 }
@@ -97,6 +108,20 @@ router.post('/create', requireSupabaseAuth(), requireRole('owner'), async (req, 
   await db.prepare('UPDATE reps SET email = ? WHERE rep_id = ?').run(email, rep.rep_id);
   console.log(`[audit] Login created for rep ${rep.name} (${email}) by ${req.user.email}`);
   res.status(201).json({ ok: true, repId: rep.rep_id, name: rep.name, email, startingPassword: password });
+});
+
+router.post('/reset', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const rep = await db.prepare('SELECT rep_id, name, email FROM reps WHERE rep_id = ?').get(String((req.body && req.body.repId) || ''));
+  if(!rep) return res.status(404).json({ error: 'Rep not found.' });
+  if(!rep.email) return res.status(409).json({ error: `${rep.name} has no login to reset.` });
+  const a = adm();
+  if(!a || !a.setPassword) return res.status(500).json({ error: 'The server cannot reset passwords (Supabase keys not set).' });
+  const email = norm(rep.email);
+  const password = crypto.randomBytes(9).toString('base64').replace(/[+/=]/g, 'x') + '7a';
+  try { await a.setPassword(email, password); }
+  catch(e) { return res.status(502).json({ error: 'Could not reset the password: ' + e.message }); }
+  console.log(`[audit] Password reset for rep ${rep.name} (${email}) by ${req.user.email}`);
+  res.json({ ok: true, repId: rep.rep_id, name: rep.name, email, newPassword: password });
 });
 
 router.setAdmin = setAdmin;
