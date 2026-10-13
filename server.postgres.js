@@ -55,6 +55,8 @@ mount('/inventory', './routes-postgres/inventory');
 mount('/customers', './routes-postgres/customers');
 mount('/settlements', './routes-postgres/settlements');
 mount('/reps', './routes-postgres/reps');
+// Oct 13 2026 — which login belongs to which sales rep (Owner only).
+mount('/rep-accounts', './routes-postgres/rep-accounts');
 mount('/suppliers', './routes-postgres/suppliers');
 mount('/promotions', './routes-postgres/promotions');
 mount('/vehicles', './routes-postgres/vehicles');

@@ -1,5 +1,6 @@
 const express = require('express');
 const { db } = require('../db.postgres');
+const repScope = require('../lib/rep-scope');
 const { requireEitherAuth, requireSupabaseAuth } = require('../auth.postgres');
 const push = require('../lib/push');
 
@@ -327,14 +328,24 @@ router.post('/:ref/thread', requireEitherAuth(), async (req, res) => {
 
 // ═══════════════════════ STAFF SIDE (any signed-in staff) ═══════════════════════
 
+// Oct 13 2026 — a rep may only deal with the orders of their own customers (plus customers nobody owns yet).
+async function staffMayTouch(req, res, ref) {
+  if(await repScope.canSeeOrder(await repScope.scopeOf(req), ref)) return true;
+  res.status(403).json(repScope.NOT_YOURS);
+  return false;
+}
+
 // ── Oct 13 2026 — follow-ups: things a customer asked for after ordering that must not be forgotten ──
 // Every open follow-up (the ERP asks every minute or so, and before any dispatch step).
 router.get('/followups/open', requireSupabaseAuth(), async (req, res) => {
-  const rows = await db.prepare("SELECT * FROM order_followups WHERE status = 'open' ORDER BY id ASC LIMIT 200").all();
+  const cl = repScope.customerClause(await repScope.scopeOf(req), 'c');
+  const rows = await db.prepare(`SELECT f.* FROM order_followups f LEFT JOIN orders o ON o.ref = f.order_ref LEFT JOIN customers c ON c.id = o.customer_id
+                                 WHERE f.status = 'open' AND ${cl.sql} ORDER BY f.id ASC LIMIT 200`).all(...cl.params);
   res.json(rows.map(followupOut));
 });
 // Recent history for one order (open and closed), newest first.
 router.get('/:ref/followups', requireSupabaseAuth(), async (req, res) => {
+  if(!(await staffMayTouch(req, res, req.params.ref))) return;
   const rows = await db.prepare('SELECT * FROM order_followups WHERE order_ref = ? ORDER BY id DESC LIMIT 20').all(String(req.params.ref));
   res.json(rows.map(followupOut));
 });
@@ -342,6 +353,7 @@ router.get('/:ref/followups', requireSupabaseAuth(), async (req, res) => {
 router.post('/:ref/followup', requireSupabaseAuth(), async (req, res) => {
   const order = await db.prepare('SELECT ref, customer_name, crates, status, location, created_at, preferred_delivery_day FROM orders WHERE ref = ?').get(String(req.params.ref));
   if(!order) return res.status(404).json({ error: 'Order not found.' });
+  if(!(await staffMayTouch(req, res, order.ref))) return;
   if(['cancelled', 'rejected'].includes(String(order.status))) return res.status(400).json({ error: 'That order is closed.' });
   const kind = String((req.body && req.body.kind) || 'volume_change');
   if(!['volume_change', 'address_change', 'day_change'].includes(kind)) return res.status(400).json({ error: 'Unknown kind of change.' });
@@ -366,6 +378,7 @@ router.post('/followups/:id/resolve', requireSupabaseAuth(), async (req, res) =>
   const id = parseInt(req.params.id, 10);
   const f = Number.isInteger(id) ? await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(id) : null;
   if(!f) return res.status(404).json({ error: 'Follow-up not found.' });
+  if(!(await staffMayTouch(req, res, f.order_ref))) return;
   if(f.status !== 'open') return res.status(409).json({ error: 'That follow-up is already closed.' });
   if(f.kind === 'address_change' || f.kind === 'day_change') return resolveWhereWhen(req, res, f);
   const outcome = String((req.body && req.body.outcome) || '');
@@ -460,6 +473,7 @@ async function resolveWhereWhen(req, res, f) {
 
 // One line per order that has messages (last 30 days) with the unread count.
 router.get('/inbox', requireSupabaseAuth(), async (req, res) => {
+  const cl = repScope.customerClause(await repScope.scopeOf(req), 'c');
   const rows = await db.prepare(`
     SELECT m.order_ref AS ref,
            o.customer_name, o.phone, o.crates, o.status,
@@ -470,11 +484,12 @@ router.get('/inbox', requireSupabaseAuth(), async (req, res) => {
            (ARRAY_AGG(m.body ORDER BY m.id DESC))[1] AS last_body
     FROM order_messages m
     LEFT JOIN orders o ON o.ref = m.order_ref
-    WHERE m.created_at > now() - interval '30 days'
+    LEFT JOIN customers c ON c.id = o.customer_id
+    WHERE m.created_at > now() - interval '30 days' AND ${cl.sql}
     GROUP BY m.order_ref, o.customer_name, o.phone, o.crates, o.status
     ORDER BY (COUNT(*) FILTER (WHERE m.direction = 'customer' AND m.read_at IS NULL) > 0) DESC, MAX(m.created_at) DESC
     LIMIT 200
-  `).all();
+  `).all(...cl.params);
   res.json(rows.map(r => ({
     ref: r.ref, customerName: r.customer_name || '', phone: r.phone || '', crates: r.crates, status: r.status,
     unread: r.unread, total: r.total, lastAt: new Date(r.last_at).toISOString(),
@@ -483,11 +498,13 @@ router.get('/inbox', requireSupabaseAuth(), async (req, res) => {
 });
 
 router.get('/:ref/staff', requireSupabaseAuth(), async (req, res) => {
+  if(!(await staffMayTouch(req, res, req.params.ref))) return;
   const rows = await db.prepare('SELECT * FROM order_messages WHERE order_ref = ? ORDER BY id ASC LIMIT 200').all(String(req.params.ref));
   res.json(rows.map(asStaff));
 });
 
 router.post('/:ref/read', requireSupabaseAuth(), async (req, res) => {
+  if(!(await staffMayTouch(req, res, req.params.ref))) return;
   const r = await db.prepare(`UPDATE order_messages SET read_at = now() WHERE order_ref = ? AND direction = 'customer' AND read_at IS NULL`).run(String(req.params.ref));
   res.json({ ok: true, marked: r.changes || 0 });
 });
@@ -496,6 +513,7 @@ router.post('/:ref/reply', requireSupabaseAuth(), async (req, res) => {
   const ref = String(req.params.ref);
   const order = await db.prepare('SELECT ref, customer_id FROM orders WHERE ref = ?').get(ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
+  if(!(await staffMayTouch(req, res, ref))) return;
   const body = cleanText(req.body && req.body.message);
   if(!body) return res.status(400).json({ error: 'Type a reply first.' });
   if(body.length > MAX_STAFF_LEN) return res.status(400).json({ error: `Keep the reply under ${MAX_STAFF_LEN} characters.` });

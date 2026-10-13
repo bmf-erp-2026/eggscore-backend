@@ -43,10 +43,11 @@ router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) =
 // empty list rather than an error — a missing link should look like
 // "nothing's been shared with you yet," not a broken request.
 router.get('/', requireSupabaseAuth(), async (req, res) => {
-  if(req.user.role === 'owner') {
+  // Oct 13 2026 — a manager sees the whole roster too (needed to pick the rep when recording a sale for them).
+  if(req.user.role === 'owner' || req.user.role === 'manager') {
     return res.json(await db.prepare('SELECT * FROM reps ORDER BY created_at ASC').all());
   }
-  res.json(await db.prepare('SELECT * FROM reps WHERE email = ? ORDER BY created_at ASC').all(req.user.email));
+  res.json(await db.prepare('SELECT * FROM reps WHERE LOWER(email) = LOWER(?) ORDER BY created_at ASC').all(req.user.email));
 });
 
 // Patched by rep_id (the stable client-side id), not the numeric

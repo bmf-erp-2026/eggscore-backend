@@ -1,6 +1,7 @@
 const express = require('express');
 const { db } = require('../db.postgres');
 const { requireAuth, requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
+const repScope = require('../lib/rep-scope');
 const { geocodeAddress, getRouteDistance } = require('../lib/geocode');
 const { notifyOrderChange } = require('../lib/push');
 const pc = require('../lib/portal-checks');
@@ -206,9 +207,12 @@ const ref = clientRef || genOrderRef();
 
 router.get('/', requireSupabaseAuth(), async (req, res) => {
   const { status } = req.query;
+  // Oct 13 2026 — a rep sees only the orders of their own customers (plus customers nobody owns yet).
+  const sc = await repScope.scopeOf(req);
+  const cl = repScope.customerClause(sc, 'c');
   const rows = status
-    ? await db.prepare('SELECT * FROM orders WHERE status = ? ORDER BY created_at ASC').all(status)
-    : await db.prepare('SELECT * FROM orders ORDER BY created_at ASC').all();
+    ? await db.prepare(`SELECT o.* FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.status = ? AND ${cl.sql} ORDER BY o.created_at ASC`).all(status, ...cl.params)
+    : await db.prepare(`SELECT o.* FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE ${cl.sql} ORDER BY o.created_at ASC`).all(...cl.params);
   res.json(rows);
 });
 
@@ -270,6 +274,8 @@ router.post('/cluster-distance', requireSupabaseAuth(), async (req, res) => {
 router.get('/:ref', requireEitherAuth(), async (req, res) => {
   const order = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
+  // A signed-in rep may open only their own customers' orders (the customer portal's key is unaffected).
+  if(req.user && !(await repScope.canSeeOrder(await repScope.scopeOf(req), order.ref))) return res.status(403).json(repScope.NOT_YOURS);
   res.json(order);
 });
 
@@ -285,6 +291,7 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
           deliveryToken, outboundCondition, outboundAttestedBy, outboundNotes, crates } = req.body;
   const order = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
+  if(!(await repScope.canSeeOrder(await repScope.scopeOf(req), order.ref))) return res.status(403).json(repScope.NOT_YOURS);
 
   // Oct 13 2026 — an order with an unanswered change request from the customer (an open follow-up, see
   // order-messages.js) may not be sent out or closed. This is the backstop behind the ERP's own check, for

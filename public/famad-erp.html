@@ -1019,6 +1019,360 @@ input[type=number]{-moz-appearance:textfield;}
   // the login overlay blocks all interaction until a session exists.
   let ERP_ROLE = 'owner';
 
+  // ════════════════════════════════════════════════════════════════
+  // Oct 13 2026 — every rep is tied to a login; every customer is tied to the rep who pitched them.
+  //  * ERP_EMAIL / ERP_REP : who is signed in, and (rep logins only) which sales rep that login belongs to.
+  //  * A rep login keeps its OWN private copy of the data on a device (separate storage key), so it never
+  //    shows, or touches, the Owner's or another rep's cached records.
+  //  * Anything that fails to reach the server is flagged pendingSync, shown in a red "not saved" bar, and
+  //    retried by the outbox until it lands. A sale that is not on the server no longer looks "done".
+  // ════════════════════════════════════════════════════════════════
+  let ERP_EMAIL = '';
+  let ERP_REP = null;
+  let ERP_REP_READY = false;
+  function erpIsRepRole() { return ERP_ROLE !== 'owner' && ERP_ROLE !== 'manager'; }
+  function erpIsAll() { return ERP_ROLE === 'owner' || ERP_ROLE === 'manager'; }
+  function erpCacheNs() { try { return localStorage.getItem('feds_cache_ns') || ''; } catch(e) { return ''; } }
+  function erpKey(base) { const ns = erpCacheNs(); return ns ? base + '__' + ns : base; }
+  // If the signed-in login needs a different private data area than the one this page loaded with, switch and reload.
+  function erpSwitchCacheIfNeeded() {
+    const want = erpIsRepRole() ? 'rep_' + ERP_EMAIL.replace(/[^a-z0-9]/g, '_') : '';
+    if(want === erpCacheNs()) return false;
+    try {
+      if(sessionStorage.getItem('erp_ns_reload') === want) return false;   // already tried once; never loop
+      sessionStorage.setItem('erp_ns_reload', want);
+      if(want) localStorage.setItem('feds_cache_ns', want); else localStorage.removeItem('feds_cache_ns');
+    } catch(e) { return false; }
+    location.reload();
+    return true;
+  }
+  function erpFresh(ts) {
+    let t = typeof ts === 'number' ? ts : Date.parse(ts);
+    if(isNaN(t)) t = 0;
+    return Date.now() - t < 300000;
+  }
+  function erpSellableReps() {
+    const all = (STATE.reps || []).filter(r => r.status !== 'inactive');
+    if(!erpIsRepRole()) return all;
+    if(!ERP_REP) return [];
+    return [all.find(r => r.name === ERP_REP) || { name: ERP_REP, zone: '—' }];
+  }
+  function erpVisibleCustomers() {
+    if(!erpIsRepRole()) return STATE.customers;
+    return STATE.customers.filter(c => (c.cid || c.pendingSync) && (!c.ownerRep || c.ownerRep === ERP_REP));
+  }
+  function erpBoardReps() {
+    if(erpIsRepRole()) return STATE.reps.filter(r => r.name === ERP_REP);
+    return STATE.reps.filter(r => r.name !== 'Direct');
+  }
+  async function erpLoadOwnRep() {
+    ERP_REP = null; ERP_REP_READY = false;
+    try {
+      const token = await erpGetAuthToken();
+      if(token) {
+        const resp = await fetch(`${BACKEND_URL}/reps`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if(resp.ok) {
+          const rows = await resp.json();
+          const me = (rows || []).find(r => String(r.email || '').toLowerCase() === ERP_EMAIL);
+          ERP_REP = me ? me.name : null;
+          ERP_REP_READY = true;
+        }
+      }
+    } catch(e) {}
+    erpOutboxPaint();
+    try { populateSelects(); populateQESelects(); } catch(e) {}
+  }
+  async function erpAfterLogin() {
+    if(erpIsRepRole()) await erpLoadOwnRep();
+    erpOutboxPaint();
+    setTimeout(() => erpFlushOutbox(false), 4000);
+  }
+
+  // ── the outbox ──
+  function erpDebouncedSave() { clearTimeout(erpDebouncedSave.t); erpDebouncedSave.t = setTimeout(() => { try { saveState(); } catch(e) {} }, 400); }
+  function erpMarkPending(o) { o.pendingSync = true; o.syncTry = Date.now(); }
+  function erpPostOk(o) {
+    delete o.pendingSync; delete o.syncError; delete o.syncFatal; delete o.syncTry;
+    if(o.pendingFulfil) erpCompleteFulfil(o);
+    erpDebouncedSave(); erpOutboxPaint();
+    return { ok: true };
+  }
+  async function erpPostFail(o, status, resp) {
+    let msg = status ? 'The server said no (' + status + ').' : 'No connection to the server.';
+    if(resp) { try { const j = await resp.json(); if(j && j.error) msg = j.error; } catch(e) {} }
+    o.pendingSync = true; o.syncError = msg;
+    o.syncFatal = [400, 403, 404, 409, 422].includes(status);
+    erpDebouncedSave(); erpOutboxPaint();
+    return { ok: false, status, error: msg, fatal: o.syncFatal };
+  }
+  function erpCompleteFulfil(sale) {
+    const ref = sale.pendingFulfil; if(!ref) return;
+    delete sale.pendingFulfil;
+    try { markPortalOrderFulfilledByRef(ref); } catch(e) {}
+    erpDebouncedSave();
+  }
+  function erpSaleSaveFailed(sale, r) {
+    const why = r && r.error ? r.error : 'The server did not answer.';
+    if(r && r.fatal) showToast('⛔ This sale was NOT saved to the server: ' + why + ' It is kept on this device. Tell the Owner now.');
+    else showToast('⚠ Sale kept on this device but NOT yet saved to the server. It will retry by itself. (' + why + ')');
+  }
+  function erpOutboxItems() {
+    const out = [];
+    try {
+      (STATE.customers || []).forEach(c => { if(c.pendingSync) out.push({ k: 0, kind: 'customer', label: 'Customer · ' + c.name, o: c }); });
+      (STATE.sales || []).forEach(s => { if(s.pendingSync) out.push({ k: 1, kind: 'sale', label: 'Sale · ' + s.customer + ' · ' + s.crates + ' crates', o: s }); });
+      (STATE.settlementLog || []).forEach(e => { if(e.pendingSync) out.push({ k: 2, kind: 'payment', label: 'Payment · ' + e.customer + ' · ₦' + Number(e.amount || 0).toLocaleString(), o: e }); });
+    } catch(e) {}
+    return out.sort((a, b) => a.k - b.k);
+  }
+  let erpFlushing = false;
+  async function erpFlushOutbox(force) {
+    if(erpFlushing) return;
+    erpFlushing = true;
+    try {
+      const now = Date.now();
+      for(const it of erpOutboxItems()) {
+        const o = it.o;
+        if(force) delete o.syncFatal;
+        else if(o.syncFatal || (o.syncTry && now - o.syncTry < 25000)) continue;
+        if(it.kind === 'sale') await postSaleToBackend(o);
+        else if(it.kind === 'payment') await postSettlementToBackend(o);
+        else await postCustomerToBackend(o);
+      }
+    } catch(e) {}
+    erpFlushing = false;
+    erpOutboxPaint();
+  }
+  function erpOutboxPaint() {
+    let el = document.getElementById('erp-outbox-banner');
+    let items = []; try { items = erpOutboxItems(); } catch(e) {}
+    const unlinked = erpIsRepRole() && ERP_REP_READY && !ERP_REP;
+    if(!items.length && !unlinked) { if(el) el.style.display = 'none'; return; }
+    if(!document.body) return;
+    if(!el) {
+      el = document.createElement('div'); el.id = 'erp-outbox-banner';
+      el.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99998;max-width:680px;margin:0 auto;padding:10px 14px;border-radius:10px;font-family:"DM Mono",monospace;font-size:12px;line-height:1.45;box-shadow:0 6px 24px rgba(0,0,0,.55);color:#fff;background:#8f1d1d;border:1px solid #ff6b6b';
+      document.body.appendChild(el);
+    }
+    el.style.display = 'block';
+    const esc = typeof escapeHtml === 'function' ? escapeHtml : (x => String(x));
+    let html = '';
+    if(unlinked) html += '<div><b>⛔ Your login is not linked to a sales rep yet.</b> You can look around, but you cannot record sales. Ask the Owner to link it (Rep Centre → Rep logins).</div>';
+    if(items.length) {
+      const fatal = items.filter(i => i.o.syncFatal);
+      html += '<div><b>⚠ ' + items.length + ' record' + (items.length === 1 ? '' : 's') + ' NOT saved to the server yet.</b> ' +
+        (fatal.length ? 'The server refused ' + fatal.length + ' of them.' : 'They are safe on this device and retry by themselves.') +
+        ' <button onclick="erpFlushOutbox(true)" style="margin-left:6px;padding:2px 10px;border-radius:6px;border:1px solid #fff;background:transparent;color:#fff;cursor:pointer">Retry now</button></div>';
+      html += items.slice(0, 4).map(i => '<div style="opacity:.9">• ' + esc(i.label) + (i.o.syncError ? ' — ' + esc(i.o.syncError) : '') + '</div>').join('');
+      if(items.length > 4) html += '<div style="opacity:.8">… and ' + (items.length - 4) + ' more</div>';
+    }
+    el.innerHTML = html;
+  }
+  setInterval(() => { if(!document.hidden && ERP_EMAIL) erpFlushOutbox(false); }, 30000);
+  window.addEventListener('online', () => { if(ERP_EMAIL) erpFlushOutbox(true); });
+
+  // Gate run at the top of every sale save, BEFORE anything is changed on screen.
+  function erpSaleGate(rep, customer) {
+    if(erpIsRepRole()) {
+      if(!ERP_REP_READY) { showToast('⏳ Still loading your rep profile — try again in a moment.'); return false; }
+      if(!ERP_REP) { showToast('⛔ Your login is not linked to a sales rep yet. Ask the Owner (Rep Centre → Rep logins).'); return false; }
+      if(rep !== ERP_REP) { showToast('⛔ You can only record sales as yourself (' + ERP_REP + ').'); return false; }
+      const c = STATE.customers.find(x => x.name === customer);
+      if(c && c.ownerRep && c.ownerRep !== ERP_REP) { showToast('⛔ ' + customer + ' is tied to ' + c.ownerRep + '. Ask the Owner to move the account to you.'); return false; }
+    } else if(ERP_ROLE === 'manager') {
+      if(!STATE.reps.some(r => r.name === rep && r.status !== 'inactive')) { showToast('⛔ Pick one of the listed sales reps.'); return false; }
+    }
+    return true;
+  }
+  // Owner/manager: choosing a customer fills in that customer's rep (changeable).
+  function erpDefaultRep(p) {
+    if(erpIsRepRole()) return;
+    const custSel = document.getElementById(p === 'qe' ? 'qe-customer' : 's-customer');
+    const repSel = document.getElementById(p === 'qe' ? 'qe-rep' : 's-rep');
+    if(!custSel || !repSel) return;
+    const c = STATE.customers.find(x => x.name === custSel.value);
+    if(c && c.ownerRep && repSel.value !== c.ownerRep && Array.from(repSel.options).some(o => o.value === c.ownerRep)) {
+      repSel.value = c.ownerRep;
+      if(p === 'qe') { if(typeof qeUpdateStock === 'function') qeUpdateStock(); }
+      else if(typeof updateRepInfo === 'function') { try { updateRepInfo(); } catch(e) {} }
+      showToast('Rep set to ' + c.ownerRep + ' (this customer\'s rep). Change it if someone else closed the deal.');
+    }
+  }
+
+  // ── Owner screens: hand a sale over, set a customer's rep, bulk-assign, rep logins ──
+  function erpDlgClose() { const d = document.getElementById('erp-dlg'); if(d) d.remove(); }
+  function erpDlg(title, body, wide) {
+    erpDlgClose();
+    const w = document.createElement('div'); w.id = 'erp-dlg';
+    w.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto';
+    w.innerHTML = '<div style="background:var(--card,#0f1a2e);border:1px solid var(--border,#26334d);border-radius:12px;max-width:' + (wide ? '780px' : '480px') + ';width:100%;padding:18px;color:var(--cream,#eee);font-family:\'DM Mono\',monospace;font-size:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-weight:700;font-size:14px">' + erpEsc(title) + '</div>' +
+      '<button class="btn btn-ghost" onclick="erpDlgClose()" style="padding:2px 10px">✕</button></div><div id="erp-dlg-body">' + body + '</div></div>';
+    document.body.appendChild(w);
+  }
+  function erpEsc(x) { return String(x == null ? '' : x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function erpDlgMsg(t, bad) { const e = document.getElementById('erp-dlg-msg'); if(e) { e.style.color = bad ? 'var(--red,#ff6b6b)' : 'var(--teal,#3dd6c0)'; e.textContent = t || ''; } }
+  async function erpApi(method, path, body) {
+    const token = await erpGetAuthToken();
+    if(!token) return { ok: false, status: 0, json: { error: 'You are signed out or offline.' } };
+    try {
+      const resp = await fetch(BACKEND_URL + path, { method, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      let json = null; try { json = await resp.json(); } catch(e) {}
+      return { ok: resp.ok, status: resp.status, json: json || {} };
+    } catch(e) { return { ok: false, status: 0, json: { error: 'No connection to the server.' } }; }
+  }
+  const erpRepOpts = (skip, blank) => (blank ? '<option value="">' + blank + '</option>' : '<option value="">— choose a rep —</option>') +
+    STATE.reps.filter(r => r.status !== 'inactive' && r.name !== skip).map(r => '<option value="' + erpEsc(r.name) + '">' + erpEsc(r.name) + ' · ' + erpEsc(r.zone || '') + '</option>').join('');
+
+  // 1. Hand a single sale to another rep
+  function erpHandoverSale(saleId) {
+    if(ERP_ROLE !== 'owner') return;
+    const s = STATE.sales.find(x => x.id === saleId); if(!s) { showToast('⚠ Sale not found.'); return; }
+    erpDlg('Hand this sale to another rep',
+      '<div style="margin-bottom:10px;color:var(--dust)">' + erpEsc(s.customer) + ' · ' + s.crates + ' crates · ' + erpEsc(s.date) + '<br>Now credited to: <b>' + erpEsc(s.rep) + '</b> · commission ₦' + Number(s.comm || 0).toLocaleString() + '</div>' +
+      '<label style="color:var(--mist)">HAND OVER TO</label><select id="erp-ho-rep" class="form-select" style="width:100%;margin:4px 0 10px">' + erpRepOpts(s.rep) + '</select>' +
+      '<label style="color:var(--mist)">REASON (required)</label><textarea id="erp-ho-reason" class="form-input" rows="2" style="width:100%;margin:4px 0 10px" placeholder="e.g. Closed by Emeka on the phone while Alagbede was away"></textarea>' +
+      '<div style="color:var(--mist);margin-bottom:10px">The sale, its commission and its End-of-Day numbers move to the new rep. The move is logged permanently with your name.</div>' +
+      '<div id="erp-dlg-msg" style="min-height:16px;margin-bottom:8px"></div>' +
+      '<button class="btn btn-primary" onclick="erpHandoverSubmit(\'' + s.id + '\')">Hand over</button>');
+  }
+  async function erpHandoverSubmit(saleId) {
+    const s = STATE.sales.find(x => x.id === saleId); if(!s) return;
+    const rep = document.getElementById('erp-ho-rep').value, reason = document.getElementById('erp-ho-reason').value.trim();
+    if(!rep) return erpDlgMsg('Choose the rep who should get this sale.', true);
+    if(reason.length < 5) return erpDlgMsg('Give a short reason (at least 5 characters).', true);
+    erpDlgMsg('Saving…');
+    const go = () => erpApi('POST', '/sales/handover', { invoiceRef: s.inv, rep, reason });
+    let r = await go();
+    if(r.status === 404 && r.json.code === 'SALE_NOT_SAVED') {          // the sale never reached the server: send it first
+      erpDlgMsg('This sale was not on the server yet — sending it first…');
+      const p = await postSaleToBackend(s);
+      if(p && p.ok) r = await go();
+    }
+    if(!r.ok) return erpDlgMsg(r.json.error || 'Could not hand the sale over.', true);
+    const repObj = STATE.reps.find(x => x.name === rep);
+    s.handedOverFrom = s.rep; s.handedOverReason = reason; s.rep = rep; s.repZone = repObj ? repObj.zone : s.repZone;
+    saveState();
+    erpDlgClose();
+    try { renderLedger(); updateAllKPIs(); if(typeof renderDashLeaderboard === 'function') renderDashLeaderboard(); if(typeof renderRPReps === 'function') renderRPReps(); } catch(e) {}
+    showToast('✓ Sale handed over to ' + rep + '.');
+  }
+
+  // 2. Set one customer's rep
+  function erpCustRepDlg(custId) {
+    if(ERP_ROLE !== 'owner') return;
+    const c = STATE.customers.find(x => x.id === custId); if(!c) return;
+    if(!c.backendId) { showToast('⚠ This customer has not reached the server yet. Wait a minute and try again.'); return; }
+    erpDlg('Account rep for ' + c.name,
+      '<div style="margin-bottom:10px;color:var(--dust)">Now: <b>' + erpEsc(c.ownerRep || 'nobody (open to every rep)') + '</b></div>' +
+      '<label style="color:var(--mist)">TIED TO</label><select id="erp-cr-rep" class="form-select" style="width:100%;margin:4px 0 10px">' + erpRepOpts(null, '— nobody (open to every rep) —') + '</select>' +
+      '<label style="color:var(--mist)">REASON</label><input id="erp-cr-reason" class="form-input" style="width:100%;margin:4px 0 10px" placeholder="e.g. Pitched by this rep">' +
+      '<div style="color:var(--mist);margin-bottom:10px">Only this rep (and you and the manager) will see this customer, their orders and their sales. Old sales stay with whoever closed them.</div>' +
+      '<div id="erp-dlg-msg" style="min-height:16px;margin-bottom:8px"></div><button class="btn btn-primary" onclick="erpCustRepSubmit(\'' + c.id + '\')">Save</button>');
+    const sel = document.getElementById('erp-cr-rep'); if(sel && c.ownerRep) sel.value = c.ownerRep;
+  }
+  async function erpCustRepSubmit(custId) {
+    const c = STATE.customers.find(x => x.id === custId); if(!c) return;
+    const rep = document.getElementById('erp-cr-rep').value || null, reason = document.getElementById('erp-cr-reason').value.trim() || 'Owner assignment';
+    erpDlgMsg('Saving…');
+    const r = await erpApi('POST', '/customers/owner-rep', { assignments: [{ id: c.backendId, rep }], reason });
+    if(!r.ok) return erpDlgMsg(r.json.error || 'Could not save.', true);
+    if(r.json.changed) c.ownerRep = rep; else if(r.json.skipped && r.json.skipped[0]) return erpDlgMsg(r.json.skipped[0].why, true);
+    saveState(); erpDlgClose();
+    try { renderCustomers(); populateSelects(); } catch(e) {}
+    showToast('✓ ' + c.name + (rep ? ' is now tied to ' + rep + '.' : ' is open to every rep.'));
+  }
+
+  // 3. Bulk: tie the customers nobody owns yet, using "the rep who made the first sale" as the suggestion
+  async function erpAssignCustomersDlg() {
+    if(ERP_ROLE !== 'owner') return;
+    erpDlg('Assign customers to reps', '<div>Loading…</div>', true);
+    const r = await erpApi('GET', '/customers/rep-suggestions');
+    if(!r.ok) { document.getElementById('erp-dlg-body').innerHTML = '<div style="color:var(--red)">' + erpEsc(r.json.error || 'Could not load.') + '</div>'; return; }
+    const rows = Array.isArray(r.json) ? r.json : [];
+    if(!rows.length) { document.getElementById('erp-dlg-body').innerHTML = '<div>Every customer already has a rep. 🎉</div>'; return; }
+    window.erpBulkRows = rows;
+    const opts = erpRepOpts(null, '— leave open —');
+    document.getElementById('erp-dlg-body').innerHTML =
+      '<div style="color:var(--dust);margin-bottom:8px">Each customer is pre-set to the rep who made the first sale to them. Change any, then press Apply. Customers left open stay visible to every rep.</div>' +
+      '<div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:8px"><table style="width:100%;border-collapse:collapse">' +
+      '<tr style="color:var(--mist);text-align:left"><th style="padding:6px">Customer</th><th>Sales</th><th>Rep</th></tr>' +
+      rows.map((c, i) => '<tr style="border-top:1px solid var(--border)"><td style="padding:6px">' + erpEsc(c.name) + '<div style="color:var(--mist);font-size:10px">' + erpEsc(c.location || '') + '</div></td><td>' + (c.sales_count || 0) +
+        '</td><td><select id="erp-bk-' + i + '" class="form-select" style="min-width:150px">' + opts + '</select></td></tr>').join('') + '</table></div>' +
+      '<div id="erp-dlg-msg" style="min-height:16px;margin:8px 0"></div><button class="btn btn-primary" onclick="erpAssignCustomersApply()">Apply</button>';
+    rows.forEach((c, i) => { const s = document.getElementById('erp-bk-' + i); if(s && c.suggested_rep) s.value = c.suggested_rep; });
+  }
+  async function erpAssignCustomersApply() {
+    const rows = window.erpBulkRows || [];
+    const assignments = rows.map((c, i) => ({ id: c.id, rep: document.getElementById('erp-bk-' + i).value })).filter(a => a.rep);
+    if(!assignments.length) return erpDlgMsg('Nothing chosen.', true);
+    erpDlgMsg('Saving…');
+    const r = await erpApi('POST', '/customers/owner-rep', { assignments, reason: 'Initial assignment (rep who made the first sale)' });
+    if(!r.ok) return erpDlgMsg(r.json.error || 'Could not save.', true);
+    assignments.forEach(a => { const row = rows.find(x => x.id === a.id); const c = STATE.customers.find(x => x.name === (row && row.name)); if(c) c.ownerRep = a.rep; });
+    saveState(); erpDlgClose();
+    try { populateSelects(); if(currentModule === 'customers') renderCustomers(); } catch(e) {}
+    showToast('✓ ' + r.json.changed + ' customer(s) tied to their reps.' + ((r.json.skipped || []).length ? ' ' + r.json.skipped.length + ' skipped.' : ''));
+  }
+
+  // 4. Which login belongs to which rep
+  let erpRaNotice = '';
+  async function erpRepLoginsDlg() {
+    if(ERP_ROLE !== 'owner') return;
+    erpDlg('Rep logins', '<div>Loading…</div>', true);
+    const r = await erpApi('GET', '/rep-accounts');
+    const box = document.getElementById('erp-dlg-body'); if(!box) return;
+    if(!r.ok) { box.innerHTML = '<div style="color:var(--red)">' + erpEsc(r.json.error || 'Could not load.') + '</div>'; return; }
+    const reps = (r.json.reps || []).filter(x => x.name !== 'Direct' && x.status !== 'inactive');
+    const free = r.json.freeLogins || [];
+    box.innerHTML = (erpRaNotice ? '<div style="background:#12361f;border:1px solid var(--teal);border-radius:8px;padding:10px;margin-bottom:10px">' + erpRaNotice + '</div>' : '') +
+      (r.json.loginError ? '<div style="color:var(--amber);margin-bottom:8px">' + erpEsc(r.json.loginError) + '</div>' : '') +
+      '<div style="color:var(--dust);margin-bottom:8px">A rep sees only their own customers, orders and sales, and the End-of-Day report counts only their own sales. Link each rep to the login they sign in with.</div>' +
+      '<datalist id="erp-free-logins">' + free.map(e => '<option value="' + erpEsc(e) + '">').join('') + '</datalist>' +
+      reps.map(x => {
+        const id = erpEsc(x.repId);
+        const state = x.email ? (x.loginFound === false ? '<span style="color:var(--amber)">no such login exists</span>' : '<span style="color:var(--teal)">linked</span>') : '<span style="color:var(--mist)">no login</span>';
+        return '<div style="border-top:1px solid var(--border);padding:8px 0"><div><b>' + erpEsc(x.name) + '</b> · ' + erpEsc(x.zone || '') + ' — ' + state + (x.email ? ' · ' + erpEsc(x.email) : '') + '</div>' +
+          (x.email
+            ? '<button class="btn btn-ghost" style="font-size:10px;margin-top:6px" onclick="erpRaLink(\'' + id + '\',null)">Unlink</button>'
+            : '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input id="erp-ra-' + id + '" list="erp-free-logins" class="form-input" style="flex:1;min-width:200px" placeholder="rep\'s e-mail address">' +
+              '<button class="btn btn-ghost" style="font-size:10px" onclick="erpRaLink(\'' + id + '\')">Link existing login</button>' +
+              '<button class="btn btn-primary" style="font-size:10px" onclick="erpRaCreate(\'' + id + '\')">Create new login</button></div>') + '</div>';
+      }).join('') + '<div id="erp-dlg-msg" style="min-height:16px;margin-top:8px"></div>';
+    erpRaNotice = '';
+  }
+  async function erpRaLink(repId, email) {
+    if(email === undefined) email = (document.getElementById('erp-ra-' + repId).value || '').trim();
+    if(email === '') return erpDlgMsg('Type the e-mail first.', true);
+    const r = await erpApi('POST', '/rep-accounts/link', { repId, email });
+    if(!r.ok) return erpDlgMsg(r.json.error || 'Could not link.', true);
+    const rep = STATE.reps.find(x => x.id === repId); if(rep) rep.email = email;
+    saveState(); erpRepLoginsDlg();
+  }
+  async function erpRaCreate(repId) {
+    const email = (document.getElementById('erp-ra-' + repId).value || '').trim();
+    if(!email) return erpDlgMsg('Type the rep\'s e-mail first.', true);
+    erpDlgMsg('Creating the login…');
+    const r = await erpApi('POST', '/rep-accounts/create', { repId, email });
+    if(!r.ok) return erpDlgMsg(r.json.error || 'Could not create the login.', true);
+    const rep = STATE.reps.find(x => x.id === repId); if(rep) rep.email = r.json.email;
+    saveState();
+    erpRaNotice = '<b>Login created for ' + erpEsc(r.json.name) + '.</b><br>E-mail: ' + erpEsc(r.json.email) + '<br>Starting password: <b style="font-size:15px;user-select:all">' + erpEsc(r.json.startingPassword) +
+      '</b><br><span style="color:var(--amber)">Copy it now and send it to the rep privately. It is shown only this once. The rep should use "Forgot password" on the sign-in screen to choose their own.</span>';
+    erpRepLoginsDlg();
+  }
+
+  // 5. The permanent hand-over log
+  async function erpHandoverLogDlg() {
+    erpDlg('Hand-over log', '<div>Loading…</div>', true);
+    const r = await erpApi('GET', '/sales/handovers');
+    const box = document.getElementById('erp-dlg-body'); if(!box) return;
+    if(!r.ok) { box.innerHTML = '<div style="color:var(--red)">' + erpEsc(r.json.error || 'Could not load.') + '</div>'; return; }
+    const rows = Array.isArray(r.json) ? r.json : [];
+    box.innerHTML = rows.length ? '<div style="max-height:60vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><tr style="color:var(--mist);text-align:left"><th style="padding:5px">When</th><th>What</th><th>From → To</th><th>Reason</th></tr>' +
+      rows.map(x => '<tr style="border-top:1px solid var(--border)"><td style="padding:5px">' + erpEsc(String(x.created_at || '').slice(0, 16).replace('T', ' ')) + '</td><td>' + erpEsc(x.kind) + ' · ' + erpEsc(x.subject || x.ref) + '</td><td>' + erpEsc(x.from_rep || '—') + ' → ' + erpEsc(x.to_rep) + '</td><td>' + erpEsc(x.reason || '') + '<div style="color:var(--mist);font-size:10px">' + erpEsc(x.by_email || '') + '</div></td></tr>').join('') + '</table></div>' : '<div>No hand-overs yet.</div>';
+  }
+
   // Modules that are ENTIRELY finance/admin content — no mixed rep-safe
   // material on the page at all, so a whole-module hide is clean and
   // correct. (Modules that MIX operational content reps need with an
@@ -1088,6 +1442,9 @@ input[type=number]{-moz-appearance:textfield;}
     // already in place, which apply regardless of what this variable
     // says or whether this code even runs.
     ERP_ROLE = session?.user?.app_metadata?.role || 'owner';
+    ERP_EMAIL = String(session?.user?.email || '').trim().toLowerCase();
+    // Oct 13 2026 — a rep login gets its own private data area on this device; switch to it (one reload) if needed.
+    if(session && erpSwitchCacheIfNeeded()) return;
     if(session) applyRoleUI();
     if(session) {
       // The sidebar may not be parsed yet when this runs, so paint the Owner's button once the page is ready.
@@ -1099,6 +1456,7 @@ input[type=number]{-moz-appearance:textfield;}
         if(st) erpHoursStart(st);
         erpAttStart();
       }
+      erpAfterLogin();
     }
   }
 
@@ -1602,7 +1960,10 @@ input[type=number]{-moz-appearance:textfield;}
       }
     });
 
-    saveOrders(Array.from(byRef.values()));
+    // Oct 13 2026 — a rep's order list is exactly what the server shows them (their customers only).
+    let _ords = Array.from(byRef.values());
+    if(erpIsRepRole()) { const _refs = new Set(backendOrders.map(o => o.ref)); _ords = _ords.filter(o => _refs.has(o.ref)); }
+    saveOrders(_ords);
   }
 // Fire-and-forget: pushes a status change to the real backend so it's
   // no longer just a local, per-device fact. Doesn't block the UI —
@@ -1684,6 +2045,7 @@ input[type=number]{-moz-appearance:textfield;}
     backendRows.forEach(row => {
       const existing = localById.get(row.rep_id);
       if(existing) {
+        existing.email  = row.email || existing.email;
         existing.zone   = row.zone;
         existing.phone  = row.phone;
         existing.target = row.target;
@@ -1696,7 +2058,7 @@ input[type=number]{-moz-appearance:textfield;}
         existing.settlementOutstandingAtDeboard = row.settlement_outstanding_at_deboard;
       } else {
         STATE.reps.push({
-          id: row.rep_id, name: row.name, zone: row.zone, phone: row.phone,
+          id: row.rep_id, name: row.name, zone: row.zone, phone: row.phone, email: row.email || null,
           target: row.target, status: row.status,
           deboardedAt: row.deboarded_at, deboardReason: row.deboard_reason,
           finalCommBalance: row.final_comm_balance, deboardNotes: row.deboard_notes,
@@ -1737,10 +2099,13 @@ input[type=number]{-moz-appearance:textfield;}
   }
 
   async function postSettlementToBackend(entry) {
+    // Oct 13 2026 — returns {ok,...}; a failure flags the entry pendingSync (red "not saved" bar) and the outbox retries it.
+    if(!entry.pendingSync && !entry.enteredBy && ERP_EMAIL) entry.enteredBy = ERP_EMAIL;
+    erpMarkPending(entry);
     const token = await erpGetAuthToken();
-    if(!token) return;
+    if(!token) return erpPostFail(entry, 0, null);
     try {
-      await fetch(`${BACKEND_URL}/settlements`, {
+      const resp = await fetch(`${BACKEND_URL}/settlements`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1756,10 +2121,10 @@ input[type=number]{-moz-appearance:textfield;}
           reversalNotes: entry.reversalNotes || null, scope: entry.scope || null, at: entry.at,
         }),
       });
+      if(resp.ok) return erpPostOk(entry);
+      return erpPostFail(entry, resp.status, resp);
     } catch(networkErr) {
-      // Offline or unreachable — the local settlementLog entry still holds,
-      // and the self-healing retry in syncSettlementsFromBackend() will
-      // re-post it once connectivity returns.
+      return erpPostFail(entry, 0, null);
     }
   }
 
@@ -1834,9 +2199,15 @@ input[type=number]{-moz-appearance:textfield;}
     // entry the backend has never seen (offline at creation time, or
     // predates this feature but was just created) needs to go out again.
     const backendEntryIds = new Set(backendRows.map(r => r.entry_id).filter(Boolean));
+    // Oct 13 2026 — what the server has is no longer "pending"; a rep's copy drops entries the server no longer
+    // shows them (a sale handed to another rep) unless they are still unsent; only a rep's UNSENT entries are
+    // retried (everything else a rep holds is simply what the server sent them).
+    STATE.settlementLog.forEach(e => { if(e.pendingSync && backendEntryIds.has(e.entryId)) { delete e.pendingSync; delete e.syncError; delete e.syncFatal; delete e.syncTry; } });
+    if(erpIsRepRole()) STATE.settlementLog = STATE.settlementLog.filter(e => !e.entryId || backendEntryIds.has(e.entryId) || e.pendingSync || erpFresh(e.at));
     STATE.settlementLog
-      .filter(e => e.entryId && !backendEntryIds.has(e.entryId))
+      .filter(e => e.entryId && !backendEntryIds.has(e.entryId) && !e.syncFatal && (erpIsAll() || e.pendingSync))
       .forEach(e => postSettlementToBackend(e));
+    erpDebouncedSave(); erpOutboxPaint();
   }
 
   // Aug 28 fix — Commission Payout persistence, first of 3 local-only
@@ -2079,11 +2450,14 @@ input[type=number]{-moz-appearance:textfield;}
   }
 
   async function postSaleToBackend(sale) {
-    if(isDemoSeedSale(sale)) return; // never send demo data to production
+    // Oct 13 2026 — returns {ok,...}. The sale is flagged pendingSync until the server confirms it, so a refused or
+    // lost save can never look like a finished one again (the Ese YB Shop sale of Oct 13).
+    if(isDemoSeedSale(sale)) return { ok: true, skipped: true };
+    erpMarkPending(sale);
     const token = await erpGetAuthToken();
-    if(!token) return;
+    if(!token) return erpPostFail(sale, 0, null);
     try {
-      await fetch(`${BACKEND_URL}/sales`, {
+      const resp = await fetch(`${BACKEND_URL}/sales`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2104,8 +2478,10 @@ input[type=number]{-moz-appearance:textfield;}
           invoiceRef: sale.inv,
         }),
       });
+      if(resp.ok) return erpPostOk(sale);
+      return erpPostFail(sale, resp.status, resp);
     } catch(networkErr) {
-      // Offline or unreachable — the local sale record still holds.
+      return erpPostFail(sale, 0, null);
     }
   }
 
@@ -2249,6 +2625,8 @@ input[type=number]{-moz-appearance:textfield;}
         existing.payment       = row.payment_method;
         existing.date          = row.sale_date;
         existing.linkedOrderRef = row.order_ref;
+        if(row.entered_by) existing.enteredBy = row.entered_by;
+        if(row.handed_over_from) { existing.handedOverFrom = row.handed_over_from; existing.handedOverReason = row.handover_reason || ''; }
         if(row.created_at) existing.createdAt = new Date(row.created_at).getTime();
       } else {
         // A sale recorded on another device — build a full local
@@ -2276,6 +2654,9 @@ input[type=number]{-moz-appearance:textfield;}
           batchId: row.batch_id,
           batchCost: row.batch_cost,
           linkedOrderRef: row.order_ref,
+          enteredBy: row.entered_by || null,
+          handedOverFrom: row.handed_over_from || null,
+          handedOverReason: row.handover_reason || null,
         });
       }
     });
@@ -2298,19 +2679,29 @@ input[type=number]{-moz-appearance:textfield;}
     // begin with (a likely contributor to a live 500 seen during
     // testing — the backend forces the sale's rep field to the caller's
     // own identity, which is never correct for someone else's sale).
-    if(ERP_ROLE === 'owner') {
-      const backendRefs = new Set(backendSales.map(r => r.invoice_ref).filter(Boolean));
-      STATE.sales
-        .filter(s => s.inv && !isDemoSeedSale(s) && !backendRefs.has(s.inv))
-        .forEach(s => postSaleToBackend(s));
-    }
+    // Oct 13 2026 — the server has it => no longer pending (and a held-back portal order can now be marked done).
+    // A rep's copy is exactly what the server sent them plus their own unsent sales. Owner and manager see
+    // everything, so any local sale the server lacks is re-sent for them; a rep re-sends only their unsent ones.
+    const backendRefs = new Set(backendSales.map(r => r.invoice_ref).filter(Boolean));
+    STATE.sales.forEach(s => {
+      if(s.inv && backendRefs.has(s.inv)) {
+        delete s.pendingSync; delete s.syncError; delete s.syncFatal; delete s.syncTry;
+        if(s.pendingFulfil) erpCompleteFulfil(s);
+      }
+    });
+    if(erpIsRepRole()) STATE.sales = STATE.sales.filter(s => !s.inv || backendRefs.has(s.inv) || s.pendingSync || erpFresh(s.createdAt));
+    STATE.sales
+      .filter(s => s.inv && !isDemoSeedSale(s) && !backendRefs.has(s.inv) && !s.syncFatal && (erpIsAll() || s.pendingSync))
+      .forEach(s => postSaleToBackend(s));
+    erpDebouncedSave(); erpOutboxPaint();
   }
 
   async function postCustomerToBackend(customer) {
+    erpMarkPending(customer);
     const token = await erpGetAuthToken();
-    if(!token) return;
+    if(!token) return erpPostFail(customer, 0, null);
     try {
-      await fetch(`${BACKEND_URL}/customers`, {
+      const resp = await fetch(`${BACKEND_URL}/customers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
@@ -2319,9 +2710,13 @@ input[type=number]{-moz-appearance:textfield;}
           creditLimit: customer.creditLimit, referral: customer.referral, notes: customer.notes,
         }),
       });
+      if(resp.ok) {
+        try { const row = await resp.json(); if(row && row.id) customer.backendId = row.id; if(row && row.owner_rep) customer.ownerRep = row.owner_rep; } catch(e) {}
+        return erpPostOk(customer);
+      }
+      return erpPostFail(customer, resp.status, resp);
     } catch(networkErr) {
-      // Fire-and-forget — same as Sales. The self-healing retry below
-      // catches this on the next sync if it silently failed.
+      return erpPostFail(customer, 0, null);
     }
   }
 
@@ -3085,6 +3480,7 @@ input[type=number]{-moz-appearance:textfield;}
         // the backend genuinely has nothing yet.
         existing.referralCode = row.referral_code || existing.referralCode;
         existing.backendId   = row.id; // explicit, reliable — regardless of what existing.id happens to look like
+        existing.ownerRep    = row.owner_rep || null;   // Oct 13 2026 — the rep who pitched this customer
       } else {
         byCid.set(row.cid, {
           id: 'sync-' + row.id, cid: row.cid, name: row.name, location: row.location,
@@ -3094,6 +3490,7 @@ input[type=number]{-moz-appearance:textfield;}
           loyalty: row.loyalty_tier || 'New', lastPurchase: null, totalCrates: 0, notes: row.notes || '',
           referralCode: row.referral_code || undefined,
           backendId: row.id,
+          ownerRep: row.owner_rep || null,
         });
       }
     });
@@ -3102,6 +3499,14 @@ input[type=number]{-moz-appearance:textfield;}
     // never part of this merge in the first place.
     const noCid = STATE.customers.filter(c => !c.cid);
     STATE.customers = [...noCid, ...Array.from(byCid.values())];
+    // Oct 13 2026 — flags cleared for what the server has; a rep's list is exactly what the server shows them
+    // (plus their own unsent customers) — this also drops the built-in sample customers from a rep's screen.
+    const _bc = new Set(backendCustomers.map(r => r.cid).filter(Boolean));
+    STATE.customers.forEach(c => { if(c.pendingSync && c.cid && _bc.has(c.cid)) { delete c.pendingSync; delete c.syncError; delete c.syncFatal; delete c.syncTry; } });
+    if(erpIsRepRole()) {
+      STATE.customers = STATE.customers.filter(c => (c.cid && _bc.has(c.cid)) || c.pendingSync || (/^c\d{13}$/.test(String(c.id)) && erpFresh(Number(String(c.id).slice(1)))));
+      try { populateSelects(); populateQESelects(); } catch(e) {}
+    }
     saveState();
 
     // Self-healing retry — same reasoning as Sales: a local customer
@@ -3120,7 +3525,7 @@ input[type=number]{-moz-appearance:textfield;}
     const backendCids  = new Set(backendCustomers.map(r => r.cid).filter(Boolean));
     const backendNames = new Set(backendCustomers.map(r => (r.name||'').trim().toLowerCase()));
     STATE.customers
-      .filter(c => c.cid && !backendCids.has(c.cid))
+      .filter(c => c.cid && !backendCids.has(c.cid) && !c.syncFatal && (erpIsAll() || c.pendingSync))
       .forEach(c => {
         if(backendNames.has((c.name||'').trim().toLowerCase())) {
           logWarn('customers', `Possible duplicate customer skipped — ${c.name}`,
@@ -6069,7 +6474,7 @@ input[type=number]{-moz-appearance:textfield;}
         <!-- Customer select -->
         <div class="form-group" style="margin-bottom:16px">
           <label class="form-label" style="font-size:11px;letter-spacing:1px">CUSTOMER</label>
-          <select class="form-select" id="qe-customer" style="height:52px;font-size:14px" onchange="syncCreditChoices(true)">
+          <select class="form-select" id="qe-customer" style="height:52px;font-size:14px" onchange="erpDefaultRep('qe');syncCreditChoices(true)">
             <option value="">— Select customer —</option>
           </select>
         </div>
@@ -6752,6 +7157,9 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="ph-actions">
       <button class="btn btn-ghost" onclick="printModule('Rep Centre')">🖨 Print</button>
       <button class="btn btn-ghost" onclick="openModal('modal-add-rep')">+ Add Rep</button>
+      <button class="btn btn-ghost" onclick="erpRepLoginsDlg()">🔑 Rep logins</button>
+      <button class="btn btn-ghost" onclick="erpAssignCustomersDlg()">👥 Assign customers to reps</button>
+      <button class="btn btn-ghost" onclick="erpHandoverLogDlg()">📜 Hand-over log</button>
     </div>
   </div>
 
@@ -11564,7 +11972,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
 /* ═══════════════════════════════════════════════════════
    STATE MANAGEMENT
 ═══════════════════════════════════════════════════════ */
-const STORAGE_KEY = 'feds_erp_data';
+const STORAGE_KEY = erpKey('feds_erp_data');
 
 function loadState() {
   try {
@@ -12541,7 +12949,7 @@ function autoPopulateOrderRef(customerName) {
   // linkedOrderRef set, and checkOrderAbuseRisk()'s excludeOrderRef would then be null —
   // causing that same reservation to match itself as "an active reservation elsewhere"
   // and wrongly block a genuinely new customer at Record Sale time.
-  const ORDERS_KEY = 'feds_orders';
+  const ORDERS_KEY = erpKey('feds_orders');
   let orders = [];
   try { orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]'); } catch(e) {}
 
@@ -12751,7 +13159,7 @@ function cancelLinkedOrderFromSaleForm() {
 // ── Mark a portal order as fulfilled when Sales Log handles it directly ──
 // Closes the Orders Inbox entry, preventing double-processing via Route B.
 function markPortalOrderFulfilledByRef(orderRef) {
-  const ORDERS_KEY = 'feds_orders';
+  const ORDERS_KEY = erpKey('feds_orders');
   let orders = [];
   try { orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]'); } catch(e) { return; }
   const o = orders.find(x => x.ref === orderRef && x.status !== 'fulfilled');
@@ -12810,14 +13218,15 @@ function populateQESelects() {
   const repSel  = document.getElementById('qe-rep');
   const custSel = document.getElementById('qe-customer');
   if(repSel) {
-    repSel.innerHTML = '<option value="">— Select rep —</option>';
-    STATE.reps.filter(r => r.status !== 'inactive')
-      .forEach(r => repSel.innerHTML += `<option value="${r.name}">${r.name} · ${r.zone}</option>`);
+    const only = erpIsRepRole();
+    repSel.innerHTML = only ? '' : '<option value="">— Select rep —</option>';
+    erpSellableReps().forEach(r => repSel.innerHTML += `<option value="${r.name}"${only?' selected':''}>${r.name} · ${r.zone}</option>`);
+    repSel.disabled = only;
   }
   if(custSel) {
     custSel.innerHTML = '<option value="">— Select customer —</option>';
-    STATE.customers.forEach(c =>
-      custSel.innerHTML += `<option value="${c.name}">${c.name} · ${c.location}</option>`);
+    erpVisibleCustomers().forEach(c =>
+      custSel.innerHTML += `<option value="${c.name}">${c.name} · ${c.location}${(!erpIsRepRole() && c.ownerRep) ? ' · ' + c.ownerRep : ''}</option>`);
   }
 }
 
@@ -15293,6 +15702,7 @@ function handleSave() {
   if(!customer) { showToast('⚠ Select a customer.'); return; }
   if(crates < 1) { showToast('⚠ Enter crate count.'); return; }
   if(price < 1) { showToast('⚠ Enter price per crate.'); return; }
+  if(!erpSaleGate(rep, customer)) return;     // Oct 13 2026 — refuses BEFORE anything changes on screen
   // Hard safety net — catches any path that reaches this form without
   // Payment Status ever being touched, including manually-entered sales
   // with no linked order at all (Orders Inbox's own gate only covers
@@ -15398,6 +15808,9 @@ function handleSave() {
     deliveryTotal: delivTotal,
     effPrice,
     commRate: rate, comm, payment, inv,
+    enteredBy: ERP_EMAIL || null,   // Oct 13 2026 — which login typed this sale in (the manager's End-of-Day counts these)
+    // The portal order is marked fulfilled only once the SERVER has confirmed this sale (see erpPostOk).
+    pendingFulfil: document.getElementById('s-inv')?.dataset.linkedOrderRef || null,
     batchCost: getLastCostPrice(),
     batchId: getFIFOBatch()?.id || '—',
     // Permanent record of the portal order this invoice was matched to,
@@ -15639,7 +16052,7 @@ function handleSave() {
   }
 
   STATE.sales.unshift(sale);
-  postSaleToBackend(sale);
+  postSaleToBackend(sale).then(r => { if(!r || !r.ok) erpSaleSaveFailed(sale, r); });
 
   // ── Derive inventory.main from batch remaining (single source of truth) ──
   STATE.inventory.main = syncInventoryFromBatches();
@@ -15695,9 +16108,8 @@ function handleSave() {
   //    fulfilled when this sale was matched to one via autoPopulateOrderRef.
   //    The invoice ref is BEL-INV-..., so the order ref was captured
   //    separately above before the form reset cleared it. ──
-  if(linkedOrderRef) {
-    markPortalOrderFulfilledByRef(linkedOrderRef);
-  }
+  // Oct 13 2026 — the order is now marked fulfilled by erpPostOk()/the sales sync once the server confirms the sale.
+  // (Before, it was marked fulfilled even when the sale was refused, which made the order vanish from the inbox.)
 
   // ── Same guard for Volume Requests — "Resolved" is only ever set here,
   //    once a real sale has actually been recorded against it. ──
@@ -15764,21 +16176,27 @@ function clearSaleForm() {
    SELECT POPULATION
 ═══════════════════════════════════════════════════════ */
 function populateSelects() {
-  // Rep selects — active only
+  // Rep selects — active only. A rep login sees (and can sell as) only themselves.
   const repSel = document.getElementById('s-rep');
   if(repSel) {
     const cur = repSel.value;
-    repSel.innerHTML = '<option value="">— Select Rep —</option>';
-    STATE.reps.filter(r => r.status !== 'inactive').forEach(r =>
-      repSel.innerHTML += `<option value="${r.name}"${r.name===cur?' selected':''}>${r.name} · ${r.zone}</option>`);
+    const list = erpSellableReps(), only = erpIsRepRole();
+    repSel.innerHTML = only ? '' : '<option value="">— Select Rep —</option>';
+    list.forEach(r =>
+      repSel.innerHTML += `<option value="${r.name}"${(only || r.name===cur)?' selected':''}>${r.name} · ${r.zone}</option>`);
+    repSel.disabled = only;
+    if(only && list.length && repSel.dataset.erpInit !== list[0].name) {
+      repSel.dataset.erpInit = list[0].name;
+      try { updateRepInfo(); } catch(e) {}
+    }
   }
 
-  // Customer selects
+  // Customer selects — a rep sees only their own customers (plus customers nobody owns yet)
   const custSel = document.getElementById('s-customer');
   if(custSel) {
     const cur = custSel.value;
     custSel.innerHTML = '<option value="">— Select —</option>';
-    STATE.customers.forEach(c => custSel.innerHTML += `<option value="${c.name}"${c.name===cur?' selected':''}>${c.name} · ${c.location}</option>`);
+    erpVisibleCustomers().forEach(c => custSel.innerHTML += `<option value="${c.name}"${c.name===cur?' selected':''}>${c.name} · ${c.location}${(!erpIsRepRole() && c.ownerRep) ? ' · ' + c.ownerRep : ''}</option>`);
     custSel.innerHTML += '<option value="_new">+ Add New Customer…</option>';
     custSel.onchange = function() {
       if(this.value === '_new') {
@@ -15786,6 +16204,7 @@ function populateSelects() {
         this.value = '';
         return;
       }
+      erpDefaultRep('s');
       autoPopulateOrderRef(this.value);
       syncCreditChoices(true);
       runSaleErrorChecks();
@@ -15795,8 +16214,9 @@ function populateSelects() {
   // Ledger filter reps — active only
   const lrep = document.getElementById('ledger-filter-rep');
   if(lrep) {
-    lrep.innerHTML = '<option value="">All Reps</option>';
-    STATE.reps.filter(r => r.status !== 'inactive').forEach(r =>
+    const only = erpIsRepRole();
+    lrep.innerHTML = only ? '' : '<option value="">All Reps</option>';
+    erpSellableReps().forEach(r =>
       lrep.innerHTML += `<option value="${r.name}">${r.name}</option>`);
   }
 }
@@ -15968,7 +16388,7 @@ function renderDashLeaderboard() {
   const el = document.getElementById('dash-leaderboard');
   if(!el) return;
   if(!STATE || !STATE.reps) return; // guard against pre-init calls
-  const reps = STATE.reps.filter(r=>r.name!=='Direct');
+  const reps = erpBoardReps();
   const sorted = reps.map(r => ({
     ...r,
     crates: getRepMTD(r.name),
@@ -15993,7 +16413,7 @@ function renderRPReps(sorted, max) {
   const el = document.getElementById('rp-reps');
   if(!el) return;
   if(!sorted) {
-    const reps = STATE.reps.filter(r=>r.name!=='Direct');
+    const reps = erpBoardReps();
     sorted = reps.map(r => ({...r,crates:getRepMTD(r.name),comm:getRepCommMTD(r.name),tier:getTier(getRepMTD(r.name)).tier})).sort((a,b)=>b.crates-a.crates);
     max = sorted[0]?.crates || 1;
   }
@@ -16275,6 +16695,9 @@ function renderLedger() {
       <td data-label="Invoice">
         <button class="btn btn-ghost" style="font-size:9px;padding:2px 8px"
           onclick="generateInvoice('${s.id}')">🧾 Invoice</button>
+        ${ERP_ROLE === 'owner' ? `<button class="btn btn-ghost" style="font-size:9px;padding:2px 8px;margin-left:4px" onclick="erpHandoverSale('${s.id}')">↪ Reassign</button>` : ''}
+        ${s.pendingSync ? `<div><span class="chip chip-red" style="font-size:8px" title="${escapeHtml(s.syncError || 'Waiting to reach the server')}">NOT SAVED TO SERVER</span></div>` : ''}
+        ${s.handedOverFrom ? `<div style="font-size:8px;color:var(--amber)" title="${escapeHtml(s.handedOverReason || '')}">handed over from ${escapeHtml(s.handedOverFrom)}</div>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -16930,7 +17353,7 @@ function renderCustomers() {
   const search = document.getElementById('cust-search')?.value.toLowerCase() || '';
   const loyalty= document.getElementById('cust-filter-loyalty')?.value || '';
 
-  let custs = [...STATE.customers];
+  let custs = [...erpVisibleCustomers()];
   if(search) custs = custs.filter(c => c.name.toLowerCase().includes(search) || c.location.toLowerCase().includes(search));
   if(loyalty) custs = custs.filter(c => c.loyalty === loyalty);
 
@@ -16943,6 +17366,7 @@ function renderCustomers() {
             <div>
               <div class="cust-name">${c.name}</div>
               <div class="cust-sub">${c.location} · ${c.type}</div>
+              <div class="cust-sub" style="color:var(--teal)">👤 ${c.ownerRep ? escapeHtml(c.ownerRep) : 'No rep yet'}</div>
             </div>
             <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
               ${loyaltyRing(c.loyalty)}
@@ -16965,6 +17389,7 @@ function renderCustomers() {
               onclick="event.stopPropagation();openEditTermsModal('${c.id}')">
               🔑 Edit Payment Terms
             </button>
+            ${ERP_ROLE === 'owner' ? `<button class="btn btn-ghost" style="font-size:9px;padding:2px 8px" onclick="event.stopPropagation();erpCustRepDlg('${c.id}')">👤 Account Rep</button>` : ''}
           </div>
         </div>`).join('');
   }
@@ -17295,8 +17720,9 @@ function saveCustomer() {
   const referral = document.getElementById('nc-referral')?.value.trim() || '';
   const notes  = document.getElementById('nc-notes')?.value.trim() || '';
   if(!name||!loc) { showToast('⚠ Name and location required.'); return; }
+  if(erpIsRepRole() && !ERP_REP) { showToast('⛔ Your login is not linked to a sales rep yet. Ask the Owner.'); return; }
   const cid = document.getElementById('nc-cid-display')?.dataset.cid || docRefNumber('CID');
-  const newCustomer = { id:'c'+Date.now(), cid, name, location:loc, contact, phone, type, creditLimit:credit, referral, loyalty:'New', lastPurchase:null, totalCrates:0, notes };
+  const newCustomer = { id:'c'+Date.now(), cid, name, location:loc, contact, phone, type, creditLimit:(erpIsRepRole() ? 0 : credit), ownerRep:(erpIsRepRole() ? ERP_REP : null), referral, loyalty:'New', lastPurchase:null, totalCrates:0, notes };
   STATE.customers.push(newCustomer);
   saveState();
   postCustomerToBackend(newCustomer);
@@ -25631,7 +26057,7 @@ function renderSettledTransactions() {
       </div>
     </div>`).join('');
 }
-const ORDERS_KEY = 'feds_orders';
+const ORDERS_KEY = erpKey('feds_orders');
 // Feedback lives in its OWN localStorage key, exactly like orders — not
 // nested in STATE — specifically so the portal can append a submission
 // without ever needing write access to the full application state.
@@ -27378,16 +27804,20 @@ async function eodLoadMe() {
 async function eodFigures(day) {
   const { data: { session } } = await erpSupabase.auth.getSession();
   const email = String((session && session.user && session.user.email) || '').toLowerCase();
-  const rep = ((typeof STATE !== 'undefined' && STATE.reps) || []).find(r => String(r.email || '').toLowerCase() === email);
-  const mine = who => !rep || who === rep.name;          // a login with no rep record (the manager) sees every sale
+  // Oct 13 2026 — each login's report counts only ITS sales: a rep's sales (by the rep credited on the sale, so a sale the
+  // Owner hands over moves to the new rep's report); a manager's sales are the ones that login typed in; a rep whose login
+  // is not linked counts nothing. Before, every login saw every sale, so nobody's report could be told apart.
+  const repRole = erpIsRepRole(), mgrRole = ERP_ROLE === 'manager';
+  const mineSale = x => repRole ? (!!ERP_REP && x.rep === ERP_REP) : mgrRole ? (String(x.enteredBy || '').toLowerCase() === email) : true;
+  const mine = who => repRole && !!ERP_REP && who === ERP_REP;
   const lagosDay = iso => { const t = Date.parse(iso); return isNaN(t) ? '' : new Date(t + 3600000).toISOString().slice(0, 10); };
-  const sales = ((typeof STATE !== 'undefined' && STATE.sales) || []).filter(x => String(x.date || '').slice(0, 10) === day && mine(x.rep));
+  const sales = ((typeof STATE !== 'undefined' && STATE.sales) || []).filter(x => String(x.date || '').slice(0, 10) === day && mineSale(x));
   // Oct 13 2026 fix — payments were matched only on the NAME written on the payment entry, which can differ from the
   // rep on the sale (a ₦146,275 transfer recorded under another name showed as 0 payments). A payment now counts for
   // this person if the entry carries their name OR it was made against one of their sales, whichever day that sale was.
-  const allMine = ((typeof STATE !== 'undefined' && STATE.sales) || []).filter(x => mine(x.rep));
+  const allMine = ((typeof STATE !== 'undefined' && STATE.sales) || []).filter(x => mineSale(x));
   const myKeys = new Set(); allMine.forEach(x => { if(x.inv) myKeys.add(x.inv); if(x.id) myKeys.add(x.id); });
-  const pays = ((typeof STATE !== 'undefined' && STATE.settlementLog) || []).filter(e => !e.reversedAt && e.action !== 'reversed' && lagosDay(e.at) === day && Number(e.amount) > 0 && !/^wallet/.test(String(e.method || '')) && (mine(e.by) || myKeys.has(e.saleRef) || myKeys.has(e.saleId)));
+  const pays = ((typeof STATE !== 'undefined' && STATE.settlementLog) || []).filter(e => !e.reversedAt && e.action !== 'reversed' && lagosDay(e.at) === day && Number(e.amount) > 0 && !/^wallet/.test(String(e.method || '')) && (mine(e.by) || myKeys.has(e.saleRef) || myKeys.has(e.saleId) || (mgrRole && String(e.enteredBy || '').toLowerCase() === email)));
   let owed = 0; try { owed = sales.reduce((a, x) => a + (Number(getRemainingBalance(x)) || 0), 0); } catch(e) {}
   let openOrders = 0; try { openOrders = loadOrders().filter(o => ['pending', 'confirmed'].includes(o.status)).length; } catch(e) {}
   const inbox = (typeof ordMsgInbox !== 'undefined' ? ordMsgInbox : []);
@@ -27404,7 +27834,7 @@ const EOD_FIG_ROWS = [['salesCount', 'Sales logged', n => n], ['cratesSold', 'Cr
   ['paymentsCount', 'Payments recorded today', n => n], ['paymentsTotal', 'Money received today', n => fmt(n)], ['owedToday', 'Still owed on today\'s sales', n => fmt(n)], ['openOrders', 'Orders still open (all EggScore)', n => n],
   ['unreadMessages', 'Customer messages unread (all EggScore)', n => n], ['awaitingReply', 'Customer messages awaiting a reply (all EggScore)', n => n]];
 function eodFigHtml(f) {
-  return EOD_FIG_ROWS.filter(([k]) => !f || f[k] !== undefined || !['owedToday', 'awaitingReply'].includes(k)).map(([k, label, fn]) => '<div style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(label) + '</div><div style="font-size:15px;font-weight:700;color:var(--cream)">' + eodEsc(fn(Number((f || {})[k]) || 0)) + '</div></div>').join('');
+  return EOD_FIG_ROWS.filter(([k]) => !f || f[k] !== undefined || !['owedToday', 'awaitingReply'].includes(k)).map(([k, label, fn]) => '<div style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(erpIsRepRole() ? String(label).replace('(all EggScore)', '(your customers)') : label) + '</div><div style="font-size:15px;font-weight:700;color:var(--cream)">' + eodEsc(fn(Number((f || {})[k]) || 0)) + '</div></div>').join('');
 }
 function eodCashChanged() { document.getElementById('eod-cashnote-wrap').style.display = document.getElementById('eod-cash').value === 'no' ? 'block' : 'none'; }
 let eodCurrentFigures = null;
@@ -34289,7 +34719,7 @@ function markOrderPaid(ref) {
 // rep assignment, commission, payment status, delivery confirmation.
 // Orders Inbox only routes, rejects, and WA-replies.
 async function sendToSalesLog(orderRef) {
-  const ORDERS_KEY = 'feds_orders';
+  const ORDERS_KEY = erpKey('feds_orders');
   let orders = [];
   try { orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]'); } catch(e) {}
   const o = orders.find(x => x.ref === orderRef);

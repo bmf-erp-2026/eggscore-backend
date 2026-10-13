@@ -1,77 +1,63 @@
 const express = require('express');
 const { db } = require('../db.postgres');
-const { requireSupabaseAuth, requireEitherAuth } = require('../auth.postgres');
+const { requireSupabaseAuth, requireEitherAuth, requireRole } = require('../auth.postgres');
+const scope = require('../lib/rep-scope');
 
 const router = express.Router();
 
-// "Own sales only" (Sep 1 2026, Sales Rep Access): resolves which rep
-// NAME a non-owner request is actually allowed to act as/see, by
-// looking up their linked rep record via email — never trusting a
-// client-supplied `rep` field, since that's just a string a request
-// could put anything in. An owner passes through untouched (keeps
-// today's flexibility — backfilling historical sales under any rep
-// name, entering a sale for a rep not yet linked, etc). Returns null
-// for a rep with no linked record yet, same "nothing shared/allowed
-// yet" default used in reps.js, rather than guessing or erroring oddly.
-async function resolveRepNameForRequest(req) {
-  if(req.user.role === 'owner') return undefined; // undefined = no forced filter
-  const repRow = await db.prepare('SELECT name FROM reps WHERE email = ?').get(req.user.email);
-  return repRow?.name || null;
+// Oct 13 2026 — reps tied to logins, customers tied to reps.
+//
+// WHO MAY RECORD A SALE, AND AS WHOM
+//   owner    any rep name (backfilling, entering for a rep not yet linked ...) — as before.
+//   manager  on behalf of a rep that exists in the reps table (the sale is stamped with the manager's e-mail
+//            in entered_by, so it is always clear who typed it in).
+//   rep      only as themselves, and only for their own customers (or customers nobody owns yet). The rep name
+//            on the sale is taken from the login, never from what the screen sent.
+// Before this, a manager login was refused here with "not linked to a rep record" while the ERP carried on
+// as if the sale had been saved (Oct 13: the Ese YB Shop sale was lost that way).
+//
+// A rep's FIRST sale to a customer nobody owns yet makes that rep the customer's rep ("the rep who pitched
+// them"). The Owner can move a customer or a single sale to another rep at any time (see below).
+
+async function activeRepNamed(name) {
+  return db.prepare("SELECT name FROM reps WHERE name = ? AND COALESCE(status, 'active') <> 'inactive'").get(name);
 }
 
 router.post('/', requireSupabaseAuth(), async (req, res) => {
   const { orderRef, rep, customerName, crates, pricePerCrate, deliveryTotal, commission,
           batchId, batchCost, paymentMethod, saleDate, invoiceRef } = req.body;
 
-  // A rep can only ever record a sale as themselves — the client-
-  // supplied `rep` field is ignored/overridden for non-owner requests,
-  // and rejected outright if this login isn't linked to a rep record
-  // at all (see resolveRepNameForRequest). Owners keep full flexibility.
-  const forcedRep = await resolveRepNameForRequest(req);
-  if(req.user.role !== 'owner' && !forcedRep) {
-    return res.status(403).json({ error: 'Your login isn\'t linked to a rep record yet — ask the owner to link it.' });
-  }
-  const effectiveRep = forcedRep !== undefined ? forcedRep : rep;
+  const sc = await scope.scopeOf(req);
+  if(!sc.all && !sc.rep) return res.status(403).json(scope.NOT_LINKED);
 
+  const effectiveRep = sc.all ? rep : sc.rep;
   if(!effectiveRep || !customerName || !crates || !pricePerCrate || !paymentMethod) {
     return res.status(400).json({ error: 'rep, customerName, crates, pricePerCrate, and paymentMethod are required.' });
   }
+  if(sc.role === 'manager' && !(await activeRepNamed(effectiveRep))) {
+    return res.status(400).json({ error: `"${effectiveRep}" is not a sales rep on record. Pick one of the listed reps.`, code: 'UNKNOWN_REP' });
+  }
+
+  // The same sale arriving twice (a retry after a lost answer) must not be written twice.
+  if(invoiceRef) {
+    const dup = await db.prepare('SELECT * FROM sales WHERE invoice_ref = ? LIMIT 1').get(invoiceRef);
+    if(dup) return res.status(200).json({ ...dup, alreadySaved: true });
+  }
 
   // Resolve the real customer record so customer_id is a genuine FK link
-  // instead of the NULL it's always been — customer_name stays as the
-  // immediate display value, customer_id is what lets a sale be traced
-  // back to the full customer record (cid, contact, credit history, etc).
-  // A customer created after this sale, or a name that doesn't match
-  // exactly, still leaves it null rather than blocking the sale.
-  const customerRow = await db.prepare('SELECT id FROM customers WHERE name = ?').get(customerName);
+  // (customer_name stays as the immediate display value).
+  const customerRow = await db.prepare('SELECT id, owner_rep FROM customers WHERE name = ?').get(customerName);
+  if(!sc.all && customerRow && customerRow.owner_rep && customerRow.owner_rep !== sc.rep) {
+    return res.status(403).json(scope.NOT_YOURS);
+  }
 
-  // Verify batchId actually exists before trusting it (Sep 4 2026) —
-  // found via a real crash: a sale created weeks ago (Justina Manilla,
-  // Gboloba Farms, Aug 22) referencing a batch (B019) that had since
-  // been cleaned up kept getting retried by the client's self-healing
-  // sync, and every retry 500'd, apparently silently, for weeks —
-  // surfaced only once someone was actually watching the Railway logs
-  // during unrelated testing. A sale's batch reference going stale
-  // over time is normal and expected (batches get depleted, written
-  // off, or deleted; sales are permanent history) — it should never
-  // be able to crash the whole insert. Falls back to null exactly like
-  // "no batch was ever specified" rather than blocking the sale or
-  // losing its other fields.
+  // Verify batchId / orderRef exist before trusting them (Sep 4-5 2026) — a stale reference must never be
+  // able to crash the insert; it falls back to null exactly like "none was specified".
   let safeBatchId = null;
   if(batchId) {
     const batchExists = await db.prepare('SELECT id FROM batches WHERE id = ?').get(batchId);
     safeBatchId = batchExists ? batchId : null;
   }
-
-  // Same reasoning, different column — Sep 5 2026. The Railway logs
-  // showed the SAME stuck sale still crashing after the batch fix
-  // shipped, but on a DIFFERENT foreign key entirely:
-  // "sales_order_ref_fkey", not the batch one. order_ref references
-  // orders.ref, and this sale's originating order no longer exists
-  // there (same story as the batch — old records move on). A sale is
-  // permanent history independent of whether its originating order
-  // record still exists; that link going stale should never be able
-  // to block the sale itself.
   let safeOrderRef = null;
   if(orderRef) {
     const orderExists = await db.prepare('SELECT ref FROM orders WHERE ref = ?').get(orderRef);
@@ -81,17 +67,13 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
   const gross = crates * pricePerCrate;
   const info = await db.prepare(`
     INSERT INTO sales (order_ref, rep, customer_id, customer_name, crates, price_per_crate, gross, delivery_total,
-      commission, batch_id, batch_cost, payment_method, sale_date, invoice_ref)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      commission, batch_id, batch_cost, payment_method, sale_date, invoice_ref, entered_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(safeOrderRef, effectiveRep, customerRow?.id || null, customerName, crates, pricePerCrate, gross, deliveryTotal || 0,
-    commission || 0, safeBatchId, batchCost || null, paymentMethod, saleDate || new Date().toISOString().split('T')[0], invoiceRef || null);
+    commission || 0, safeBatchId, batchCost || null, paymentMethod, saleDate || new Date().toISOString().split('T')[0], invoiceRef || null,
+    (req.user && req.user.email) || null);
 
-  // Real multi-batch FIFO deduction — same logic verified in the
-  // SQLite version, converted to properly-awaited Postgres calls.
-  // Uses safeBatchId, not the raw client value — a stale/deleted batch
-  // reference should skip deduction cleanly (nothing to draw down),
-  // not silently misattribute the draw to whatever batch happens to
-  // sort first.
+  // Real multi-batch FIFO deduction.
   if(safeBatchId) {
     let remaining = crates;
     const batches = await db.prepare('SELECT * FROM batches WHERE remaining > 0 ORDER BY received_date ASC').all();
@@ -105,20 +87,27 @@ router.post('/', requireSupabaseAuth(), async (req, res) => {
     }
   }
 
+  // First sale to a customer nobody owns yet: the closing rep becomes the customer's rep.
+  if(customerRow && !customerRow.owner_rep && effectiveRep !== 'Direct') {
+    try {
+      const claimed = await db.prepare(`UPDATE customers SET owner_rep = ?, owner_rep_set_by = 'first sale', owner_rep_set_at = now() WHERE id = ? AND owner_rep IS NULL`).run(effectiveRep, customerRow.id);
+      if(claimed.changes) {
+        await db.prepare(`INSERT INTO rep_handovers (kind, ref, subject, from_rep, to_rep, reason, by_email) VALUES ('customer', ?, ?, NULL, ?, 'First sale', ?)`)
+          .run(customerName, customerName, effectiveRep, (req.user && req.user.email) || null);
+      }
+    } catch(e) { console.warn('[sales] could not tie customer to rep:', e.message); }
+  }
+
   res.status(201).json(await db.prepare('SELECT * FROM sales WHERE id = ?').get(info.lastInsertRowid));
 });
 
 router.get('/', requireSupabaseAuth(), async (req, res) => {
   const { from, to, rep } = req.query;
 
-  // "Own sales only" for reps — same forced-filter approach as POST.
-  // A rep with no linked record sees an empty list, not an error or
-  // (worse) everyone's sales by accident.
-  const forcedRep = await resolveRepNameForRequest(req);
-  if(req.user.role !== 'owner' && !forcedRep) {
-    return res.json([]);
-  }
-  const effectiveRepFilter = forcedRep !== undefined ? forcedRep : rep;
+  const sc = await scope.scopeOf(req);
+  // A rep with no linked record sees an empty list, not an error and not everyone's sales.
+  if(!sc.all && !sc.rep) return res.json([]);
+  const effectiveRepFilter = sc.all ? rep : sc.rep;
 
   let query = 'SELECT * FROM sales WHERE 1=1';
   const params = [];
@@ -129,11 +118,35 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
   res.json(await db.prepare(query).all(...params));
 });
 
+// ── Owner hands a sale to another rep ──────────────────────────────────────
+// The sale (and the commission already worked out on it) moves to the other rep's figures: their ledger,
+// their End-of-Day report and their commission. The Owner must give a reason; the move is logged for good
+// and the original rep is kept on the sale (handed_over_from).
+router.post('/handover', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const { invoiceRef, rep, reason } = req.body || {};
+  const why = String(reason || '').trim();
+  if(!invoiceRef) return res.status(400).json({ error: 'invoiceRef is required.' });
+  if(why.length < 5) return res.status(400).json({ error: 'Give a short reason (at least 5 characters).' });
+  const sale = await db.prepare('SELECT * FROM sales WHERE invoice_ref = ? ORDER BY id DESC LIMIT 1').get(String(invoiceRef));
+  if(!sale) return res.status(404).json({ error: 'That sale is not on the server yet. Open the ERP on the device that recorded it, signed in as the Owner, and let it finish syncing first.', code: 'SALE_NOT_SAVED' });
+  const target = await activeRepNamed(String(rep || ''));
+  if(!target) return res.status(400).json({ error: 'Pick a sales rep from the list.' });
+  if(target.name === sale.rep) return res.status(400).json({ error: `That sale already belongs to ${sale.rep}.` });
+  const by = (req.user && req.user.email) || null;
+  await db.prepare(`UPDATE sales SET rep = ?, handed_over_from = ?, handed_over_by = ?, handed_over_at = now(), handover_reason = ? WHERE id = ?`)
+    .run(target.name, sale.rep, by, why.slice(0, 300), sale.id);
+  await db.prepare(`INSERT INTO rep_handovers (kind, ref, subject, from_rep, to_rep, reason, by_email) VALUES ('sale', ?, ?, ?, ?, ?, ?)`)
+    .run(String(invoiceRef), sale.customer_name, sale.rep, target.name, why.slice(0, 300), by);
+  console.log(`[audit] Sale ${invoiceRef} handed over from ${sale.rep} to ${target.name} by ${by}`);
+  res.json(await db.prepare('SELECT * FROM sales WHERE id = ?').get(sale.id));
+});
+
+router.get('/handovers', requireSupabaseAuth(), requireRole('owner', 'manager'), async (req, res) => {
+  res.json(await db.prepare('SELECT * FROM rep_handovers ORDER BY id DESC LIMIT 200').all());
+});
+
 // Narrow, portal-facing — only what checkPriceChangeSinceLastOrder()
-// needs (Phase 2A: current vs. last price the customer paid, no
-// reasoning about *why* it changed — that needs priceHistory exposed
-// too, deferred to a later pass). Never returns anything else about
-// the sale or the customer.
+// needs. Never returns anything else about the sale or the customer.
 router.get('/last-price', requireEitherAuth(), async (req, res) => {
   const customerName = (req.query.customer || '').trim();
   if(!customerName) return res.json(null);

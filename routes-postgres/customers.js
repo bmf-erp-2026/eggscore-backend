@@ -1,6 +1,7 @@
 const express = require('express');
 const { db } = require('../db.postgres');
 const { requireSupabaseAuth, requireEitherAuth, requireRole } = require('../auth.postgres');
+const scope = require('../lib/rep-scope');
 
 const router = express.Router();
 
@@ -13,12 +14,20 @@ function genReferralCode(name) {
   return `BEL-${letters}${digits}`;
 }
 
-router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
-  const { cid, name, location, contact, phone, type, creditLimit, referral, notes, trustTier } = req.body;
+// Oct 13 2026 — a rep (or a manager) may add a customer. A rep's new customer is tied to that rep straight away
+// ("the rep who pitched them"); the Owner and a manager may name the rep, or leave the customer unowned.
+router.post('/', requireSupabaseAuth(), requireRole('owner', 'manager', 'rep'), async (req, res) => {
+  const { cid, name, location, contact, phone, type, creditLimit, referral, notes, trustTier, ownerRep } = req.body;
 
   if(!name || !location) {
     return res.status(400).json({ error: 'name and location are required.' });
   }
+
+  const sc = await scope.scopeOf(req);
+  if(!sc.all && !sc.rep) return res.status(403).json(scope.NOT_LINKED);
+  // A rep may not set their own credit terms: those stay with the Owner.
+  const isOwner = req.user.role === 'owner';
+  const tie = sc.all ? (ownerRep || null) : sc.rep;
 
   const referralCode = genReferralCode(name);
   // trust_tier (Aug 22, Trust-Tiered Progressive Margin Financing) —
@@ -27,16 +36,58 @@ router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) =
   // cash-only) for any customer created without an explicit value —
   // never silently inherits more trust than they've earned.
   const info = await db.prepare(`
-    INSERT INTO customers (cid, name, location, contact, phone, type, credit_limit, referral, notes, referral_code, trust_tier)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO customers (cid, name, location, contact, phone, type, credit_limit, referral, notes, referral_code, trust_tier, owner_rep, owner_rep_set_by, owner_rep_set_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(cid || null, name, location, contact || null, phone || null, type || null,
-    creditLimit || 0, referral || null, notes || null, referralCode, trustTier || 'new');
+    isOwner ? (creditLimit || 0) : 0, referral || null, notes || null, referralCode, isOwner ? (trustTier || 'new') : 'new',
+    tie, tie ? 'created by ' + (req.user.email || req.user.role) : null, tie ? new Date().toISOString() : null);
 
   res.status(201).json(await db.prepare('SELECT * FROM customers WHERE id = ?').get(info.lastInsertRowid));
 });
 
 router.get('/', requireSupabaseAuth(), async (req, res) => {
-  res.json(await db.prepare('SELECT * FROM customers ORDER BY created_at DESC').all());
+  // Oct 13 2026 — a rep sees only their own customers, plus customers nobody owns yet.
+  const sc = await scope.scopeOf(req);
+  const cl = scope.customerClause(sc, 'customers');
+  res.json(await db.prepare(`SELECT * FROM customers WHERE ${cl.sql} ORDER BY created_at DESC`).all(...cl.params));
+});
+
+// ── Which rep owns which customer (Oct 13 2026) ─────────────────────────────
+// Customers you have not tied to a rep yet, with the rep who made the FIRST sale to each (the usual "who
+// pitched them" answer) as a suggestion. Owner only.
+router.get('/rep-suggestions', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT c.id, c.name, c.location,
+           (SELECT s.rep FROM sales s WHERE s.customer_name = c.name AND s.rep <> 'Direct' ORDER BY s.sale_date ASC, s.created_at ASC LIMIT 1) AS suggested_rep,
+           (SELECT COUNT(*)::int FROM sales s WHERE s.customer_name = c.name) AS sales_count
+    FROM customers c WHERE c.owner_rep IS NULL ORDER BY c.name ASC`).all();
+  res.json(rows);
+});
+
+// Tie customers to reps. Body: { assignments: [{ id, rep }], reason }. Owner only. Every move is logged.
+// rep = null/'' sets a customer back to "nobody's yet" (open to every rep).
+router.post('/owner-rep', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const list = Array.isArray(req.body && req.body.assignments) ? req.body.assignments.slice(0, 500) : [];
+  const reason = String((req.body && req.body.reason) || '').trim().slice(0, 300) || 'Owner assignment';
+  if(!list.length) return res.status(400).json({ error: 'Nothing to assign.' });
+  const by = (req.user && req.user.email) || null;
+  let done = 0; const skipped = [];
+  for(const a of list) {
+    const c = await db.prepare('SELECT id, name, owner_rep FROM customers WHERE id = ?').get(a.id);
+    if(!c) { skipped.push({ id: a.id, why: 'Customer not found.' }); continue; }
+    let target = null;
+    if(a.rep) {
+      target = await db.prepare("SELECT name FROM reps WHERE name = ? AND COALESCE(status,'active') <> 'inactive'").get(String(a.rep));
+      if(!target) { skipped.push({ id: a.id, why: `"${a.rep}" is not an active rep.` }); continue; }
+    }
+    if((c.owner_rep || null) === (target ? target.name : null)) { skipped.push({ id: a.id, why: 'Already set.' }); continue; }
+    await db.prepare('UPDATE customers SET owner_rep = ?, owner_rep_set_by = ?, owner_rep_set_at = now() WHERE id = ?').run(target ? target.name : null, by, c.id);
+    await db.prepare(`INSERT INTO rep_handovers (kind, ref, subject, from_rep, to_rep, reason, by_email) VALUES ('customer', ?, ?, ?, ?, ?, ?)`)
+      .run(c.name, c.name, c.owner_rep || null, target ? target.name : '(nobody)', reason, by);
+    done++;
+  }
+  console.log(`[audit] Customer rep assignment by ${by}: ${done} changed, ${skipped.length} skipped`);
+  res.json({ ok: true, changed: done, skipped });
 });
 
 // Was missing entirely — confirmEditContact() on the ERP side only ever
@@ -68,6 +119,9 @@ router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
 
   const existing = await db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if(!existing) return res.status(404).json({ error: 'Customer not found.' });
+  // Oct 13 2026 — a rep may only edit a customer they may see (their own, or one nobody owns yet).
+  const sc = await scope.scopeOf(req);
+  if(!(await scope.canSeeCustomer(sc, existing.id))) return res.status(403).json(scope.NOT_YOURS);
 
   const fields = [], values = [];
   if(phone !== undefined)      { fields.push('phone = ?');        values.push(phone); }
