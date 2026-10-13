@@ -36,6 +36,54 @@ function cleanText(s) {
     .trim();
 }
 
+// Oct 13 2026 — volume-change detection. A customer who writes to change the number of crates
+// ("add 30 more crates", "reduce it to 20") must never depend on a person remembering it. Every customer
+// message is checked; one that looks like a change opens a FOLLOW-UP on the order, which blocks dispatch
+// until someone records what was done. The check is deliberately generous: a wrong guess costs one tap
+// ("not a volume change"), a missed one costs a wrong delivery.
+const ADD_WORDS = /\b(add|adding|added|more|extra|additional|increase|increment|top[ -]?up|another|plus|increasing)\b/i;
+const CUT_WORDS = /\b(reduce|reduction|less|fewer|cut|remove|decrease|lower|reducing|decreasing)\b/i;
+const QTY_WORDS = /\b(crate|crates|volume|quantity|qty|tray|trays|carton|cartons)\b/i;
+function detectVolumeChange(text) {
+  const t = String(text || '');
+  const adds = ADD_WORDS.test(t), cuts = CUT_WORDS.test(t);
+  if(!(adds || cuts)) return null;
+  const nums = (t.match(/(?<![\d.,])\d{1,4}(?![\d.,]|\s*(?:am|pm)\b)/gi) || []).map(Number).filter(n => n > 0);
+  if(!QTY_WORDS.test(t) && !nums.length) return null;
+  // a number with no quantity word is only trusted next to a change word ("add 30")
+  const n = nums.length ? nums[0] : null;
+  return { crates: n === null ? null : (cuts && !adds ? -n : n) };
+}
+const followupOut = r => ({
+  id: Number(r.id), orderRef: r.order_ref, kind: r.kind, status: r.status, crates: r.crates === null ? null : Number(r.crates),
+  orderCratesAtOpen: r.order_crates_at_open === null || r.order_crates_at_open === undefined ? null : Number(r.order_crates_at_open),
+  source: r.source, sourceText: r.source_text || '', openedBy: r.opened_by || null, openedAt: new Date(r.opened_at).toISOString(),
+  resolvedBy: r.resolved_by || null, resolvedAt: r.resolved_at ? new Date(r.resolved_at).toISOString() : null, note: r.note || '',
+});
+// Opens (or updates) the single open volume follow-up for an order. Returns { followup, created }.
+async function openVolumeFollowup(order, crates, text, source, by) {
+  const open = await db.prepare("SELECT * FROM order_followups WHERE order_ref = ? AND kind = 'volume_change' AND status = 'open' ORDER BY id DESC LIMIT 1").get(order.ref);
+  if(open) {
+    // a later message with a number sharpens the quantity; the original words are kept in the log line
+    if(crates !== null && crates !== undefined) {
+      await db.prepare('UPDATE order_followups SET crates = ?, source_text = ? WHERE id = ?').run(crates, String(text || '').slice(0, 300), open.id);
+    }
+    return { followup: followupOut(await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(open.id)), created: false };
+  }
+  await db.prepare(`INSERT INTO order_followups (order_ref, kind, status, crates, order_crates_at_open, source, source_text, opened_by)
+                    VALUES (?, 'volume_change', 'open', ?, ?, ?, ?, ?)`)
+    .run(order.ref, crates === undefined ? null : crates, order.crates === undefined ? null : order.crates, source, String(text || '').slice(0, 300), by || null);
+  const row = await db.prepare("SELECT * FROM order_followups WHERE order_ref = ? AND kind = 'volume_change' AND status = 'open' ORDER BY id DESC LIMIT 1").get(order.ref);
+  return { followup: followupOut(row), created: true };
+}
+async function alertOwnerOfFollowup(order, f) {
+  const what = f.crates ? `${f.crates > 0 ? 'add' : 'remove'} ${Math.abs(f.crates)} crates` : 'change the crates';
+  return push.notifyOwners({
+    title: '📦 Order change needs action', body: `${order.customer_name || 'A customer'} (${order.ref}) wants to ${what}. The order is held until this is dealt with.`,
+    url: `/famad-erp.html?ordmsg=${encodeURIComponent(order.ref)}`, tag: `followup-${order.ref}`, kind: 'order_followup',
+  });
+}
+
 // Oct 12 2026 — office hours. A message is never refused out of hours, but the customer
 // is told when it will be answered: after 7 PM (Lagos), or any time on a Sunday, the next
 // working day, Monday to Saturday.
@@ -57,7 +105,7 @@ async function ownedOrder(req, res) {
   const ref = String(req.params.ref || '');
   const phone = req.body && req.body.phone;
   if(!/^BEL-ORD-[0-9-]{6,30}$/.test(ref) || !phone) { res.status(400).json({ error: 'Order reference and phone number are required.' }); return null; }
-  const order = await db.prepare('SELECT ref, customer_id, customer_name, phone, created_at, status, payment_verified, preferred_delivery_day FROM orders WHERE ref = ?').get(ref);
+  const order = await db.prepare('SELECT ref, customer_id, customer_name, phone, created_at, status, payment_verified, preferred_delivery_day, crates FROM orders WHERE ref = ?').get(ref);
   if(!order) { res.status(404).json({ error: 'Order not found.' }); return null; }
   if(!last10(order.phone) || last10(order.phone) !== last10(phone)) {
     res.status(403).json({ error: 'That phone number does not match this order.' });
@@ -117,6 +165,14 @@ router.post('/:ref/send', requireEitherAuth(), async (req, res) => {
   const row = await db.prepare(`SELECT * FROM order_messages WHERE order_ref = ? AND direction = 'customer' ORDER BY id DESC LIMIT 1`).get(order.ref);
   // Oct 12 2026 — tell staff devices that opted in, even if the ERP is closed. Never blocks or fails the send.
   push.notifyStaffOfMessage({ ref: order.ref, customerName: order.customer_name }).catch(e => console.error('[order-messages] staff alert failed:', e.message));
+  // Oct 13 2026 — a message that asks to change the crates opens a follow-up that holds the order. Never fails the send.
+  try {
+    const hit = ['cancelled', 'rejected'].includes(String(order.status)) ? null : detectVolumeChange(body);
+    if(hit) {
+      const r = await openVolumeFollowup(order, hit.crates, body, 'auto', null);
+      if(r.created) alertOwnerOfFollowup(order, r.followup).catch(e => console.error('[order-messages] follow-up alert failed:', e.message));
+    }
+  } catch(e) { console.error('[order-messages] follow-up check failed:', e.message); }
   res.status(201).json({ ...asPublic(row), ...officeNotice() });
 });
 
@@ -167,6 +223,58 @@ router.post('/:ref/thread', requireEitherAuth(), async (req, res) => {
 });
 
 // ═══════════════════════ STAFF SIDE (any signed-in staff) ═══════════════════════
+
+// ── Oct 13 2026 — follow-ups: things a customer asked for after ordering that must not be forgotten ──
+// Every open follow-up (the ERP asks every minute or so, and before any dispatch step).
+router.get('/followups/open', requireSupabaseAuth(), async (req, res) => {
+  const rows = await db.prepare("SELECT * FROM order_followups WHERE status = 'open' ORDER BY id ASC LIMIT 200").all();
+  res.json(rows.map(followupOut));
+});
+// Recent history for one order (open and closed), newest first.
+router.get('/:ref/followups', requireSupabaseAuth(), async (req, res) => {
+  const rows = await db.prepare('SELECT * FROM order_followups WHERE order_ref = ? ORDER BY id DESC LIMIT 20').all(String(req.params.ref));
+  res.json(rows.map(followupOut));
+});
+// Staff flag a message (or a phone call) as a volume change.
+router.post('/:ref/followup', requireSupabaseAuth(), async (req, res) => {
+  const order = await db.prepare('SELECT ref, customer_name, crates, status FROM orders WHERE ref = ?').get(String(req.params.ref));
+  if(!order) return res.status(404).json({ error: 'Order not found.' });
+  if(['cancelled', 'rejected'].includes(String(order.status))) return res.status(400).json({ error: 'That order is closed.' });
+  const n = parseInt(req.body && req.body.crates, 10);
+  const crates = Number.isFinite(n) && n !== 0 && Math.abs(n) <= 100000 ? n : null;
+  const r = await openVolumeFollowup(order, crates, cleanText(req.body && req.body.text).slice(0, 300) || 'Flagged by staff', 'staff', (req.user && req.user.email) || null);
+  res.status(r.created ? 201 : 200).json(r.followup);
+});
+// Close a follow-up with a recorded outcome. The customer is always told, except when it was a false alarm.
+router.post('/followups/:id/resolve', requireSupabaseAuth(), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const f = Number.isInteger(id) ? await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(id) : null;
+  if(!f) return res.status(404).json({ error: 'Follow-up not found.' });
+  if(f.status !== 'open') return res.status(409).json({ error: 'That follow-up is already closed.' });
+  const outcome = String((req.body && req.body.outcome) || '');
+  if(!['applied', 'new_order', 'declined', 'dismissed'].includes(outcome)) return res.status(400).json({ error: 'Choose what was done.' });
+  const note = cleanText(req.body && req.body.note).slice(0, 300);
+  const message = cleanText(req.body && req.body.message);
+  const order = await db.prepare('SELECT ref, customer_id, customer_name, crates, status FROM orders WHERE ref = ?').get(f.order_ref);
+  if(!order) return res.status(404).json({ error: 'Order not found.' });
+  if(outcome !== 'applied' && !note) return res.status(400).json({ error: 'Write a short note on what was decided.' });
+  if(outcome !== 'dismissed' && (!message || message.length < 3)) return res.status(400).json({ error: 'Write the message to the customer: they must be told the outcome.' });
+  if(message.length > MAX_STAFF_LEN) return res.status(400).json({ error: `Keep the message under ${MAX_STAFF_LEN} characters.` });
+  if(outcome === 'applied') {
+    if(['in_transit', 'fulfilled'].includes(String(order.status))) return res.status(409).json({ error: 'The order has already gone out, so its crates cannot be changed. Choose "Put on a new order" or "Decline".' });
+    if(Number(order.crates) === Number(f.order_crates_at_open)) return res.status(409).json({ error: 'The order still has the same number of crates. Change the crates first, then close this.' });
+  }
+  const by = (req.user && req.user.email) || null;
+  const finalNote = outcome === 'applied' ? `Crates ${f.order_crates_at_open} to ${order.crates}${note ? ': ' + note : ''}` : note;
+  await db.prepare('UPDATE order_followups SET status = ?, resolved_by = ?, resolved_at = now(), note = ? WHERE id = ?').run(outcome, by, finalNote, id);
+  if(message && outcome !== 'dismissed') {
+    await db.prepare(`INSERT INTO order_messages (order_ref, direction, body, sender) VALUES (?, 'staff', ?, ?)`).run(order.ref, message, by);
+    await db.prepare(`UPDATE order_messages SET read_at = now() WHERE order_ref = ? AND direction = 'customer' AND read_at IS NULL`).run(order.ref);
+    push.notifyOrderReply(order, message).catch(e => console.error('[order-messages] push failed:', e.message));
+  }
+  console.log(`[audit] Follow-up ${id} on ${order.ref} closed as ${outcome} by ${by}`);
+  res.json(followupOut(await db.prepare('SELECT * FROM order_followups WHERE id = ?').get(id)));
+});
 
 // One line per order that has messages (last 30 days) with the unread count.
 router.get('/inbox', requireSupabaseAuth(), async (req, res) => {
@@ -236,3 +344,4 @@ if(repeatPurge.unref) repeatPurge.unref();
 module.exports = router;
 module.exports.officeNotice = officeNotice;   // exported for the test suite
 module.exports.quickState = quickState;   // exported for the test suite
+module.exports.detectVolumeChange = detectVolumeChange;   // exported for the test suite

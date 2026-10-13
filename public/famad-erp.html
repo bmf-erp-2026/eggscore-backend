@@ -3525,12 +3525,67 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="modal-close" onclick="closeOrderMessage()">✕</button>
     </div>
     <div id="ordmsg-meta" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px;line-height:1.6"></div>
+    <div id="ordmsg-hold" style="display:none;padding:8px 12px;background:rgba(240,160,40,0.10);border:1px solid rgba(240,160,40,0.4);border-radius:7px;margin-bottom:10px;font-family:'DM Mono',monospace;font-size:10px;color:var(--amber);line-height:1.6"></div>
     <div id="ordmsg-thread" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+    <div id="ordmsg-flag" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">
+      <span>Customer is changing the crates?</span>
+      <input class="form-input" id="ordmsg-flag-n" type="number" placeholder="how many (+/−)" style="width:120px;padding:3px 8px;font-size:11px"/>
+      <button class="btn btn-ghost" style="font-size:10px;padding:3px 10px" onclick="ordFlagVolume()">📦 Hold the order</button>
+    </div>
     <textarea class="form-textarea" id="ordmsg-text" maxlength="500" placeholder="Type your reply (max 500 characters)…" style="min-height:70px"></textarea>
     <div id="ordmsg-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--red);min-height:14px;margin:6px 0"></div>
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="closeOrderMessage()">Close</button>
       <button class="btn btn-primary" id="ordmsg-send" onclick="sendOrderMessageReply()">Send reply</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-followup">
+  <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
+    <div class="modal-hdr">
+      <div class="modal-title">📦 Customer change request</div>
+      <button class="modal-close" onclick="closeModal('modal-followup')">✕</button>
+    </div>
+    <div id="fu-meta" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--mist);line-height:1.7;margin-bottom:8px"></div>
+    <div id="fu-words" style="font-size:12.5px;color:var(--cream);background:rgba(61,214,192,0.10);border-radius:8px;padding:8px 11px;margin-bottom:12px;white-space:pre-wrap"></div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">WHAT WAS DONE? (the order stays on hold until you choose)</div>
+    <label id="fu-opt-applied" style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--dust);margin-bottom:6px;cursor:pointer"><input type="radio" name="fu-out" value="applied" onchange="fuChanged()" style="margin-top:3px"/> <span>Change the crates on this order</span></label>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--dust);margin-bottom:6px;cursor:pointer"><input type="radio" name="fu-out" value="new_order" onchange="fuChanged()" style="margin-top:3px"/> <span>Put the extra crates on a new order (this order goes as it is)</span></label>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--dust);margin-bottom:6px;cursor:pointer"><input type="radio" name="fu-out" value="declined" onchange="fuChanged()" style="margin-top:3px"/> <span>Decline the change</span></label>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--dust);margin-bottom:10px;cursor:pointer"><input type="radio" name="fu-out" value="dismissed" onchange="fuChanged()" style="margin-top:3px"/> <span>This is not a change of crates (false alarm)</span></label>
+    <div id="fu-applied-box" style="display:none;margin-bottom:10px">
+      <label class="form-label">New total crates for this order</label>
+      <input class="form-input" id="fu-newcrates" type="number" min="1" oninput="fuChanged()"/>
+      <div id="fu-preview" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--dust);line-height:1.6;margin-top:6px"></div>
+      <div id="fu-pin-wrap" style="margin-top:8px"><input class="form-input" id="fu-pin" type="password" inputmode="numeric" placeholder="Owner PIN (the Owner types it in)" autocomplete="off"/></div>
+    </div>
+    <div id="fu-note-wrap" class="form-group" style="display:none;margin-bottom:10px"><input class="form-input" id="fu-note" maxlength="300"/></div>
+    <div id="fu-msg-wrap" style="display:none;margin-bottom:10px">
+      <label class="form-label">Message to the customer (they are notified when you press Done)</label>
+      <textarea class="form-textarea" id="fu-msg" maxlength="500" oninput="fuMsgTouched()" style="min-height:70px"></textarea>
+    </div>
+    <div id="fu-err" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--red);min-height:14px;margin-bottom:8px"></div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-followup')">Not now</button>
+      <button class="btn btn-primary" id="fu-submit" onclick="fuSubmit()">Done: tell the customer and release the order</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-early-dispatch">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-hdr">
+      <div class="modal-title">📅 Dispatch before the customer's day?</div>
+      <button class="modal-close" onclick="closeModal('modal-early-dispatch')">✕</button>
+    </div>
+    <div id="ed-summary" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--mist);line-height:1.7;margin-bottom:10px"></div>
+    <div class="alert-banner warn" style="margin-bottom:10px">The customer chose this day. Sending earlier can mean nobody is there to receive the eggs. Only continue if the customer agreed.</div>
+    <label class="form-label">Why is it going early? (kept on the order)</label>
+    <textarea class="form-textarea" id="ed-reason" maxlength="300" placeholder="e.g. Customer phoned and asked for Tuesday" style="min-height:60px"></textarea>
+    <div id="ed-err" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--red);min-height:14px;margin:6px 0"></div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-early-dispatch')">Keep it for the customer's day</button>
+      <button class="btn btn-primary" onclick="earlyDispatchConfirm()">Release for early dispatch</button>
     </div>
   </div>
 </div>
@@ -5014,12 +5069,13 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
     <div class="modal-hdr">
       <div class="modal-title">📝 End-of-Day report</div>
-      <button class="modal-close" onclick="closeModal('modal-eod')">✕</button>
+      <button class="modal-close" onclick="eodClose()">✕</button>
     </div>
     <div id="eod-status" class="alert-banner info" style="margin-bottom:14px"></div>
 
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">1. TODAY IN NUMBERS (filled in by the ERP)</div>
     <div id="eod-figures" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px"></div>
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);line-height:1.5;margin-bottom:8px">Sales value is what you invoiced today. Money received is every payment recorded today against your sales (even a sale from an earlier day), apart from wallet credit. Awaiting a reply counts conversations where the customer spoke last; opening a message clears "unread" for everyone but not "awaiting a reply".</div>
     <label style="display:flex;gap:8px;align-items:flex-start;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);margin-bottom:16px;cursor:pointer">
       <input type="checkbox" id="eod-accurate" style="margin-top:2px"/> <span>These figures are accurate. (If something is wrong, say so under Issues.)</span>
     </label>
@@ -5042,8 +5098,13 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
 
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">3. ISSUES AND PROBLEMS</div>
+    <div id="eod-issuelog" style="display:none;margin-bottom:8px"></div>
     <div class="form-group" style="margin-bottom:6px">
       <textarea class="form-textarea" id="eod-issues" maxlength="1500" placeholder="Customer complaints, payment disputes, stock or delivery problems, anything the Owner must know…" style="min-height:70px"></textarea>
+    </div>
+    <div id="eod-issue-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <button class="btn btn-ghost" id="eod-issue-save" style="font-size:11px;padding:4px 12px" onclick="eodSaveIssue()">＋ Save this issue now</button>
+      <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">Saved at once with the time, even if you never file the report. The Owner can read it.</span>
     </div>
     <label style="display:flex;gap:8px;align-items:center;font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);margin-bottom:16px;cursor:pointer">
       <input type="checkbox" id="eod-noissues"/> <span>No issues today</span>
@@ -5059,9 +5120,11 @@ input[type=number]{-moz-appearance:textfield;}
       <textarea class="form-textarea" id="eod-other" maxlength="1500" placeholder="Anything else the Owner should know that has no place above…" style="min-height:60px"></textarea>
     </div>
 
+    <div id="eod-draftnote" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--teal);min-height:14px;margin-bottom:2px"></div>
     <div id="eod-err" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--red);min-height:14px;margin-bottom:8px"></div>
     <div class="submit-btns">
-      <button class="btn btn-ghost" onclick="closeModal('modal-eod')">Close</button>
+      <button class="btn btn-ghost" onclick="eodClose()">Close</button>
+      <button class="btn btn-ghost" id="eod-draft-btn" onclick="eodSaveDraft(false)">Save draft</button>
       <button class="btn btn-primary" id="eod-submit" onclick="eodSubmit()">File report</button>
     </div>
   </div>
@@ -8249,6 +8312,14 @@ input[type=number]{-moz-appearance:textfield;}
   <!-- VOLUME REQUESTS — customers whose need exceeded shown stock -->
   <!-- CUSTOMER MESSAGES — Oct 12 2026. A customer can message EggScore about ONE order
        from the portal; every signed-in staff member sees it here and can answer. -->
+  <div class="panel" id="ord-followup-panel" style="display:none;border:1px solid rgba(240,160,40,0.45)">
+    <div class="panel-hdr">
+      <div class="panel-title">📦 Orders on hold: customer change requests</div>
+      <div class="panel-hdr-actions"><div class="panel-tag" style="color:var(--amber)" id="ord-followup-count">0 open</div></div>
+    </div>
+    <div class="alert-banner warn" style="margin:0 0 10px">A customer asked to add or remove crates after ordering. These orders cannot be sent out, given a waybill or closed until what was done is recorded and the customer is told.</div>
+    <div class="panel-body panel-scroll" id="ord-followup-list"></div>
+  </div>
   <div class="panel" id="ordmsg-panel" style="display:none">
     <div class="panel-hdr">
       <div class="panel-title">💬 Customer Messages</div>
@@ -26612,7 +26683,7 @@ async function opsRecPull() {
    order updates. Messages live on the server only (routes-postgres/
    order-messages.js); this page just asks for them every 75 seconds.
 ═══════════════════════════════════════════════════════ */
-let ordMsgInbox = [], ordMsgPrevUnread = null, ordMsgOpenRef = null, ordMsgBusy = false;
+let ordMsgInbox = [], ordMsgPrevUnread = null, ordMsgOpenRef = null, ordMsgBusy = false, ordMsgLastCustomer = '';
 async function ordMsgFetch(path, opts) {
   const token = await erpGetAuthToken();
   if(!token) return null;
@@ -26632,6 +26703,7 @@ async function syncOrderMessagesFromBackend() {
   let list; try { list = await resp.json(); } catch(e) { return; }
   if(!Array.isArray(list)) return;
   ordMsgInbox = list;
+  await ordFollowupsRefresh();
   const unread = paintOrdMsgBadge();
   if(ordMsgPrevUnread !== null && unread > ordMsgPrevUnread) showToast(`💬 New customer message — ${unread} unread (Orders Inbox)`);
   ordMsgPrevUnread = unread;
@@ -26654,7 +26726,7 @@ function renderOrderMessages() {
     const who = (t.lastDirection === 'staff' ? 'You: ' : '') + (t.lastBody || '');
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(74,158,255,0.07)">
       <div style="min-width:0">
-        <div style="font-size:12px;color:var(--cream)">${t.unread ? '<span style="color:var(--teal)">● </span>' : ''}${escapeHtml(t.customerName || 'Customer')} <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">${escapeHtml(t.ref)}${t.crates ? ' · ' + t.crates + ' crates' : ''}</span></div>
+        <div style="font-size:12px;color:var(--cream)">${t.unread ? '<span style="color:var(--teal)">● </span>' : ''}${ordOpenFollowup(t.ref) ? '<span class="badge" style="background:rgba(240,160,40,0.18);color:var(--amber)">📦 on hold</span> ' : ''}${escapeHtml(t.customerName || 'Customer')} <span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">${escapeHtml(t.ref)}${t.crates ? ' · ' + t.crates + ' crates' : ''}</span></div>
         <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px">${escapeHtml(who)}</div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">${escapeHtml(when)}${t.unread ? ' · ' + t.unread + ' unread' : ''}</div>
       </div>
@@ -26662,11 +26734,20 @@ function renderOrderMessages() {
     </div>`;
   }).join('');
 }
+function ordMsgStrip(ref) {
+  const el = document.getElementById('ordmsg-hold'); if(!el) return;
+  const f = ordOpenFollowup(ref);
+  if(f) { el.style.display = 'block'; el.innerHTML = '📦 Open change request: the customer wants to ' + escapeHtml(ordFollowupWhat(f)) + '. This order is on hold. <button class="btn btn-primary" style="font-size:10px;padding:3px 10px" onclick="closeOrderMessage();openFollowupModal(' + f.id + ')">Deal with it</button>'; }
+  else { el.style.display = 'none'; el.innerHTML = ''; }
+  const fl = document.getElementById('ordmsg-flag'); if(fl) fl.style.display = f ? 'none' : 'flex';
+}
 async function loadOrderMessageThread(ref, quiet) {
   const resp = await ordMsgFetch('/' + encodeURIComponent(ref) + '/staff');
   const box = document.getElementById('ordmsg-thread');
   if(!resp || !resp.ok || !box) { if(!quiet) document.getElementById('ordmsg-err').textContent = 'Could not load this thread. Check your connection.'; return; }
   const msgs = await resp.json();
+  { const lc = msgs.filter(m => m.direction === 'customer').pop(); ordMsgLastCustomer = lc ? lc.body : ''; }
+  ordMsgStrip(ref);
   const nearEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
   box.innerHTML = msgs.map(m => {
     const mine = m.direction === 'staff';
@@ -26711,6 +26792,234 @@ async function sendOrderMessageReply() {
       err.textContent = msg;
     }
   } finally { ordMsgBusy = false; btn.disabled = false; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   OCT 13 2026 — ORDER HOLDS: things a person must not have to remember
+   Two hard gates on dispatch, so a busy day cannot make an order leave wrongly:
+   (1) DELIVERY DATE. The customer chose a delivery day at checkout. A waybill cannot be made before that
+       day. Only the Owner can release it early, by writing a reason, which is recorded on the order.
+   (2) CUSTOMER CHANGE REQUESTS. A customer message that asks to add or remove crates opens a follow-up
+       on the order (the server does this, see routes-postgres/order-messages.js). While it is open the
+       order cannot be given a waybill, sent to the Sales Log or closed. It is closed only by recording
+       what was done (crates changed / moved to a new order / declined / not a change), and the
+       customer is told in the same step.
+═══════════════════════════════════════════════════════ */
+const ORD_WEEKDAYS = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
+// The day the customer chose, as a Lagos calendar date (YYYY-MM-DD): the next such weekday AFTER the day the
+// order was placed, exactly as the customer portal offers it and as the server works it out. null = no day recorded.
+function orderDueDate(o) {
+  const target = ORD_WEEKDAYS[String((o && o.preferredDeliveryDay) || '')];
+  if(target === undefined) return null;
+  let placed = Date.parse(o.createdAt);
+  if(isNaN(placed) && typeof o.createdAt === 'number') placed = o.createdAt;
+  if(isNaN(placed) && o.date) placed = Date.parse(String(o.date).slice(0, 10) + 'T12:00:00+01:00');
+  if(isNaN(placed)) return null;
+  const wd = new Date(placed + 3600000).getUTCDay();
+  const add = ((target - wd + 7) % 7) || 7;
+  return new Date(placed + 3600000 + add * 86400000).toISOString().slice(0, 10);
+}
+function ordLagosToday() { return new Date(Date.now() + 3600000).toISOString().slice(0, 10); }
+function ordDateLabel(ymd) { return new Date(ymd + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+// Returns the due date text if this order is NOT yet due (and has not been released early), else null.
+function orderNotDueYet(o) {
+  if(!o || o.earlyDispatch) return null;
+  const due = orderDueDate(o);
+  return due && ordLagosToday() < due ? due : null;
+}
+let ORD_EARLY_PENDING = null;
+// true = go ahead. false = stopped (the reason has been shown). `again` is run if the Owner releases it early.
+function checkOrderDeliveryDate(orderRef, o, again) {
+  const due = orderNotDueYet(o);
+  if(!due) return true;
+  if(typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner') {
+    ORD_EARLY_PENDING = { ref: orderRef, due, again };
+    document.getElementById('ed-summary').innerHTML = escapeHtml(o.customerName || 'Customer') + ' · <span style="color:var(--blue)">' + escapeHtml(orderRef) + '</span><br>The customer chose <strong style="color:var(--amber)">' + escapeHtml(ordDateLabel(due)) + '</strong>. Today is ' + escapeHtml(ordDateLabel(ordLagosToday())) + '.';
+    document.getElementById('ed-reason').value = ''; document.getElementById('ed-err').textContent = '';
+    openModal('modal-early-dispatch');
+    return false;
+  }
+  showToast('🚫 Not due yet: ' + (o.customerName || 'this customer') + ' chose ' + ordDateLabel(due) + '. A waybill cannot be made before that day. Only the Owner can release it early.');
+  return false;
+}
+function earlyDispatchConfirm() {
+  const p = ORD_EARLY_PENDING; if(!p) return;
+  const reason = (document.getElementById('ed-reason').value || '').trim();
+  if(reason.length < 5) { document.getElementById('ed-err').textContent = 'Write why this order is going before the customer\'s day (at least a few words).'; return; }
+  const orders = loadOrders(), o = orders.find(x => x.ref === p.ref);
+  if(!o) { closeModal('modal-early-dispatch'); return; }
+  o.earlyDispatch = { by: 'Owner', reason, at: new Date().toISOString(), dueDate: p.due };
+  saveOrders(orders);
+  logWarn('orders', 'Early dispatch released — ' + (o.customerName || '') + ' · ' + o.ref, 'Customer chose ' + p.due + '. Reason: ' + reason);
+  closeModal('modal-early-dispatch');
+  ORD_EARLY_PENDING = null;
+  showToast('✓ Released for early dispatch. The reason is recorded on the order.');
+  if(typeof p.again === 'function') p.again();
+}
+
+// ── customer change requests (follow-ups) ──
+let ORD_FOLLOWUPS = [], FU = { id: null, msgDirty: false };
+async function ordFollowupsRefresh() {
+  const r = await ordMsgFetch('/followups/open');
+  if(!r || !r.ok) return false;
+  let l; try { l = await r.json(); } catch(e) { return false; }
+  if(!Array.isArray(l)) return false;
+  const before = ORD_FOLLOWUPS.map(f => f.id).join(','), after = l.map(f => f.id).join(',');
+  ORD_FOLLOWUPS = l;
+  ordFollowupPaint();
+  if(before !== after && window.currentModule === 'orders') { try { renderOrders(); } catch(e) {} if(typeof renderOrderMessages === 'function') renderOrderMessages(); }
+  return true;
+}
+function ordOpenFollowup(ref) { return ORD_FOLLOWUPS.find(f => f.orderRef === ref && f.status === 'open') || null; }
+function ordFollowupWhat(f) { return f && f.crates ? ((f.crates > 0 ? 'add ' : 'remove ') + Math.abs(f.crates) + ' crate' + (Math.abs(f.crates) === 1 ? '' : 's')) : 'change the number of crates'; }
+// Sync check from what the page already knows. true = clear to go.
+function ordFollowupClear(ref) {
+  const f = ordOpenFollowup(ref);
+  if(!f) return true;
+  showToast('📦 ' + ref + ' is on hold: the customer asked to ' + ordFollowupWhat(f) + '. Record what was done first.');
+  openFollowupModal(f.id);
+  return false;
+}
+// Asks the server first (so a request that arrived a moment ago is never missed), then runs ok().
+async function ordGuardFresh(ref, ok) {
+  await ordFollowupsRefresh();
+  if(ordFollowupClear(ref)) ok();
+}
+function ordFollowupPaint() {
+  const panel = document.getElementById('ord-followup-panel'), list = document.getElementById('ord-followup-list');
+  if(!panel || !list) return;
+  if(!ORD_FOLLOWUPS.length) { panel.style.display = 'none'; list.innerHTML = ''; return; }
+  panel.style.display = 'block';
+  const cnt = document.getElementById('ord-followup-count'); if(cnt) cnt.textContent = ORD_FOLLOWUPS.length + ' open';
+  list.innerHTML = ORD_FOLLOWUPS.map(f => {
+    const o = (loadOrders().find(x => x.ref === f.orderRef)) || {};
+    const when = new Date(f.openedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(240,160,40,0.15)"><div style="min-width:0"><div style="font-size:12px;color:var(--cream)">' + escapeHtml(o.customerName || 'Customer') + ' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + escapeHtml(f.orderRef) + (o.crates ? ' · now ' + o.crates + ' crates' : '') + '</span></div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">Wants to ' + escapeHtml(ordFollowupWhat(f)) + ' · ' + escapeHtml(when) + '</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--dust);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px">“' + escapeHtml(f.sourceText) + '”</div></div><button class="btn btn-primary" style="font-size:10px;padding:5px 12px" onclick="openFollowupModal(' + f.id + ')">Deal with it</button></div>';
+  }).join('');
+}
+// The strips shown on an order card: not due yet / change request open.
+function orderGateBanners(o) {
+  let h = '';
+  const f = ordOpenFollowup(o.ref);
+  if(f) h += '<div style="width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:rgba(240,160,40,0.10);border:1px solid rgba(240,160,40,0.4);border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">📦 ON HOLD: the customer asked to ' + escapeHtml(ordFollowupWhat(f)) + '. No waybill, Sales Log or closing until this is dealt with. <button class="btn btn-primary" style="font-size:10px;padding:3px 10px" onclick="openFollowupModal(' + f.id + ')">Deal with it</button></div>';
+  const due = orderNotDueYet(o);
+  if(due && ['pending', 'confirmed'].includes(o.status)) h += '<div style="width:100%;padding:8px 12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.3);border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--blue)">📅 Not due yet: the customer chose <strong>' + escapeHtml(ordDateLabel(due)) + '</strong>. A waybill cannot be made before then' + (typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner' ? ' (you can release it early with a reason)' : ' (only the Owner can release it early)') + '.</div>';
+  else if(o.earlyDispatch && ['pending', 'confirmed', 'in_transit'].includes(o.status)) h += '<div style="width:100%;padding:6px 12px;background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.25);border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:9.5px;color:var(--teal)">Released early by the Owner (customer chose ' + escapeHtml(o.earlyDispatch.dueDate) + '): ' + escapeHtml(o.earlyDispatch.reason) + '</div>';
+  return h;
+}
+function fuOutcome() { const r = document.querySelector('input[name="fu-out"]:checked'); return r ? r.value : ''; }
+function openFollowupModal(id) {
+  const f = ORD_FOLLOWUPS.find(x => x.id === id);
+  if(!f) { showToast('That request is already closed.'); return; }
+  const o = loadOrders().find(x => x.ref === f.orderRef);
+  if(!o) { showToast('⚠ Order not found on this device yet. Refresh and try again.'); return; }
+  FU = { id, msgDirty: false, ref: f.orderRef };
+  const gone = ['in_transit', 'fulfilled'].includes(o.status);
+  const already = f.orderCratesAtOpen !== null && Number(o.crates) !== Number(f.orderCratesAtOpen);
+  document.getElementById('fu-meta').innerHTML = '<strong style="color:var(--cream)">' + escapeHtml(o.customerName || 'Customer') + '</strong> · <span style="color:var(--blue)">' + escapeHtml(o.ref) + '</span> · ' + o.crates + ' crates · order ' + escapeHtml(o.status) + '<br><span style="color:var(--amber)">Customer wants to ' + escapeHtml(ordFollowupWhat(f)) + '.</span>';
+  document.getElementById('fu-words').textContent = '“' + (f.sourceText || '') + '”';
+  const sug = f.crates ? Math.max(1, Number(o.crates) + Number(f.crates)) : Number(o.crates);
+  document.getElementById('fu-newcrates').value = already ? o.crates : sug;
+  document.getElementById('fu-pin').value = ''; document.getElementById('fu-note').value = ''; document.getElementById('fu-err').textContent = '';
+  const radios = document.querySelectorAll('input[name="fu-out"]'); radios.forEach(r => { r.checked = false; });
+  const applied = document.querySelector('input[name="fu-out"][value="applied"]');
+  document.getElementById('fu-opt-applied').style.display = gone ? 'none' : 'flex';
+  (gone ? document.querySelector('input[name="fu-out"][value="new_order"]') : applied).checked = true;
+  document.getElementById('fu-pin-wrap').style.display = (typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner') ? 'none' : 'block';
+  fuChanged(true);
+  openModal('modal-followup');
+}
+function fuMsgTouched() { FU.msgDirty = true; }
+function fuPreview() {
+  const o = loadOrders().find(x => x.ref === FU.ref), f = ordOpenFollowup(FU.ref);
+  const box = document.getElementById('fu-preview'); if(!o || !f) return null;
+  const n = parseInt(document.getElementById('fu-newcrates').value, 10);
+  if(!Number.isInteger(n) || n < 1) { box.innerHTML = '<span style="color:var(--red)">Enter the new total number of crates.</span>'; return null; }
+  const price = o.lockedPrice || o.pricePerCrate || 0, d = n - Number(o.crates);
+  const grand = n * price + Math.round(((o.deliveryTotal || 0) / (o.crates || 1)) * n);
+  const extra = d > 0 ? d * price + Math.round(((o.deliveryTotal || 0) / (o.crates || 1)) * d) : 0;
+  const avail = d > 0 ? getAvailableStockForIncrease() : null;
+  if(d === 0) { box.innerHTML = Number(o.crates) !== Number(f.orderCratesAtOpen) ? '<span style="color:var(--teal)">The order already shows ' + o.crates + ' crates (changed since the request). Close it with the message below.</span>' : '<span style="color:var(--mist)">That is the same as now (' + o.crates + ' crates).</span>'; return { n, d, grand, extra }; }
+  if(d > 0 && d > avail) { box.innerHTML = '<span style="color:var(--red)">Only ' + avail + ' more crates are available in stock right now.</span>'; return null; }
+  box.innerHTML = (d > 0 ? 'Adding ' : 'Removing ') + Math.abs(d) + ': ' + o.crates + ' → <strong style="color:var(--cream)">' + n + ' crates</strong> at ₦' + Number(price).toLocaleString() + '/crate. New total payable <strong style="color:var(--lime)">₦' + grand.toLocaleString() + '</strong>.' + (d > 0 ? '<br>Stock available for the extra: ' + avail + ' crates.' : '') + (d > 0 && (o.paymentVerified || o.agreedPaymentTerms) ? '<br><span style="color:var(--amber)">If the customer has already paid for the original crates, the extra ₦' + extra.toLocaleString() + ' must still be collected before delivery.</span>' : '');
+  return { n, d, grand, extra };
+}
+function fuChanged(first) {
+  const out = fuOutcome(), o = loadOrders().find(x => x.ref === FU.ref), f = ordOpenFollowup(FU.ref);
+  if(!o || !f) return;
+  document.getElementById('fu-applied-box').style.display = out === 'applied' ? 'block' : 'none';
+  document.getElementById('fu-note-wrap').style.display = (out && out !== 'applied') ? 'block' : 'none';
+  document.getElementById('fu-msg-wrap').style.display = (out && out !== 'dismissed') ? 'block' : 'none';
+  document.getElementById('fu-note').placeholder = out === 'declined' ? 'Why it was declined (kept on record)' : out === 'new_order' ? 'Where it goes, e.g. "added to next Wednesday run"' : 'Why this is not a crates change';
+  const p = out === 'applied' ? fuPreview() : null;
+  if(FU.msgDirty && !first) return;
+  let m = '';
+  const price = o.lockedPrice || o.pricePerCrate || 0;
+  if(out === 'applied' && p) m = p.d === 0 ? 'Your order ' + o.ref + ' now stands at ' + o.crates + ' crates.' : 'We have updated your order ' + o.ref + ' to ' + p.n + ' crates (' + (p.d > 0 ? '+' : '') + p.d + '). Your new total is ₦' + p.grand.toLocaleString() + '.' + (p.d > 0 && (o.paymentVerified || o.agreedPaymentTerms) ? ' The extra ₦' + p.extra.toLocaleString() + ' is due before delivery.' : '');
+  else if(out === 'new_order') m = 'We could not add the extra crates to order ' + o.ref + '. Please place them on a new order on our portal for the next delivery day and we will look after it.';
+  else if(out === 'declined') m = 'Sorry, we are not able to change the crates on order ' + o.ref + '. Please message us on WhatsApp if you would like to talk it through.';
+  document.getElementById('fu-msg').value = m;
+  FU.msgDirty = false;
+}
+async function fuSubmit() {
+  const err = document.getElementById('fu-err'), btn = document.getElementById('fu-submit');
+  err.textContent = '';
+  const out = fuOutcome();
+  const orders = loadOrders(), o = orders.find(x => x.ref === FU.ref), f = ordOpenFollowup(FU.ref);
+  if(!o || !f) { err.textContent = 'This request is no longer open.'; return; }
+  if(!out) { err.textContent = 'Choose what was done.'; return; }
+  const note = (document.getElementById('fu-note').value || '').trim();
+  const message = (document.getElementById('fu-msg').value || '').trim();
+  if(out !== 'applied' && !note) { err.textContent = 'Write a short note on what was decided.'; return; }
+  if(out !== 'dismissed' && message.length < 3) { err.textContent = 'Write the message to the customer: they must be told.'; return; }
+  btn.disabled = true;
+  try {
+    if(out === 'applied') {
+      const p = fuPreview();
+      if(!p) { err.textContent = 'Fix the crates number first.'; return; }
+      const changed = Number(o.crates) !== Number(f.orderCratesAtOpen);
+      if(!changed) {
+        if(p.d === 0) { err.textContent = 'That is the same number of crates as now. Enter the new total.'; return; }
+        if(!(typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner')) {
+          const pin = document.getElementById('fu-pin').value;
+          if(!pin) { err.textContent = 'Enter the Owner PIN to change the crates.'; return; }
+          const pr = await verifyPin(pin);
+          if(!pr.ok) { err.textContent = pr.reason === 'locked' ? 'PIN locked for ' + pr.mins + ' more minute(s).' : 'Incorrect PIN. ' + pr.remaining + ' attempt(s) remaining.'; return; }
+        }
+        const old = { crates: o.crates, eggSubtotal: o.eggSubtotal, deliveryTotal: o.deliveryTotal, grandTotal: o.grandTotal };
+        const price = o.lockedPrice || o.pricePerCrate || 0, perDel = (o.deliveryTotal || 0) / (o.crates || 1);
+        const token = await erpGetAuthToken();
+        let ok = false, why = '';
+        try {
+          const r = await fetch(BACKEND_URL + '/orders/' + encodeURIComponent(o.ref), { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ crates: p.n }) });
+          ok = r.ok; if(!ok) { try { why = (await r.json()).error || ''; } catch(e) {} }
+        } catch(e) { why = 'Could not reach the server.'; }
+        if(!ok) { err.textContent = why || 'The server did not accept the change. Nothing was changed.'; return; }
+        o.crates = p.n; o.eggSubtotal = p.n * price; o.deliveryTotal = Math.round(perDel * p.n); o.grandTotal = o.eggSubtotal + o.deliveryTotal;
+        o.volumeAdjustmentLog = o.volumeAdjustmentLog || [];
+        o.volumeAdjustmentLog.push({ from: old.crates, to: p.n, delta: p.d, adjustedBy: (typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner') ? 'owner' : 'staff (PIN)', reason: 'Customer message: ' + (f.sourceText || '').slice(0, 120), at: new Date().toISOString() });
+        saveOrders(orders);
+        logOk('orders', 'Crates changed after order — ' + (o.customerName || '') + ' · ' + o.ref, old.crates + ' → ' + p.n + ' crates (' + (p.d > 0 ? '+' : '') + p.d + ')');
+      }
+    }
+    const r = await ordMsgFetch('/followups/' + FU.id + '/resolve', { method: 'POST', body: JSON.stringify({ outcome: out, note, message }) });
+    if(!r) { err.textContent = 'Could not reach the server. If the crates were already changed, open this again and close it.'; return; }
+    if(!r.ok) { let m = 'Could not close the request.'; try { m = (await r.json()).error || m; } catch(e) {} err.textContent = m; return; }
+    closeModal('modal-followup');
+    showToast('✓ Done' + (out === 'dismissed' ? '' : ': the customer has been told') + '. The order is released.');
+    await ordFollowupsRefresh();
+    try { renderOrders(); } catch(e) {}
+    syncOrderMessagesFromBackend();
+  } finally { btn.disabled = false; }
+}
+// Staff flag a conversation (or a phone call) as a crates change
+async function ordFlagVolume() {
+  if(!ordMsgOpenRef) return;
+  const n = parseInt(document.getElementById('ordmsg-flag-n').value, 10);
+  const last = ordMsgLastCustomer || '';
+  const r = await ordMsgFetch('/' + encodeURIComponent(ordMsgOpenRef) + '/followup', { method: 'POST', body: JSON.stringify({ crates: Number.isFinite(n) ? n : null, text: last || 'Flagged by staff' }) });
+  if(r && r.ok) { await ordFollowupsRefresh(); showToast('📦 Order is now on hold until this is dealt with.'); const f = ordOpenFollowup(ordMsgOpenRef); closeOrderMessage(); if(f) openFollowupModal(f.id); }
+  else { let m = 'Could not flag it.'; if(r) { try { m = (await r.json()).error || m; } catch(e) {} } document.getElementById('ordmsg-err').textContent = m; }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -26842,7 +27151,7 @@ async function erpAlertsResume() {
    confirmed), cash and stock handover, issues, LOOKAHEAD (tomorrow's plan) and anything else.
    On time before 6:00 PM, late until 6:30 PM. The Owner reads the roll-up (Daily Reports).
 ═══════════════════════════════════════════════════════ */
-let EOD = { me: null, roll: null };
+let EOD = { me: null, roll: null, draft: null, dirty: false, open: false };
 async function eodFetch(path, opts) {
   const token = await erpGetAuthToken();
   if(!token) return null;
@@ -26897,6 +27206,7 @@ async function eodLoadMe() {
   } else {
     btn.textContent = '📝 End-of-Day report: due by 6:00 PM'; btn.style.color = 'var(--amber)';
     note.textContent = 'File it before 6:00 PM to be on time. The ERP closes for you at 6:30 PM.';
+    if(me.draft) { const n = (me.draft.issueLog || []).length; note.textContent = 'Draft saved at ' + eodTime(me.draft.updatedAt) + (n ? ' with ' + n + ' issue' + (n === 1 ? '' : 's') + ' logged' : '') + '. ' + note.textContent; }
   }
 }
 
@@ -26908,19 +27218,29 @@ async function eodFigures(day) {
   const mine = who => !rep || who === rep.name;          // a login with no rep record (the manager) sees every sale
   const lagosDay = iso => { const t = Date.parse(iso); return isNaN(t) ? '' : new Date(t + 3600000).toISOString().slice(0, 10); };
   const sales = ((typeof STATE !== 'undefined' && STATE.sales) || []).filter(x => String(x.date || '').slice(0, 10) === day && mine(x.rep));
-  const pays = ((typeof STATE !== 'undefined' && STATE.settlementLog) || []).filter(e => !e.reversedAt && lagosDay(e.at) === day && mine(e.by) && Number(e.amount) > 0 && !/^wallet/.test(String(e.method || '')));
+  // Oct 13 2026 fix — payments were matched only on the NAME written on the payment entry, which can differ from the
+  // rep on the sale (a ₦146,275 transfer recorded under another name showed as 0 payments). A payment now counts for
+  // this person if the entry carries their name OR it was made against one of their sales, whichever day that sale was.
+  const allMine = ((typeof STATE !== 'undefined' && STATE.sales) || []).filter(x => mine(x.rep));
+  const myKeys = new Set(); allMine.forEach(x => { if(x.inv) myKeys.add(x.inv); if(x.id) myKeys.add(x.id); });
+  const pays = ((typeof STATE !== 'undefined' && STATE.settlementLog) || []).filter(e => !e.reversedAt && e.action !== 'reversed' && lagosDay(e.at) === day && Number(e.amount) > 0 && !/^wallet/.test(String(e.method || '')) && (mine(e.by) || myKeys.has(e.saleRef) || myKeys.has(e.saleId)));
+  let owed = 0; try { owed = sales.reduce((a, x) => a + (Number(getRemainingBalance(x)) || 0), 0); } catch(e) {}
   let openOrders = 0; try { openOrders = loadOrders().filter(o => ['pending', 'confirmed'].includes(o.status)).length; } catch(e) {}
-  const unread = (typeof ordMsgInbox !== 'undefined' ? ordMsgInbox : []).reduce((a, t) => a + (t.unread || 0), 0);
+  const inbox = (typeof ordMsgInbox !== 'undefined' ? ordMsgInbox : []);
+  const unread = inbox.reduce((a, t) => a + (t.unread || 0), 0);
+  const awaiting = inbox.filter(t => t.lastDirection === 'customer').length;
   return {
     salesCount: sales.length, cratesSold: sales.reduce((a, x) => a + (Number(x.crates) || 0), 0), salesValue: sales.reduce((a, x) => a + (Number(x.gross) || 0), 0),
     paymentsCount: pays.length, paymentsTotal: pays.reduce((a, e) => a + (Number(e.amount) || 0), 0),
-    openOrders, unreadMessages: unread,
+    owedToday: owed,
+    openOrders, unreadMessages: unread, awaitingReply: awaiting,
   };
 }
-const EOD_FIG_ROWS = [['salesCount', 'Sales logged', n => n], ['cratesSold', 'Crates sold', n => n.toLocaleString()], ['salesValue', 'Sales value', n => fmt(n)],
-  ['paymentsCount', 'Payments recorded', n => n], ['paymentsTotal', 'Payments total', n => fmt(n)], ['openOrders', 'Orders still open (all EggScore)', n => n], ['unreadMessages', 'Customer messages unread (all EggScore)', n => n]];
+const EOD_FIG_ROWS = [['salesCount', 'Sales logged', n => n], ['cratesSold', 'Crates sold', n => n.toLocaleString()], ['salesValue', 'Sales value (invoiced today)', n => fmt(n)],
+  ['paymentsCount', 'Payments recorded today', n => n], ['paymentsTotal', 'Money received today', n => fmt(n)], ['owedToday', 'Still owed on today\'s sales', n => fmt(n)], ['openOrders', 'Orders still open (all EggScore)', n => n],
+  ['unreadMessages', 'Customer messages unread (all EggScore)', n => n], ['awaitingReply', 'Customer messages awaiting a reply (all EggScore)', n => n]];
 function eodFigHtml(f) {
-  return EOD_FIG_ROWS.map(([k, label, fn]) => '<div style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(label) + '</div><div style="font-size:15px;font-weight:700;color:var(--cream)">' + eodEsc(fn(Number((f || {})[k]) || 0)) + '</div></div>').join('');
+  return EOD_FIG_ROWS.filter(([k]) => !f || f[k] !== undefined || !['owedToday', 'awaitingReply'].includes(k)).map(([k, label, fn]) => '<div style="background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:8px 10px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(label) + '</div><div style="font-size:15px;font-weight:700;color:var(--cream)">' + eodEsc(fn(Number((f || {})[k]) || 0)) + '</div></div>').join('');
 }
 function eodCashChanged() { document.getElementById('eod-cashnote-wrap').style.display = document.getElementById('eod-cash').value === 'no' ? 'block' : 'none'; }
 let eodCurrentFigures = null;
@@ -26934,7 +27254,9 @@ async function eodOpen() {
   const day = me ? me.day : new Date(Date.now() + 3600000).toISOString().slice(0, 10);
   eodCurrentFigures = await eodFigures(day);
   document.getElementById('eod-figures').innerHTML = eodFigHtml(eodCurrentFigures);
-  const d = me && me.report && me.report.data ? me.report.data : null;
+  const filedNow = !!(me && me.filed);
+  const d = me && me.report && me.report.data ? me.report.data : (me && me.draft ? me.draft : null);
+  EOD.draft = filedNow ? null : (me && me.draft) || null;
   document.getElementById('eod-accurate').checked = false;
   document.getElementById('eod-cash').value = d ? d.cashHandover || '' : '';
   document.getElementById('eod-cashnote').value = d ? d.cashNote || '' : '';
@@ -26944,10 +27266,79 @@ async function eodOpen() {
   document.getElementById('eod-lookahead').value = d ? d.lookahead || '' : '';
   document.getElementById('eod-other').value = d ? d.other || '' : '';
   eodCashChanged();
+  eodPaintLog();
+  eodDraftNote(EOD.draft ? 'Draft saved at ' + eodTime(EOD.draft.updatedAt) + '.' : '');
+  EOD.dirty = false; EOD.open = true;
+  document.getElementById('eod-draft-btn').style.display = filedNow ? 'none' : '';
+  document.getElementById('eod-issue-actions').style.display = filedNow ? 'none' : 'flex';
   if(me && me.filed) { st.textContent = 'Filed at ' + eodTime(me.report.firstSubmittedAt) + ' (' + (EOD_LABEL[me.report.status] || '').toLowerCase() + '). You can update it until you are signed out. Tick the accuracy box again to resubmit.'; btn.textContent = 'Update report'; }
   else { st.textContent = 'One report per working day. Before 6:00 PM it counts as on time; between 6:00 and 6:30 PM it counts as late.'; btn.textContent = 'File report'; }
   openModal('modal-eod');
 }
+// ── Oct 13 2026 — save as you go ──
+// "Save this issue now" writes one timestamped issue to the server at once. "Save draft" keeps the rest of
+// the form. The form also saves itself a moment after you stop typing. None of it needs the required fields
+// and none of it counts as filing: on time or late is still decided by the final "File report".
+function eodDraftNote(t) { const el = document.getElementById('eod-draftnote'); if(el) el.textContent = t || ''; }
+function eodFormBody() {
+  return {
+    cashHandover: document.getElementById('eod-cash').value,
+    cashNote: document.getElementById('eod-cashnote').value,
+    damagedCrates: Number(document.getElementById('eod-damaged').value) || 0,
+    noIssues: document.getElementById('eod-noissues').checked,
+    issues: document.getElementById('eod-issues').value,
+    lookahead: document.getElementById('eod-lookahead').value,
+    other: document.getElementById('eod-other').value,
+  };
+}
+function eodPaintLog() {
+  const box = document.getElementById('eod-issuelog'); if(!box) return;
+  const log = (EOD.draft && EOD.draft.issueLog) || [];
+  if(!log.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--teal);margin-bottom:4px">LOGGED TODAY (' + log.length + ')</div>' + log.map(e =>
+    '<div style="display:flex;gap:8px;align-items:flex-start;padding:5px 8px;margin-bottom:4px;background:var(--raised);border:1px solid var(--border);border-radius:6px"><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--teal);white-space:nowrap">' + eodEsc(eodTime(e.at)) + '</span><span style="flex:1;font-size:12px;color:var(--dust);white-space:pre-wrap">' + eodEsc(e.text) + '</span><button class="btn btn-ghost" style="font-size:10px;padding:0 6px" title="Remove this entry" onclick="eodRemoveIssue(\'' + eodEsc(e.id) + '\')">✕</button></div>').join('');
+  document.getElementById('eod-noissues').checked = false;
+}
+async function eodSaveIssue() {
+  const ta = document.getElementById('eod-issues'), err = document.getElementById('eod-err'), btn = document.getElementById('eod-issue-save');
+  const text = (ta.value || '').trim(); err.textContent = '';
+  if(!text) { err.textContent = 'Type the issue in the box first, then save it.'; return; }
+  btn.disabled = true;
+  const r = await eodFetch('/me/issue', { method: 'POST', body: JSON.stringify({ text }) });
+  btn.disabled = false;
+  if(!r) { err.textContent = 'Could not reach the server. Your words are still in the box; try again.'; return; }
+  let j = null; try { j = await r.json(); } catch(e) {}
+  if(!r.ok) { err.textContent = (j && j.error) || 'Could not save the issue.'; return; }
+  ta.value = ''; EOD.draft = j.draft; eodPaintLog();
+  eodDraftNote('Issue saved at ' + eodTime(new Date().toISOString()) + '.');
+  showToast('✓ Issue saved with the time. The Owner can read it.');
+}
+async function eodRemoveIssue(id) {
+  const r = await eodFetch('/me/issue/' + encodeURIComponent(id), { method: 'DELETE' });
+  if(r && r.ok) { try { EOD.draft = (await r.json()).draft; } catch(e) {} eodPaintLog(); }
+  else showToast('Could not remove that entry.');
+}
+async function eodSaveDraft(quiet) {
+  if(!EOD.open || (EOD.me && EOD.me.filed)) return;
+  const err = document.getElementById('eod-err');
+  const r = await eodFetch('/me/draft', { method: 'PUT', body: JSON.stringify(eodFormBody()) });
+  if(!r || !r.ok) { if(!quiet) err.textContent = 'Could not save the draft. Check your connection.'; return; }
+  try { EOD.draft = (await r.json()).draft; } catch(e) {}
+  EOD.dirty = false;
+  eodDraftNote('Draft saved at ' + eodTime(new Date().toISOString()) + '.');
+  if(!quiet) showToast('✓ Draft saved.');
+}
+function eodClose() { if(EOD.dirty) eodSaveDraft(true); EOD.open = false; closeModal('modal-eod'); }
+(function() {
+  let t = null;
+  document.addEventListener('input', ev => {
+    const id = ev.target && ev.target.id;
+    if(!EOD.open || !id || id.indexOf('eod-') !== 0 || id === 'eod-accurate') return;
+    EOD.dirty = true; clearTimeout(t);
+    t = setTimeout(() => { if(EOD.dirty) eodSaveDraft(true); }, 2500);
+  });
+})();
 async function eodSubmit() {
   const err = document.getElementById('eod-err'), btn = document.getElementById('eod-submit');
   err.textContent = '';
@@ -26968,6 +27359,7 @@ async function eodSubmit() {
   if(!r) { err.textContent = 'Could not reach the server. Check your connection and try again.'; return; }
   let j = null; try { j = await r.json(); } catch(e) {}
   if(!r.ok) { err.textContent = (j && j.error) || 'Could not save the report.'; return; }
+  EOD.open = false; EOD.dirty = false; EOD.draft = null;
   closeModal('modal-eod');
   showToast('✓ End-of-Day report ' + (r.status === 201 ? 'filed' : 'updated') + ' (' + (EOD_LABEL[j.report.status] || '').toLowerCase() + ').');
   await eodLoadMe();
@@ -26991,17 +27383,28 @@ async function eodRollLoad(first) {
   sum.textContent = c.filed + ' of ' + c.expected + ' filed' + (c.late ? ' · ' + c.late + ' late' : '') + (c.missing ? ' · ' + c.missing + ' missing' : '') + (c.pending ? ' · ' + c.pending + ' not yet filed' : '') + (c.excused ? ' · ' + c.excused + ' excused' : '') + (d.attendance && d.attendance.lateArrivals ? ' · ' + d.attendance.lateArrivals + ' late arrival' + (d.attendance.lateArrivals === 1 ? '' : 's') : '');
   if(!d.rows.length) { list.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No staff reports expected.</div>'; return; }
   list.innerHTML = d.rows.map((x, i) => {
-    const chip = '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:' + EOD_COLOR[x.status] + ';border:1px solid ' + EOD_COLOR[x.status] + ';border-radius:10px;padding:1px 8px">' + EOD_LABEL[x.status] + (x.firstSubmittedAt ? ' · ' + eodTime(x.firstSubmittedAt) : '') + '</span>';
+    let chip = '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:' + EOD_COLOR[x.status] + ';border:1px solid ' + EOD_COLOR[x.status] + ';border-radius:10px;padding:1px 8px">' + EOD_LABEL[x.status] + (x.firstSubmittedAt ? ' · ' + eodTime(x.firstSubmittedAt) : '') + '</span>';
     let act = '';
     if(x.status === 'missing' || x.status === 'pending') act = '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();eodExcuse(\'' + eodEsc(x.email) + '\')">Excuse</button>';
     if(x.status === 'excused' && x.id) act = '<button class="btn btn-ghost" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();eodUnexcuse(' + x.id + ')">Undo</button>';
-    const head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:' + (x.data && x.data.figures ? 'pointer' : 'default') + '" ' + (x.data && x.data.figures ? 'onclick="eodRollToggle(' + i + ')"' : '') + '><div><div style="font-weight:600;color:var(--cream)">' + eodEsc(x.name) + '</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(x.email) + '</div>' + eodAttHtml(x.attendance, d.closed) + '</div><div style="display:flex;gap:8px;align-items:center">' + chip + act + '</div></div>';
+    const hasMore = !!((x.data && x.data.figures) || x.draft);
+    const nIss = x.draft && x.draft.issueLog ? x.draft.issueLog.length : 0;
+    if(x.draft) chip = '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber);border:1px solid var(--amber);border-radius:10px;padding:1px 8px" title="Saved but not filed">Draft' + (nIss ? ' · ' + nIss + ' issue' + (nIss === 1 ? '' : 's') : '') + '</span> ' + chip;
+    const head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:' + (hasMore ? 'pointer' : 'default') + '" ' + (hasMore ? 'onclick="eodRollToggle(' + i + ')"' : '') + '><div><div style="font-weight:600;color:var(--cream)">' + eodEsc(x.name) + '</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + eodEsc(x.email) + '</div>' + eodAttHtml(x.attendance, d.closed) + '</div><div style="display:flex;gap:8px;align-items:center">' + chip + act + '</div></div>';
     return head + '<div id="eodr-d-' + i + '" style="display:none;padding:8px 0 12px 0">' + eodRollDetail(x) + '</div>';
   }).join('');
 }
 function eodRollToggle(i) { const el = document.getElementById('eodr-d-' + i); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
+function eodDraftDetail(dr) {
+  const blk = (title, text, color) => text ? '<div style="margin-top:8px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:' + (color || 'var(--mist)') + '">' + title + '</div><div style="font-size:12px;color:var(--dust);white-space:pre-wrap">' + eodEsc(text) + '</div></div>' : '';
+  const log = (dr.issueLog || []).map(e => '[' + eodTime(e.at) + '] ' + e.text).join('\n');
+  return '<div style="border:1px dashed var(--amber);border-radius:8px;padding:8px 10px"><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">DRAFT: saved at ' + eodEsc(eodTime(dr.updatedAt)) + ', not filed</div>'
+    + blk('ISSUES LOGGED DURING THE DAY', log, 'var(--amber)') + blk('ISSUES (typed, not logged)', dr.issues) + blk('LOOKAHEAD', dr.lookahead, 'var(--teal)') + blk('ANYTHING ELSE', dr.other)
+    + blk('CASH', { yes: 'Handed over or banked', no: 'Still with the staff member', none: 'Nothing collected' }[dr.cashHandover] ? ({ yes: 'Handed over or banked', no: 'Still with the staff member', none: 'Nothing collected' }[dr.cashHandover] + (dr.cashNote ? ': ' + dr.cashNote : '')) : '') + '</div>';
+}
 function eodRollDetail(x) {
   const d = x.data || {};
+  if(x.draft && !d.figures) return eodDraftDetail(x.draft);
   if(!d.figures) return d.excusedNote ? '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">Excused: ' + eodEsc(d.excusedNote) + '</div>' : '';
   const block = (title, text, color) => text ? '<div style="margin-top:8px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:' + (color || 'var(--mist)') + '">' + title + '</div><div style="font-size:12px;color:var(--dust);white-space:pre-wrap">' + eodEsc(text) + '</div></div>' : '';
   const cash = { yes: 'Cash and transfers handed over or banked', no: 'Cash still with the staff member', none: 'Nothing collected' }[d.cashHandover] || '';
@@ -27064,6 +27467,17 @@ function volAgg(sales, keyFn, range) {
 }
 const volPct = (a, b) => (b > 0 ? (a - b) / b * 100 : null);
 const volPctTxt = p => p === null ? 'new' : (p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+// Oct 13 2026 — the change figures shown as a picture: coloured arrow, the percentage, and a small bar
+// whose length is the size of the move (full bar = 100% or more). Green up, red down, grey level, "new"
+// when there was nothing in the period before.
+function volDelta(p) {
+  if(p === null) return '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">● new</span>';
+  const flat = Math.abs(p) < 0.05, up = p > 0;
+  const col = flat ? 'var(--mist)' : (up ? 'var(--teal)' : 'var(--red)');
+  const arrow = flat ? '■' : (up ? '▲' : '▼');
+  const w = flat ? 0 : Math.max(3, Math.min(100, Math.abs(p))) * 0.56;
+  return '<span style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:' + col + '"><span style="font-size:10px">' + arrow + '</span><span style="min-width:50px">' + volPctTxt(p) + '</span><span style="display:inline-block;width:56px;height:6px;background:rgba(128,140,160,0.18);border-radius:3px;overflow:hidden"><span style="display:block;height:6px;width:' + w + 'px;background:' + col + ';border-radius:3px"></span></span></span>';
+}
 // Rows for one breakdown: every name seen in either period.
 function volRows(sales, keyFn, ranges) {
   const a = volAgg(sales, keyFn, ranges.cur), b = volAgg(sales, keyFn, ranges.prev);
@@ -27080,7 +27494,7 @@ function volTable(rows, noun) {
   if(!rows.length) return '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No sales in these periods.</div>';
   const col = v => v === null ? 'var(--mist)' : (v > 0 ? 'var(--teal)' : (v < 0 ? 'var(--red)' : 'var(--dust)'));
   return '<table class="data-table"><thead><tr><th>' + noun + '</th><th>Crates</th><th>Before</th><th>Change</th><th>₦/crate</th><th>Before</th><th>Revenue</th><th>Change</th><th></th></tr></thead><tbody>' +
-    rows.map(r => '<tr><td style="color:var(--cream);font-weight:600">' + escapeHtml(r.name) + '</td><td>' + r.crates.toLocaleString() + '</td><td>' + r.pCrates.toLocaleString() + '</td><td style="color:' + col(r.dCrates) + '">' + volPctTxt(r.dCrates) + '</td><td>' + (r.crates ? fmt(r.price) : '—') + '</td><td>' + (r.pCrates ? fmt(r.pPrice) : '—') + '</td><td>' + fmt(r.rev) + '</td><td style="color:' + col(r.dRev) + '">' + volPctTxt(r.dRev) + '</td><td>' + (r.priceDriven ? '<span class="badge" style="background:rgba(240,160,40,0.15);color:var(--amber)" title="Naira went up while crates went down: price, not real growth">⚠ price-driven</span>' : '') + '</td></tr>').join('') + '</tbody></table>';
+    rows.map(r => '<tr><td style="color:var(--cream);font-weight:600">' + escapeHtml(r.name) + '</td><td>' + r.crates.toLocaleString() + '</td><td>' + r.pCrates.toLocaleString() + '</td><td>' + volDelta(r.dCrates) + '</td><td>' + (r.crates ? fmt(r.price) : '—') + '</td><td>' + (r.pCrates ? fmt(r.pPrice) : '—') + '</td><td>' + fmt(r.rev) + '</td><td>' + volDelta(r.dRev) + '</td><td>' + (r.priceDriven ? '<span class="badge" style="background:rgba(240,160,40,0.15);color:var(--amber)" title="Naira went up while crates went down: price, not real growth">⚠ price-driven</span>' : '') + '</td></tr>').join('') + '</tbody></table>';
 }
 function volHistory(sales, todayYmd) {
   const months = [...new Set(sales.map(x => volMonthKey(x.date)).filter(m => /^\d{4}-\d{2}$/.test(m)))].sort().reverse().slice(0, 12);
@@ -27102,7 +27516,7 @@ function renderVolTracker() {
   document.getElementById('vt-range').textContent = rg.cur.from + ' to ' + rg.cur.to + '  compared with  ' + rg.prev.from + ' to ' + rg.prev.to + (rg.partial ? '  (same number of days)' : '');
   const tot = (r) => { let c = 0, v = 0; const cu = new Set(); sales.filter(x => x.date >= r.from && x.date <= r.to).forEach(x => { c += Number(x.crates) || 0; v += Number(x.gross) || 0; cu.add(x.customer); }); return { crates: c, rev: v, cust: cu.size, price: c ? v / c : 0 }; };
   const a = tot(rg.cur), b = tot(rg.prev);
-  const sub = (cur, prev, f) => { const p = volPct(cur, prev); return p === null ? 'before: ' + f(prev) : volPctTxt(p) + ' vs ' + f(prev); };
+  const sub = (cur, prev, f) => { const p = volPct(cur, prev); return p === null ? 'before: ' + f(prev) : (Math.abs(p) < 0.05 ? '■ ' : p > 0 ? '▲ ' : '▼ ') + volPctTxt(p) + ' vs ' + f(prev); };
   document.getElementById('vt-k-crates').textContent = a.crates.toLocaleString();
   document.getElementById('vt-k-crates-sub').textContent = sub(a.crates, b.crates, n => n.toLocaleString());
   document.getElementById('vt-k-price').textContent = a.crates ? fmt(a.price) : '—';
@@ -27126,7 +27540,7 @@ function renderVolTracker() {
   document.getElementById('vt-rep').innerHTML = volTable(volRows(sales, x => x.rep, rg), 'Sales Rep');
   document.getElementById('vt-zone').innerHTML = volTable(volRows(sales, x => (x.repZone && x.repZone !== '—') ? x.repZone : 'No zone recorded', rg), 'Zone');
   const h = volHistory(sales, today);
-  document.getElementById('vt-hist').innerHTML = h.length ? '<table class="data-table"><thead><tr><th>Month</th><th>Crates</th><th>Change</th><th>₦/crate</th><th>Egg revenue</th><th>Change</th><th></th></tr></thead><tbody>' + h.map(r => '<tr><td style="color:var(--cream);font-weight:600">' + volMonthName(r.month) + (r.partial ? ' (so far)' : '') + '</td><td>' + r.crates.toLocaleString() + '</td><td>' + volPctTxt(r.dCrates) + '</td><td>' + (r.crates ? fmt(r.price) : '—') + '</td><td>' + fmt(r.rev) + '</td><td>' + volPctTxt(r.dRev) + '</td><td>' + (r.priceDriven ? '<span class="badge" style="background:rgba(240,160,40,0.15);color:var(--amber)">⚠ price-driven</span>' : '') + '</td></tr>').join('') + '</tbody></table><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);margin-top:6px">The current month is part-way through, so its change against a whole month is not a fair comparison; use the top of this page for that.</div>' : 'No sales recorded yet.';
+  document.getElementById('vt-hist').innerHTML = h.length ? '<table class="data-table"><thead><tr><th>Month</th><th>Crates</th><th>Change</th><th>₦/crate</th><th>Egg revenue</th><th>Change</th><th></th></tr></thead><tbody>' + h.map(r => '<tr><td style="color:var(--cream);font-weight:600">' + volMonthName(r.month) + (r.partial ? ' (so far)' : '') + '</td><td>' + r.crates.toLocaleString() + '</td><td>' + volDelta(r.dCrates) + '</td><td>' + (r.crates ? fmt(r.price) : '—') + '</td><td>' + fmt(r.rev) + '</td><td>' + volDelta(r.dRev) + '</td><td>' + (r.priceDriven ? '<span class="badge" style="background:rgba(240,160,40,0.15);color:var(--amber)">⚠ price-driven</span>' : '') + '</td></tr>').join('') + '</tbody></table><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);margin-top:6px">The current month is part-way through, so its change against a whole month is not a fair comparison; use the top of this page for that.</div>' : 'No sales recorded yet.';
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -28129,6 +28543,7 @@ function buildOrderCard(o, queueNum) {
       </span>
     </div>
     ` : ''}
+    ${orderGateBanners(o)}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       ${isPending ? `
         <button class="btn btn-primary" style="font-size:10px${!o.agreedPaymentTerms ? ';opacity:0.4;cursor:not-allowed' : ''}"
@@ -29449,6 +29864,10 @@ function generateWaybill(orderRef, opts) {
   if(!o) { showToast('⚠ Order not found.'); return; }
   if(o.status !== 'confirmed' && o.status !== 'pending') { showToast('⚠ Only pending or confirmed orders can be given a waybill.'); return; }
   if(!checkOrderPaymentVerified(orderRef, o)) return;
+  // Oct 13 2026 — two hard gates that no longer depend on anyone remembering: an open customer change request
+  // (crates to add or remove), and the delivery day the customer chose. See "ORDER HOLDS" above.
+  if(!ordFollowupClear(orderRef)) return;
+  if(!checkOrderDeliveryDate(orderRef, o, () => generateWaybill(orderRef, opts))) return;
 
   // Sep 29 2026 fix — Generate Waybill had no check for agreedPaymentTerms,
   // unlike Send to Sales Log's hard gate. That let goods dispatch with no
@@ -29573,6 +29992,9 @@ function generateClusterWaybill(orderRefs, opts) {
   if(badStatus) { showToast(`⚠ ${badStatus.ref} is not pending/confirmed — only those can be given a waybill.`); return false; }
   for(const o of group) {
     if(!checkOrderPaymentVerified(o.ref, o)) return false; // stops at the first stop needing verification, same gate as a single waybill
+    // Oct 13 2026 — same two gates as a single waybill (open change request; the customer's chosen day)
+    if(!ordFollowupClear(o.ref)) return false;
+    if(!checkOrderDeliveryDate(o.ref, o, () => generateClusterWaybill(orderRefs, opts))) return false;
   }
   // Sep 29 2026 fix — same Payment Terms gate as generateWaybill()'s single-
   // order path; this cluster path was missing it entirely.
@@ -30824,11 +31246,20 @@ function renderWaybillLog() {
   }).join('');
 }
 
-function openGenerateWaybillModal(orderRef) {
+function openGenerateWaybillModal(orderRef, _checked) {
   const orders = loadOrders();
   const o = orders.find(x => x.ref === orderRef);
   if(!o) { showToast('⚠ Order not found.'); return; }
   if(o.status !== 'confirmed' && o.status !== 'pending') { showToast('⚠ Only pending or confirmed orders can be given a waybill.'); return; }
+  // Oct 13 2026 — stopped here, before any typing, if the customer has an open change request or has not yet
+  // reached the delivery day they chose. The server is asked first so a request from a minute ago is not missed.
+  if(!_checked) {
+    ordGuardFresh(orderRef, () => {
+      const o2 = loadOrders().find(x => x.ref === orderRef) || o;
+      if(checkOrderDeliveryDate(orderRef, o2, () => openGenerateWaybillModal(orderRef, true))) openGenerateWaybillModal(orderRef, true);
+    });
+    return;
+  }
 
   document.getElementById('wb-order-ref').value = orderRef;
   document.getElementById('wb-order-summary').innerHTML =
@@ -33599,6 +34030,9 @@ function fulfillOrder(ref) {
     return;
   }
 
+  // ── Guard 1c (Oct 13 2026): an open customer change request holds the order — it cannot be closed ──
+  if(!ordFollowupClear(ref)) return;
+
   // ── Guard 2: duplicate inv log entry for same ref within last 60 seconds ──
   const recentDupe = STATE.invLog.find(l =>
     l.ref === ref &&
@@ -33706,6 +34140,10 @@ async function sendToSalesLog(orderRef) {
     showToast(`🚫 Order ${orderRef} was ${o.status} (${o.cancelReasonLabel || 'no reason recorded'}) — cannot send to Sales Log.`);
     return;
   }
+
+  // Oct 13 2026 — an open customer change request holds the order here too (asks the server first)
+  await ordFollowupsRefresh();
+  if(!ordFollowupClear(orderRef)) return;
 
   // ── Hard payment verification gate — same check generateWaybill() uses ──
   if(!checkOrderPaymentVerified(orderRef, o)) return;

@@ -57,8 +57,9 @@ async function expectedStaff() {
 // ── report body: validate and trim ──
 const num = (v, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(Math.max(0, Math.round(n)), max) : 0; };
 const txt = (v, max) => String(v == null ? '' : v).replace(/\r\n/g, '\n').trim().slice(0, max);
-function cleanReport(b) {
+function cleanReport(b, issueLog) {
   b = b || {};
+  issueLog = Array.isArray(issueLog) ? issueLog : [];
   const f = b.figures || {};
   const data = {
     v: 1,
@@ -66,13 +67,15 @@ function cleanReport(b) {
       salesCount: num(f.salesCount, 100000), cratesSold: num(f.cratesSold, 10000000), salesValue: num(f.salesValue, 1e12),
       paymentsCount: num(f.paymentsCount, 100000), paymentsTotal: num(f.paymentsTotal, 1e12),
       openOrders: num(f.openOrders, 100000), unreadMessages: num(f.unreadMessages, 100000),
+      owedToday: num(f.owedToday, 1e12), awaitingReply: num(f.awaitingReply, 100000),
     },
     accurate: b.accurate === true,
     cashHandover: ['yes', 'no', 'none'].includes(b.cashHandover) ? b.cashHandover : '',
     cashNote: txt(b.cashNote, 300),
     damagedCrates: num(b.damagedCrates, 100000),
     noIssues: b.noIssues === true,
-    issues: txt(b.issues, 1500),
+    issues: composeIssues(issueLog, txt(b.issues, 1500)),
+    issueLog: issueLog.map(e => ({ at: e.at, text: e.text })),
     lookahead: txt(b.lookahead, 1500),
     other: txt(b.other, 1500),
   };
@@ -80,8 +83,57 @@ function cleanReport(b) {
   if(!data.accurate) errors.push('Tick "These figures are accurate" (or correct them in Issues first).');
   if(!data.cashHandover) errors.push('Say what happened to the cash and transfers collected today.');
   if(data.cashHandover === 'no' && !data.cashNote) errors.push('Explain where the cash is now.');
+  if(data.noIssues && issueLog.length) errors.push('You logged ' + issueLog.length + ' issue' + (issueLog.length === 1 ? '' : 's') + ' today. Untick "No issues today".');
   if(!data.noIssues && !data.issues) errors.push('Describe the issues, or tick "No issues today".');
   return { data, errors };
+}
+
+
+// ── Oct 13 2026 — drafts and the issue log ──
+// A staff member can write an issue down the moment it happens (a timestamped entry that is saved at once)
+// and can save the half-finished form. Both live in eod_drafts until the report is filed; filing folds the
+// logged issues into the report's Issues section and deletes the draft.
+const hhmm = iso => { const l = lagos(Date.parse(iso)); return String(l.getUTCHours()).padStart(2, '0') + ':' + String(l.getUTCMinutes()).padStart(2, '0'); };
+function composeIssues(log, freeText) {
+  const lines = (log || []).map(e => '[' + hhmm(e.at) + '] ' + e.text);
+  return [...lines, freeText].filter(Boolean).join('\n').slice(0, 4000);
+}
+const MAX_LOG = 30;
+function cleanDraft(b, keepLog) {
+  b = b || {};
+  return {
+    v: 1,
+    cashHandover: ['yes', 'no', 'none'].includes(b.cashHandover) ? b.cashHandover : '',
+    cashNote: txt(b.cashNote, 300),
+    damagedCrates: num(b.damagedCrates, 100000),
+    noIssues: b.noIssues === true,
+    issues: txt(b.issues, 1500),
+    lookahead: txt(b.lookahead, 1500),
+    other: txt(b.other, 1500),
+    issueLog: keepLog || [],
+  };
+}
+const draftOut = r => r ? ({ updatedAt: new Date(r.updated_at).toISOString(), ...(typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {})) }) : null;
+async function getDraft(email, day) { return db.prepare('SELECT * FROM eod_drafts WHERE email = ? AND day = ?').get(email, day); }
+async function saveDraft(email, name, day, data) {
+  await db.prepare(`INSERT INTO eod_drafts (day, email, name, data, updated_at) VALUES (?, ?, ?, ?::jsonb, now())
+    ON CONFLICT (email, day) DO UPDATE SET data = EXCLUDED.data, name = EXCLUDED.name, updated_at = now()`)
+    .run(day, email, name, JSON.stringify(data));
+  return draftOut(await getDraft(email, day));
+}
+async function staffName(email) {
+  const staff = (await expectedStaff().catch(() => [])).find(s => s.email === email);
+  return (staff && staff.name) || email.split('@')[0];
+}
+// shared checks for the three draft routes
+async function draftContext(req, res) {
+  if(req.user.role === 'owner') { res.status(403).json({ error: 'The Owner does not file End-of-Day reports.' }); return null; }
+  const ms = hours.clock();
+  if(!isWorkingDay(ms)) { res.status(400).json({ error: 'There is no End-of-Day report on Sundays.' }); return null; }
+  const day = hours.ymd(ms), email = hours.norm(req.user.email);
+  const filed = await db.prepare("SELECT id FROM eod_reports WHERE email = ? AND day = ? AND status <> 'excused'").get(email, day);
+  if(filed) { res.status(409).json({ error: 'Today\'s report is already filed. Edit it and update it instead.' }); return null; }
+  return { ms, day, email };
 }
 
 const rowOut = r => ({
@@ -96,11 +148,48 @@ router.get('/me', requireSupabaseAuth(), async (req, res) => {
   const day = hours.ymd(ms);
   const email = hours.norm(req.user.email);
   const row = await db.prepare('SELECT * FROM eod_reports WHERE email = ? AND day = ?').get(email, day);
+  const draft = (row && row.status !== 'excused') ? null : draftOut(await getDraft(email, day));
   res.json({
     day, role: req.user.role, exempt: req.user.role === 'owner',
     workingDay: isWorkingDay(ms), dueBy: '18:00',
-    filed: !!row && row.status !== 'excused', report: row ? rowOut(row) : null,
+    filed: !!row && row.status !== 'excused', report: row ? rowOut(row) : null, draft,
   });
+});
+
+// Staff: save the form as it stands (no required fields). Keeps the logged issues as they are.
+router.put('/me/draft', requireSupabaseAuth(), async (req, res) => {
+  const c = await draftContext(req, res); if(!c) return;
+  // the logged issues are never touched here (kept by the database itself, so a save-draft and a save-issue arriving together cannot overwrite each other)
+  const data = cleanDraft(req.body, []);   // issueLog [] only matters for a brand-new row; an existing row keeps its own (see below)
+  await db.prepare(`INSERT INTO eod_drafts (day, email, name, data, updated_at) VALUES (?, ?, ?, ?::jsonb, now())
+    ON CONFLICT (email, day) DO UPDATE SET data = EXCLUDED.data || jsonb_build_object('issueLog', COALESCE(eod_drafts.data->'issueLog', '[]'::jsonb)),
+      name = EXCLUDED.name, updated_at = now()`).run(c.day, c.email, await staffName(c.email), JSON.stringify(data));
+  res.json({ day: c.day, draft: draftOut(await getDraft(c.email, c.day)) });
+});
+// Staff: write one issue down now. Timestamped by the server clock; saved immediately.
+router.post('/me/issue', requireSupabaseAuth(), async (req, res) => {
+  const c = await draftContext(req, res); if(!c) return;
+  const text = txt(req.body && req.body.text, 600);
+  if(!text) return res.status(400).json({ error: 'Type the issue first.' });
+  const cur0 = draftOut(await getDraft(c.email, c.day));
+  if(cur0 && Array.isArray(cur0.issueLog) && cur0.issueLog.length >= MAX_LOG) return res.status(400).json({ error: 'That is the most issues one day can hold. Put the rest in the report.' });
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const entry = { id, at: new Date(c.ms).toISOString(), text };
+  const blank = cleanDraft({}, []);
+  blank.issueLog = [entry];
+  await db.prepare(`INSERT INTO eod_drafts (day, email, name, data, updated_at) VALUES (?, ?, ?, ?::jsonb, now())
+    ON CONFLICT (email, day) DO UPDATE SET
+      data = jsonb_set(eod_drafts.data, '{issueLog}', COALESCE(eod_drafts.data->'issueLog', '[]'::jsonb) || ?::jsonb) || '{"noIssues": false}'::jsonb,
+      updated_at = now()`).run(c.day, c.email, await staffName(c.email), JSON.stringify(blank), JSON.stringify([entry]));
+  res.status(201).json({ day: c.day, draft: draftOut(await getDraft(c.email, c.day)) });
+});
+router.delete('/me/issue/:id', requireSupabaseAuth(), async (req, res) => {
+  const c = await draftContext(req, res); if(!c) return;
+  const cur = draftOut(await getDraft(c.email, c.day));
+  if(!cur) return res.json({ day: c.day, draft: null });
+  const base = { ...cur }; delete base.updatedAt;
+  base.issueLog = (cur.issueLog || []).filter(e => e.id !== String(req.params.id));
+  res.json({ day: c.day, draft: await saveDraft(c.email, await staffName(c.email), c.day, base) });
 });
 
 // Staff: file or update today's report
@@ -108,10 +197,12 @@ router.post('/me', requireSupabaseAuth(), async (req, res) => {
   if(req.user.role === 'owner') return res.status(403).json({ error: 'The Owner does not file End-of-Day reports.' });
   const ms = hours.clock();
   if(!isWorkingDay(ms)) return res.status(400).json({ error: 'There is no End-of-Day report on Sundays.' });
-  const { data, errors } = cleanReport(req.body);
-  if(errors.length) return res.status(400).json({ error: errors[0], errors });
   const day = hours.ymd(ms);
   const email = hours.norm(req.user.email);
+  const draftRow = await getDraft(email, day);
+  const draftLog = draftRow ? (draftOut(draftRow).issueLog || []) : [];
+  const { data, errors } = cleanReport(req.body, draftLog);
+  if(errors.length) return res.status(400).json({ error: errors[0], errors });
   const existing = await db.prepare('SELECT * FROM eod_reports WHERE email = ? AND day = ?').get(email, day);
   const staff = (await expectedStaff().catch(() => [])).find(s => s.email === email);
   const name = (staff && staff.name) || email.split('@')[0];
@@ -126,6 +217,7 @@ router.post('/me', requireSupabaseAuth(), async (req, res) => {
         first_submitted_at = EXCLUDED.first_submitted_at, updated_at = EXCLUDED.updated_at, excused_by = NULL`)
       .run(day, email, name, req.user.role, status, new Date(ms).toISOString(), new Date(ms).toISOString(), JSON.stringify(data));
   }
+  await db.prepare('DELETE FROM eod_drafts WHERE email = ? AND day = ?').run(email, day);
   const row = await db.prepare('SELECT * FROM eod_reports WHERE email = ? AND day = ?').get(email, day);
   console.log(`[eod] report ${existing ? 'updated' : 'filed'} by ${email} for ${day} (${row.status})`);
   res.status(existing && existing.status !== 'excused' ? 200 : 201).json({ day, report: rowOut(row) });
@@ -145,6 +237,16 @@ async function rollup(day, nowMs) {
   staff.filter(s => !filedEmails.has(s.email)).forEach(s => {
     out.push({ id: null, email: s.email, name: s.name, role: s.role, status: closed ? 'missing' : 'pending', firstSubmittedAt: null, updatedAt: null, data: null, excusedBy: null });
   });
+  // Oct 13 2026 — what each person has saved but not filed (issues logged during the day, the half-filled form)
+  try {
+    const drafts = await db.prepare('SELECT * FROM eod_drafts WHERE day = ?').all(day);
+    const byEmail = new Map(drafts.map(d => [d.email, draftOut(d)]));
+    out.forEach(r => {
+      const d = byEmail.get(r.email);
+      const filed = r.status === 'on_time' || r.status === 'late';
+      r.draft = (!filed && d && ((d.issueLog && d.issueLog.length) || d.issues || d.lookahead || d.other || d.cashHandover)) ? d : null;
+    });
+  } catch(e) { console.error('[eod] draft lookup failed:', e.message); }
   // Oct 13 2026 — clock-in / clock-out beside each person (null = never signed in that day)
   let att = new Map();
   try { att = await attendance.forDay(day, nowMs); } catch(e) { console.error('[eod] attendance lookup failed:', e.message); }
@@ -217,6 +319,7 @@ async function sendDigestIfDue() {
   return { sent: true, body, result };
 }
 router.sendDigestIfDue = sendDigestIfDue;
+router.composeIssues = composeIssues;
 router.setStaffLister = setStaffLister;
 
 const tickMs = Number(process.env.EOD_TICK_MS) || 60000;

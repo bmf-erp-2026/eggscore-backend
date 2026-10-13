@@ -282,12 +282,29 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
           // client-side and saved here too, so the public confirmation
           // page (below) can be reached with it before any staff member
           // needs to be involved again.
-          deliveryToken, outboundCondition, outboundAttestedBy, outboundNotes } = req.body;
+          deliveryToken, outboundCondition, outboundAttestedBy, outboundNotes, crates } = req.body;
   const order = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
 
+  // Oct 13 2026 — an order with an unanswered change request from the customer (an open follow-up, see
+  // order-messages.js) may not be sent out or closed. This is the backstop behind the ERP's own check, for
+  // a device that has not refreshed.
+  if(status === 'in_transit' || status === 'fulfilled') {
+    const open = await db.prepare("SELECT id, crates FROM order_followups WHERE order_ref = ? AND status = 'open' LIMIT 1").get(req.params.ref).catch(() => null);
+    if(open) return res.status(409).json({ error: 'This order has an open change request from the customer. Deal with it before dispatch.', code: 'FOLLOWUP_OPEN' });
+  }
+  // Oct 13 2026 — the number of crates can be changed on an order that has not gone out. (Before this, the
+  // ERP changed it only on its own screen and the next refresh from the server put the old number back.)
+  let newCrates;
+  if(crates !== undefined) {
+    newCrates = parseInt(crates, 10);
+    if(!Number.isInteger(newCrates) || newCrates < 1 || newCrates > 100000) return res.status(400).json({ error: 'Crates must be a whole number from 1 to 100000.' });
+    if(['in_transit', 'fulfilled', 'cancelled', 'rejected'].includes(String(order.status))) return res.status(409).json({ error: 'This order can no longer be changed.' });
+  }
+
   const fields = [], values = [];
   if(status !== undefined) { fields.push('status = ?'); values.push(status); }
+  if(newCrates !== undefined) { fields.push('crates = ?'); values.push(newCrates); }
   if(paymentVerified !== undefined) { fields.push('payment_verified = ?'); values.push(paymentVerified ? 1 : 0); }
   if(batchId !== undefined) { fields.push('batch_id = ?'); values.push(batchId); }
   if(convertedAt !== undefined) { fields.push('converted_at = ?'); values.push(convertedAt); }
@@ -310,7 +327,7 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
   values.push(req.params.ref);
   await db.prepare(`UPDATE orders SET ${fields.join(', ')} WHERE ref = ?`).run(...values);
 
-  console.log(`[audit] Order ${req.params.ref} updated by ${req.user?.email || 'portal key'}`);
+  console.log(`[audit] Order ${req.params.ref} updated by ${req.user?.email || 'portal key'}${newCrates !== undefined ? ` (crates ${order.crates} to ${newCrates})` : ''}`);
 
   const updatedOrder = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
 
