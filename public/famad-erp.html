@@ -934,6 +934,8 @@ input[type=number]{-moz-appearance:textfield;}
 </div>
 
 <script>
+  // Defined first so early background syncs can never hit 'currentModule is not defined' (Oct 12 2026)
+  window.currentModule = window.currentModule || 'dashboard';
   // Fill in your real project values from Supabase → Settings → API.
   // The anon key is safe to expose client-side — that's its intended
   // purpose — unlike the service role key, which must only ever live
@@ -1025,7 +1027,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'suppliers', 'supplierscorecard', 'pnl', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'suppliers', 'supplierscorecard', 'pnl', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -5703,6 +5705,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('pushnotify')"><span class="icon">🔔</span><span>Push Notifications</span></div>
   <hr class="sdiv"/>
   <div class="sl">Finance</div>
+  <div class="si" onclick="switchModule('voltrack')"><span class="icon">🥚</span><span>Volume Tracker</span></div>
   <div class="si" onclick="switchModule('pnl')"><span class="icon">📈</span><span>P&amp;L Calculator</span></div>
   <div class="si" onclick="switchModule('taxpanel')"><span class="icon">🧾</span><span>Tax Panel</span></div>
   <div class="si" onclick="switchModule('commission')"><span class="icon">💰</span><span>Commission</span></div>
@@ -7160,6 +7163,32 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="panel-hdr"><div class="panel-title">System Overrides &amp; Security Log</div><div class="panel-tag">credit terms · enforcement overrides · PIN changes · time-value rate</div></div>
     <div class="panel-body panel-scroll" id="credit-override-log"></div>
   </div>
+</div>
+
+<!-- ════ MODULE: VOLUME TRACKER (Owner only, Oct 12 2026) ═════════════════ -->
+<div class="module-page" id="mod-voltrack">
+  <div class="ph">
+    <div>
+      <h2>Volume Tracker</h2>
+      <div class="ph-sub">Crates sold, kept apart from naira · egg prices move with the market, crates show real growth</div>
+    </div>
+    <div class="ph-actions">
+      <select class="form-select" id="vt-month" onchange="renderVolTracker()" style="min-width:150px"></select>
+      <button class="btn btn-ghost" onclick="printModule('Volume Tracker')">🖨 Print</button>
+    </div>
+  </div>
+  <div id="vt-range" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px"></div>
+  <div class="kpi-strip-4">
+    <div class="kc c6"><div class="kc-label">Crates sold</div><div class="kc-val" id="vt-k-crates">0</div><div class="kc-sub" id="vt-k-crates-sub"></div></div>
+    <div class="kc c4"><div class="kc-label">Avg egg price per crate</div><div class="kc-val" id="vt-k-price">₦0</div><div class="kc-sub" id="vt-k-price-sub"></div></div>
+    <div class="kc c1"><div class="kc-label">Egg revenue</div><div class="kc-val" id="vt-k-rev">₦0</div><div class="kc-sub" id="vt-k-rev-sub"></div></div>
+    <div class="kc c7"><div class="kc-label">Customers buying</div><div class="kc-val" id="vt-k-cust">0</div><div class="kc-sub" id="vt-k-cust-sub"></div></div>
+  </div>
+  <div class="alert-banner info" id="vt-reading" style="margin:12px 0"></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title">By customer</div><div class="panel-tag">crates this period vs the one before</div></div><div class="panel-body panel-scroll" id="vt-cust"></div></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title">By Sales Rep</div><div class="panel-tag">crates this period vs the one before</div></div><div class="panel-body panel-scroll" id="vt-rep"></div></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title">By route / zone</div><div class="panel-tag">zone recorded on each sale</div></div><div class="panel-body panel-scroll" id="vt-zone"></div></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title">Month by month</div><div class="panel-tag">newest first · the month in progress is compared with the same days last month</div></div><div class="panel-body panel-scroll" id="vt-hist"></div></div>
 </div>
 
 <!-- ════ MODULE: TIME-VALUE (internal analytics only) ═════════════════ -->
@@ -11961,6 +11990,7 @@ function switchModule(name) {
        (name==='scorecard' && txt.includes('customer scorecard')) ||
        (name==='suppliers' && txt.includes('suppliers')) ||
        (name==='supplierscorecard' && txt.includes('supplier scorecard')) ||
+       (name==='voltrack' && txt.includes('volume tracker')) ||
        (name==='pnl' && txt.includes('p&l calculator')) ||
        (name==='taxpanel' && txt.includes('tax panel')) ||
        (name==='doccentre' && txt.includes('document centre'))) {
@@ -11974,7 +12004,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -11994,6 +12024,7 @@ function switchModule(name) {
     commission: renderCommission,
     credit: renderCredit,
     timevalue: renderTimeValue,
+    voltrack: renderVolTracker,
     reservations: renderReservationIntelligence,
     scorecard: renderCustomerScorecard,
     whatsapp: renderWhatsapp,
@@ -26933,6 +26964,105 @@ async function eodUnexcuse(id) {
   } catch(e) {}
 })();
 
+
+/* ═══════════════════════════════════════════════════════
+   VOLUME TRACKER (Oct 12 2026, Owner only)
+   Crates are shown apart from naira. Egg prices move with the market, so revenue can rise
+   while real volume falls. "Price" here is egg revenue per crate (delivery excluded).
+   Everything is read from the Sales Log; nothing is stored.
+═══════════════════════════════════════════════════════ */
+function volMonthKey(d) { return String(d || '').slice(0, 7); }
+function volPrevMonth(mk) { let y = +mk.slice(0, 4), m = +mk.slice(5, 7) - 1; if(m < 1) { m = 12; y--; } return y + '-' + String(m).padStart(2, '0'); }
+function volDaysIn(mk) { return new Date(+mk.slice(0, 4), +mk.slice(5, 7), 0).getDate(); }
+// The two date ranges compared: the chosen month (to date, if it is the current month) against the
+// same number of days at the start of the month before.
+function volRanges(mk, todayYmd) {
+  const cur = volMonthKey(todayYmd) === mk;
+  const lastDay = cur ? +todayYmd.slice(8, 10) : volDaysIn(mk);
+  const pm = volPrevMonth(mk), pLast = Math.min(lastDay, volDaysIn(pm));
+  const dd = n => String(n).padStart(2, '0');
+  return {
+    cur: { from: mk + '-01', to: mk + '-' + dd(lastDay) },
+    prev: { from: pm + '-01', to: pm + '-' + dd(cur ? pLast : volDaysIn(pm)) },
+    partial: cur,
+  };
+}
+function volAgg(sales, keyFn, range) {
+  const m = new Map();
+  sales.filter(x => x.date >= range.from && x.date <= range.to).forEach(x => {
+    const k = keyFn(x) || '—';
+    const a = m.get(k) || { crates: 0, rev: 0 };
+    a.crates += Number(x.crates) || 0; a.rev += Number(x.gross) || 0;
+    m.set(k, a);
+  });
+  return m;
+}
+const volPct = (a, b) => (b > 0 ? (a - b) / b * 100 : null);
+const volPctTxt = p => p === null ? 'new' : (p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+// Rows for one breakdown: every name seen in either period.
+function volRows(sales, keyFn, ranges) {
+  const a = volAgg(sales, keyFn, ranges.cur), b = volAgg(sales, keyFn, ranges.prev);
+  const names = new Set([...a.keys(), ...b.keys()]);
+  return [...names].map(n => {
+    const c = a.get(n) || { crates: 0, rev: 0 }, p = b.get(n) || { crates: 0, rev: 0 };
+    const cp = c.crates ? c.rev / c.crates : 0, pp = p.crates ? p.rev / p.crates : 0;
+    return { name: n, crates: c.crates, pCrates: p.crates, dCrates: volPct(c.crates, p.crates), price: cp, pPrice: pp, rev: c.rev, pRev: p.rev, dRev: volPct(c.rev, p.rev),
+      // the flag the Owner asked for: naira went up while crates went down
+      priceDriven: p.crates > 0 && c.rev > p.rev && c.crates < p.crates };
+  }).sort((x, y) => (y.crates - x.crates) || (y.pCrates - x.pCrates) || x.name.localeCompare(y.name));
+}
+function volTable(rows, noun) {
+  if(!rows.length) return '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No sales in these periods.</div>';
+  const col = v => v === null ? 'var(--mist)' : (v > 0 ? 'var(--teal)' : (v < 0 ? 'var(--red)' : 'var(--dust)'));
+  return '<table class="data-table"><thead><tr><th>' + noun + '</th><th>Crates</th><th>Before</th><th>Change</th><th>₦/crate</th><th>Before</th><th>Revenue</th><th>Change</th><th></th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td style="color:var(--cream);font-weight:600">' + escapeHtml(r.name) + '</td><td>' + r.crates.toLocaleString() + '</td><td>' + r.pCrates.toLocaleString() + '</td><td style="color:' + col(r.dCrates) + '">' + volPctTxt(r.dCrates) + '</td><td>' + (r.crates ? fmt(r.price) : '—') + '</td><td>' + (r.pCrates ? fmt(r.pPrice) : '—') + '</td><td>' + fmt(r.rev) + '</td><td style="color:' + col(r.dRev) + '">' + volPctTxt(r.dRev) + '</td><td>' + (r.priceDriven ? '<span class="badge" style="background:rgba(240,160,40,0.15);color:var(--amber)" title="Naira went up while crates went down: price, not real growth">⚠ price-driven</span>' : '') + '</td></tr>').join('') + '</tbody></table>';
+}
+function volHistory(sales, todayYmd) {
+  const months = [...new Set(sales.map(x => volMonthKey(x.date)).filter(m => /^\d{4}-\d{2}$/.test(m)))].sort().reverse().slice(0, 12);
+  const agg = (mk, lastDay) => { const r = { from: mk + '-01', to: mk + '-' + String(lastDay || volDaysIn(mk)).padStart(2, '0') }; let c = 0, v = 0; sales.filter(x => x.date >= r.from && x.date <= r.to).forEach(x => { c += Number(x.crates) || 0; v += Number(x.gross) || 0; }); return { crates: c, rev: v }; };
+  // the month still in progress is compared with the same number of days of the month before, never with a whole month
+  return months.map(mk => { const part = volMonthKey(todayYmd) === mk, last = part ? +todayYmd.slice(8, 10) : 0; const a = agg(mk, last), p = agg(volPrevMonth(mk), last ? Math.min(last, volDaysIn(volPrevMonth(mk))) : 0); return { month: mk, partial: volMonthKey(todayYmd) === mk, crates: a.crates, price: a.crates ? a.rev / a.crates : 0, rev: a.rev, dCrates: volPct(a.crates, p.crates), dRev: volPct(a.rev, p.rev), priceDriven: p.crates > 0 && a.rev > p.rev && a.crates < p.crates }; });
+}
+function volMonthName(mk) { return new Date(+mk.slice(0, 4), +mk.slice(5, 7) - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }); }
+function renderVolTracker() {
+  const sales = (STATE.sales || []).filter(x => x && x.date);
+  const today = new Date(Date.now() + 3600000).toISOString().slice(0, 10);
+  const sel = document.getElementById('vt-month');
+  if(!sel) return;
+  const months = [...new Set([volMonthKey(today), ...sales.map(x => volMonthKey(x.date))].filter(m => /^\d{4}-\d{2}$/.test(m)))].sort().reverse();
+  const keep = sel.value && months.includes(sel.value) ? sel.value : months[0];
+  sel.innerHTML = months.map(m => '<option value="' + m + '">' + volMonthName(m) + (m === volMonthKey(today) ? ' (so far)' : '') + '</option>').join('');
+  sel.value = keep;
+  const rg = volRanges(keep, today);
+  document.getElementById('vt-range').textContent = rg.cur.from + ' to ' + rg.cur.to + '  compared with  ' + rg.prev.from + ' to ' + rg.prev.to + (rg.partial ? '  (same number of days)' : '');
+  const tot = (r) => { let c = 0, v = 0; const cu = new Set(); sales.filter(x => x.date >= r.from && x.date <= r.to).forEach(x => { c += Number(x.crates) || 0; v += Number(x.gross) || 0; cu.add(x.customer); }); return { crates: c, rev: v, cust: cu.size, price: c ? v / c : 0 }; };
+  const a = tot(rg.cur), b = tot(rg.prev);
+  const sub = (cur, prev, f) => { const p = volPct(cur, prev); return p === null ? 'before: ' + f(prev) : volPctTxt(p) + ' vs ' + f(prev); };
+  document.getElementById('vt-k-crates').textContent = a.crates.toLocaleString();
+  document.getElementById('vt-k-crates-sub').textContent = sub(a.crates, b.crates, n => n.toLocaleString());
+  document.getElementById('vt-k-price').textContent = a.crates ? fmt(a.price) : '—';
+  document.getElementById('vt-k-price-sub').textContent = sub(a.price, b.price, n => fmt(n));
+  document.getElementById('vt-k-rev').textContent = fmt(a.rev);
+  document.getElementById('vt-k-rev-sub').textContent = sub(a.rev, b.rev, n => fmt(n));
+  document.getElementById('vt-k-cust').textContent = a.cust;
+  document.getElementById('vt-k-cust-sub').textContent = 'before: ' + b.cust;
+  // One plain sentence on what moved
+  const dc = volPct(a.crates, b.crates), dr = volPct(a.rev, b.rev), dp = volPct(a.price, b.price);
+  let txt;
+  if(!b.crates) txt = 'There are no sales in the period before, so there is nothing to compare yet.';
+  else if(dr !== null && dr > 0 && dc < 0) txt = '⚠ Naira rose ' + volPctTxt(dr) + ' but crates fell ' + volPctTxt(dc) + ': this is price, not growth.';
+  else if(dc > 0 && dp !== null && dp > 0 && dc >= dp) txt = 'Crates rose ' + volPctTxt(dc) + ' and the average price ' + volPctTxt(dp) + ': the growth is mostly real volume.';
+  else if(dc > 0 && dp !== null && dp > 0) txt = 'Crates rose ' + volPctTxt(dc) + ' but the average price rose ' + volPctTxt(dp) + ': much of the naira growth is price.';
+  else if(dc > 0) txt = 'Crates rose ' + volPctTxt(dc) + ' with the average price ' + volPctTxt(dp) + ': real volume growth.';
+  else if(dc < 0) txt = 'Crates fell ' + volPctTxt(dc) + ' (naira ' + volPctTxt(dr) + '): volume is down.';
+  else txt = 'Crates are level with the period before.';
+  document.getElementById('vt-reading').textContent = txt;
+  document.getElementById('vt-cust').innerHTML = volTable(volRows(sales, x => x.customer, rg), 'Customer');
+  document.getElementById('vt-rep').innerHTML = volTable(volRows(sales, x => x.rep, rg), 'Sales Rep');
+  document.getElementById('vt-zone').innerHTML = volTable(volRows(sales, x => (x.repZone && x.repZone !== '—') ? x.repZone : 'No zone recorded', rg), 'Zone');
+  const h = volHistory(sales, today);
+  document.getElementById('vt-hist').innerHTML = h.length ? '<table class="data-table"><thead><tr><th>Month</th><th>Crates</th><th>Change</th><th>₦/crate</th><th>Egg revenue</th><th>Change</th><th></th></tr></thead><tbody>' + h.map(r => '<tr><td style="color:var(--cream);font-weight:600">' + volMonthName(r.month) + (r.partial ? ' (so far)' : '') + '</td><td>' + r.crates.toLocaleString() + '</td><td>' + volPctTxt(r.dCrates) + '</td><td>' + (r.crates ? fmt(r.price) : '—') + '</td><td>' + fmt(r.rev) + '</td><td>' + volPctTxt(r.dRev) + '</td><td>' + (r.priceDriven ? '<span class="badge" style="background:rgba(240,160,40,0.15);color:var(--amber)">⚠ price-driven</span>' : '') + '</td></tr>').join('') + '</tbody></table><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);margin-top:6px">The current month is part-way through, so its change against a whole month is not a fair comparison; use the top of this page for that.</div>' : 'No sales recorded yet.';
+}
 function initVolReqChannel() {
   try {
     const bc = new BroadcastChannel(VOLREQ_CH);
