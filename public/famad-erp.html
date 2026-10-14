@@ -1419,7 +1419,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'incomestmt', 'balancesheet', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'incomestmt', 'balancesheet', 'expansion', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -6291,6 +6291,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('pnl')"><span class="icon">📈</span><span>P&amp;L Calculator</span></div>
   <div class="si" onclick="switchModule('incomestmt')"><span class="icon">📑</span><span>Income Statement</span></div>
   <div class="si" onclick="switchModule('balancesheet')"><span class="icon">⚖️</span><span>Balance Sheet</span></div>
+  <div class="si" onclick="switchModule('expansion')"><span class="icon">🧭</span><span>Expansion Planner</span></div>
   <div class="si" onclick="switchModule('taxpanel')"><span class="icon">🧾</span><span>Tax Panel</span></div>
   <div class="si" onclick="switchModule('commission')"><span class="icon">💰</span><span>Commission</span></div>
   <div class="si" onclick="switchModule('credit')"><span class="icon">⚠</span><span>Credit / Debt <span class="si-badge" id="debt-badge">0</span></span></div>
@@ -8036,6 +8037,31 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="panel-body" id="bs-snaps" style="overflow-x:auto"></div></div>
   <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin:14px 0">
     Reading it: Inventory is the crates still on hand, valued at what each batch cost. Receivables is the credit owed by customers (written-off sales are left out) and equals the total on Receivables Aging. Fixed assets are shown at cost less the depreciation counted up to today, never below zero. Customer wallet balances are money customers have paid in advance, so they are a liability: the business owes them eggs or a refund. Cash on hand, payables and long-term loans are numbers you enter on the P&amp;L Calculator (Cash Flow Tracker, Working Capital Monitor, Debt Service Monitor). Owner's equity is not entered anywhere: it is assets minus liabilities, so it balances by construction. Not included unless you put them in Payables: tax owed, salaries owed and supplier invoices not yet paid.
+  </div>
+</div>
+
+<!-- ════ MODULE: EXPANSION PLANNER (Oct 14 2026, queue item E) ═════════════════ -->
+<div class="module-page" id="mod-expansion">
+  <div class="ph">
+    <div>
+      <h2>Expansion Planner</h2>
+      <div class="ph-sub">Will a new region pay its way? Break-even volume, payback and how fragile the plan is, before any fixed cost is committed</div>
+    </div>
+    <div class="ph-actions">
+      <select class="form-select" id="exp-pick" style="width:auto;padding:4px 8px" onchange="expPick(this.value)"></select>
+      <button class="btn btn-ghost" onclick="expDuplicate()">⧉ Duplicate</button>
+      <button class="btn btn-ghost" onclick="expDelete()">Remove</button>
+      <button class="btn btn-ghost" onclick="printModule('Expansion Planner')">🖨 Print</button>
+    </div>
+  </div>
+  <div class="panel no-print" id="exp-new-panel"><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input class="form-input" id="exp-newname" style="max-width:260px" value="Port Harcourt" placeholder="Region or scenario name"/>
+    <button class="btn btn-primary" onclick="expCreate()">+ New scenario from Lagos figures</button>
+    <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Starts with your recent Lagos selling price, cost, commission and delivery figures; change anything that will differ there.</span>
+  </div></div>
+  <div id="exp-body"></div>
+  <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin:14px 0">
+    Reading it: profit per crate is what is left of the selling price after the eggs, breakage, the long haul, commission and delivery. Break-even crates per month is the monthly fixed cost divided by that profit; because supplier discounts grow with volume, the planner finds the smallest volume at which the discount earned is enough. The long haul is the fuel, wear and tear, driver and other trip costs of one round trip, shared across the crates the van carries, so a fuller van lowers it. Payback is the one-time set-up spend divided by monthly profit at the expected volume. Every number is yours to change; nothing here is an actual result, and nothing is posted to the ledger.
   </div>
 </div>
 
@@ -12686,6 +12712,7 @@ function switchModule(name) {
        (name==='pnl' && txt.includes('p&l calculator')) ||
        (name==='incomestmt' && txt.includes('income statement')) ||
        (name==='balancesheet' && txt.includes('balance sheet')) ||
+       (name==='expansion' && txt.includes('expansion planner')) ||
        (name==='taxpanel' && txt.includes('tax panel')) ||
        (name==='doccentre' && txt.includes('document centre'))) {
       el.classList.add('active');
@@ -12698,7 +12725,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',expansion:'Expansion Planner',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -12730,6 +12757,7 @@ function switchModule(name) {
     pnl: renderPnL,
     incomestmt: renderIncomeStatement,
     balancesheet: renderBalanceSheet,
+    expansion: renderExpansion,
     taxpanel: renderTaxPanel,
     doccentre: renderDocumentCentre,
   };
@@ -20220,6 +20248,8 @@ function ensurePnLData() {
   if(!Array.isArray(STATE.pnl.taxEntries)) STATE.pnl.taxEntries = [];
   // Balance Sheet — Oct 14 2026. Month-end snapshots are frozen copies; synced like taxEntries (no review reminder).
   if(!Array.isArray(STATE.pnl.balanceSnapshots)) STATE.pnl.balanceSnapshots = [];
+  // Expansion Planner — Oct 14 2026. Saved what-if scenarios (inputs only); synced like balanceSnapshots.
+  if(!Array.isArray(STATE.pnl.expansionScenarios)) STATE.pnl.expansionScenarios = [];
   // Debt Service — Sep 23 2026. Fully template, no derivable source at
   // all: nothing in this app tracks any loan or financing taken out
   // for vehicles/cold storage/equipment (the P&L Calculator's Fixed
@@ -20360,7 +20390,7 @@ function markPnLReviewedToday() {
 // (the backend applies the same rule when merging, so a device holding a
 // stale copy can never clobber a newer edit made elsewhere).
 // taxEntries syncs like the other sections but carries no review reminder.
-const PNL_SYNC_SECTIONS = PNL_REVIEW_ITEMS.map(i => ({ key: i.key, ts: i.tsField })).concat([{ key: 'taxEntries', ts: 'taxEntriesUpdatedAt' }, { key: 'balanceSnapshots', ts: 'balanceSnapshotsUpdatedAt' }]);
+const PNL_SYNC_SECTIONS = PNL_REVIEW_ITEMS.map(i => ({ key: i.key, ts: i.tsField })).concat([{ key: 'taxEntries', ts: 'taxEntriesUpdatedAt' }, { key: 'balanceSnapshots', ts: 'balanceSnapshotsUpdatedAt' }, { key: 'expansionScenarios', ts: 'expansionScenariosUpdatedAt' }]);
 
 // Folds a server copy into local STATE.pnl. A section is only adopted when
 // the server's stamp is STRICTLY newer than this device's — equal stamps
@@ -21376,6 +21406,145 @@ function bsRemoveSnapshot(date) {
   saveState();
   postPnLToBackend();
   renderBalanceSheet();
+}
+// ── Expansion Planner — Oct 14 2026, queue item E ────────────────────────
+// A what-if model for a new region. Scenarios are inputs only (STATE.pnl.expansionScenarios,
+// synced with the other P&L parameters); every output is computed fresh by expCompute().
+let EXP_SEL = null;
+const EXP_NUM = v => { const x = parseFloat(v); return isFinite(x) ? x : 0; };
+function expScenarios() { const p = ensurePnLData(); if(!Array.isArray(p.expansionScenarios)) p.expansionScenarios = []; return p.expansionScenarios; }
+function expCurrent() { const l = expScenarios(); return l.find(s => s.id === EXP_SEL) || l[0] || null; }
+function expSave() { const p = ensurePnLData(); p.expansionScenariosUpdatedAt = Date.now(); saveState(); postPnLToBackend(); }
+function expLagosReference() {
+  const today = recvToday();
+  const cutoff = new Date(new Date(today + 'T00:00:00Z').getTime() - 90 * 86400000).toISOString().slice(0, 10);
+  const sales = (STATE.sales || []).filter(s => s && s.date && !s.fullyReversed && String(s.date).slice(0, 10) >= cutoff);
+  const crates = sales.reduce((a, s) => a + (Number(s.crates) || 0), 0);
+  const per = f => crates > 0 ? Math.round(sales.reduce((a, s) => a + (Number(f(s)) || 0), 0) / crates) : 0;
+  let trip = 0;
+  try { getAllWaybills().filter(w => w.type === 'delivery' && w.generatedAt && String(w.generatedAt).slice(0, 10) >= cutoff).forEach(w => { trip += Number(w.costs && w.costs.total) || 0; }); } catch(err) {}
+  return { price: Math.round(Number(getCurrentSellingPrice()) || 0), cost: Math.round(Number(getLastCostPrice()) || 0), commission: per(s => s.comm), fee: per(s => s.deliveryTotal), localDelivery: crates > 0 ? Math.round(trip / crates) : 0, crates, since: cutoff };
+}
+function expCreate() {
+  const inp = document.getElementById('exp-newname');
+  const name = ((inp && inp.value) || '').trim();
+  if(!name) { showToast('⚠ Give the scenario a name first.'); return; }
+  const ref = expLagosReference();
+  const s = { id: 'exp' + Date.now() + Math.random().toString(36).slice(2, 6), name, createdAt: Date.now(),
+    price: ref.price, fee: ref.fee, purchase: ref.cost, commission: ref.commission, localDelivery: ref.localDelivery,
+    breakagePct: null, oneWayKm: null, kmPerLitre: null, fuelPrice: null, wearPerKm: null, driverPerTrip: null, otherPerTrip: null, cratesPerTrip: null, maxTripsPerMonth: null,
+    tiers: [],
+    fixed: ['Depot or warehouse rent', 'Cold room and power', 'Salaries (rep, driver, helpers)', 'Vehicle lease or depreciation', 'Insurance and licences', 'Phone, internet and admin', 'Marketing'].map((l, i) => ({ id: 'f' + i, label: l, amount: null })),
+    setup: ['Deposit and rent advance', 'Cold room and equipment', 'Extra van', 'Opening stock (working capital)', 'Registration and licences', 'Branding and launch'].map((l, i) => ({ id: 's' + i, label: l, amount: null })),
+    expectedVolume: null, paybackTarget: 12, lagosRef: ref };
+  expScenarios().push(s); EXP_SEL = s.id; expSave(); renderExpansion();
+  showToast('✓ Scenario "' + name + '" created from your Lagos figures of the last 90 days.');
+}
+function expPick(id) { EXP_SEL = id; renderExpansion(); }
+function expDuplicate() {
+  const s = expCurrent(); if(!s) return;
+  const c = JSON.parse(JSON.stringify(s)); c.id = 'exp' + Date.now() + Math.random().toString(36).slice(2, 6); c.name = s.name + ' (copy)'; c.createdAt = Date.now();
+  expScenarios().push(c); EXP_SEL = c.id; expSave(); renderExpansion();
+}
+function expDelete() {
+  const s = expCurrent(); if(!s) return;
+  if(!confirm('Remove the scenario "' + s.name + '"? This cannot be undone.')) return;
+  const p = ensurePnLData(); p.expansionScenarios = expScenarios().filter(x => x.id !== s.id); EXP_SEL = null; expSave(); renderExpansion();
+}
+function expSet(key, val) {
+  const s = expCurrent(); if(!s) return;
+  if(key === 'name') s.name = String(val || '').trim() || s.name;
+  else s[key] = (val === '' || val === null) ? null : EXP_NUM(val);
+  expSave(); renderExpansion();
+}
+function expRowAdd(list) { const s = expCurrent(); if(!s) return; s[list].push(list === 'tiers' ? { id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), min: null, disc: null } : { id: 'r' + Date.now() + Math.random().toString(36).slice(2, 6), label: '', amount: null }); expSave(); renderExpansion(); }
+function expRowSet(list, id, field, val) { const s = expCurrent(); if(!s) return; const r = s[list].find(x => x.id === id); if(!r) return; r[field] = field === 'label' ? String(val || '') : (val === '' ? null : EXP_NUM(val)); expSave(); renderExpansion(); }
+function expRowDel(list, id) { const s = expCurrent(); if(!s) return; s[list] = s[list].filter(x => x.id !== id); expSave(); renderExpansion(); }
+// Discount per crate earned at a monthly volume V: the highest tier whose minimum V reaches.
+function expDiscount(s, V) { let d = 0, m = -1; (s.tiers || []).forEach(t => { const mn = EXP_NUM(t.min), ds = EXP_NUM(t.disc); if(mn > 0 && V >= mn && mn > m) { m = mn; d = ds; } }); return d; }
+function expCompute(s, pD, PD) {
+  pD = pD || 0; PD = PD || 0;
+  const p = EXP_NUM(s.price) + pD, fee = EXP_NUM(s.fee), P = EXP_NUM(s.purchase) + PD, b = EXP_NUM(s.breakagePct) / 100, comm = EXP_NUM(s.commission), loc = EXP_NUM(s.localDelivery);
+  const km2 = 2 * EXP_NUM(s.oneWayKm), kpl = EXP_NUM(s.kmPerLitre), cpt = EXP_NUM(s.cratesPerTrip);
+  const fuel = kpl > 0 ? km2 / kpl * EXP_NUM(s.fuelPrice) : 0, wear = km2 * EXP_NUM(s.wearPerKm), crew = EXP_NUM(s.driverPerTrip) + EXP_NUM(s.otherPerTrip);
+  const tripCost = fuel + wear + crew;
+  const per = x => cpt > 0 ? x / cpt : 0;
+  const haul = per(tripCost);
+  const breakage = P * b;
+  const m0 = p + fee - P - breakage - haul - comm - loc;               // profit per crate with no supplier discount
+  const margin = V => m0 + expDiscount(s, V) * (1 + b);                 // a discount also shrinks the breakage loss
+  const F = (s.fixed || []).reduce((a, r) => a + EXP_NUM(r.amount), 0), S = (s.setup || []).reduce((a, r) => a + EXP_NUM(r.amount), 0);
+  let be = null;
+  if(F <= 0) be = 0; else for(let V = 1; V <= 200000; V++) { const m = margin(V); if(m > 0 && V * m >= F) { be = V; break; } }
+  return { p, fee, P, b, comm, loc, haul, haulFuel: per(fuel), haulWear: per(wear), haulCrew: per(crew), tripCost, breakage, m0, margin, F, S, be, cpt };
+}
+function expMoney(v) { return (v < 0 ? '−' : '') + fmt(Math.abs(Math.round(v))); }
+function renderExpansion() {
+  const body = document.getElementById('exp-body'), pick = document.getElementById('exp-pick'); if(!body) return;
+  const list = expScenarios(), s = expCurrent();
+  if(pick) { pick.innerHTML = list.map(x => '<option value="' + escapeHtml(x.id) + '"' + (s && x.id === s.id ? ' selected' : '') + '>' + escapeHtml(x.name) + '</option>').join(''); pick.style.display = list.length ? '' : 'none'; }
+  if(!s) { body.innerHTML = '<div class="panel"><div class="panel-body" style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No scenario yet. Type a name above (Port Harcourt is filled in) and press “New scenario from Lagos figures”.</div></div>'; return; }
+  EXP_SEL = s.id;
+  const R = expCompute(s), V = EXP_NUM(s.expectedVolume), disc = expDiscount(s, V), mAt = R.margin(V);
+  const monthly = V * mAt - R.F;
+  const payback = (R.S > 0 && monthly > 0) ? R.S / monthly : null;
+  const tripsAt = x => R.cpt > 0 ? Math.ceil(x / R.cpt) : null, maxT = EXP_NUM(s.maxTripsPerMonth);
+  const F_ = (label, key, o) => { o = o || {}; const v = s[key]; return '<div class="form-group" style="margin:0"><label class="form-label">' + label + (o.unit ? ' <span style="color:var(--mist)">' + o.unit + '</span>' : '') + '</label><input class="form-input" type="number" step="any" min="0" value="' + (v === null || v === undefined ? '' : escapeHtml(v)) + '" placeholder="' + escapeHtml(o.ph || '') + '" onchange="expSet(\'' + key + '\',this.value)"/>' + (o.note ? '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);margin-top:3px">' + o.note + '</div>' : '') + '</div>'; };
+  const grid = inner => '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">' + inner + '</div>';
+  const ref = s.lagosRef;
+  const rows = (listKey, title, hint) => '<div class="panel"><div class="panel-hdr"><div class="panel-title">' + title + '</div><div class="panel-tag">' + hint + '</div></div><div class="panel-body">' +
+    (s[listKey].length ? s[listKey].map(r => '<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center"><input class="form-input" style="flex:2" value="' + escapeHtml(r.label) + '" placeholder="What is it?" onchange="expRowSet(\'' + listKey + '\',\'' + r.id + '\',\'label\',this.value)"/><input class="form-input" style="flex:1" type="number" min="0" step="any" value="' + (r.amount === null ? '' : escapeHtml(r.amount)) + '" placeholder="₦" onchange="expRowSet(\'' + listKey + '\',\'' + r.id + '\',\'amount\',this.value)"/><button class="btn btn-ghost no-print" style="padding:2px 8px" onclick="expRowDel(\'' + listKey + '\',\'' + r.id + '\')">✕</button></div>').join('') : '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist);margin-bottom:6px">Nothing listed.</div>') +
+    '<button class="btn btn-ghost no-print" onclick="expRowAdd(\'' + listKey + '\')">+ Add line</button><div style="margin-top:8px;font-family:\'Syne\',sans-serif;font-weight:700">Total ' + expMoney(listKey === 'fixed' ? R.F : R.S) + (listKey === 'fixed' ? ' a month' : '') + '</div></div></div>';
+  // missing-input guidance
+  const need = []; if(!R.p) need.push('selling price'); if(!R.P) need.push('purchase price'); if(!R.cpt) need.push('crates per trip'); if(!EXP_NUM(s.oneWayKm)) need.push('one-way distance'); if(!EXP_NUM(s.kmPerLitre)) need.push('km per litre'); if(!EXP_NUM(s.fuelPrice)) need.push('fuel price'); if(!R.F) need.push('monthly fixed costs'); if(!V) need.push('expected crates per month');
+  // key figures
+  const card = (k, v, sub, col) => '<div style="padding:10px 12px;background:var(--raised);border-radius:8px"><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);text-transform:uppercase;letter-spacing:.06em">' + k + '</div><div style="font-family:\'Syne\',sans-serif;font-weight:800;font-size:19px;color:' + (col || 'var(--cream)') + '">' + v + '</div><div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);margin-top:2px">' + sub + '</div></div>';
+  const beTxt = R.be === null ? 'Not reachable' : (R.be === 0 ? '0 crates' : R.be.toLocaleString() + ' crates');
+  const beSub = R.be === null ? 'profit per crate is zero or negative at every volume' : (R.be > 0 && R.cpt > 0 ? 'about ' + tripsAt(R.be) + ' van trip' + (tripsAt(R.be) === 1 ? '' : 's') + ' a month' + (maxT > 0 ? (tripsAt(R.be) > maxT ? ' · MORE than one van can make (' + maxT + ')' : ' · within ' + maxT + ' a van can make') : '') : 'a month, at the discount that volume earns');
+  // discount needed
+  const needD = target => { const d = (target - R.m0) / (1 + R.b); return d > 0 ? Math.ceil(d) : 0; };
+  let discLines = '';
+  if(V > 0 && R.F > 0) {
+    const d1 = needD(R.F / V); discLines += '<div>To cover the monthly fixed costs at ' + V.toLocaleString() + ' crates a month the supplier discount must be at least <b>' + fmt(d1) + '</b> a crate' + (d1 === 0 ? ' (none needed)' : '') + '.</div>';
+    const N = EXP_NUM(s.paybackTarget); if(N > 0 && R.S > 0) { const d2 = needD((R.F + R.S / N) / V); discLines += '<div>To also pay back the set-up spend within ' + N + ' months it must be at least <b>' + fmt(d2) + '</b> a crate' + (d2 === 0 ? ' (none needed)' : '') + '.</div>'; }
+  }
+  // sensitivity
+  const steps = [-200, -100, 0, 100, 200];
+  let sens = '<table class="data-table"><thead><tr><th style="text-align:left">Purchase price ↓ · Selling price →</th>' + steps.map(d => '<th style="text-align:right">' + (d > 0 ? '+' : d < 0 ? '−' : '') + (d === 0 ? 'as entered' : fmt(Math.abs(d))) + '</th>').join('') + '</tr></thead><tbody>' +
+    steps.map(PD => '<tr><td style="white-space:nowrap">' + (PD > 0 ? '+' : PD < 0 ? '−' : '') + (PD === 0 ? 'as entered' : fmt(Math.abs(PD))) + '</td>' + steps.map(pD => { const r = expCompute(s, pD, PD); const base = pD === 0 && PD === 0; return '<td class="mono" style="text-align:right;white-space:nowrap;' + (base ? 'font-weight:700;border:1px solid var(--border);' : '') + '">' + (r.be === null ? '<span style="color:var(--red)">never</span>' : r.be.toLocaleString()) + '</td>'; }).join('') + '</tr>').join('') + '</tbody></table>';
+  const line = (label, v, o) => { o = o || {}; return '<tr style="' + (o.bold ? 'font-weight:700;border-top:1px solid var(--border);' : '') + '"><td style="' + (o.indent ? 'padding-left:18px;' : '') + '">' + label + '</td><td class="mono" style="text-align:right;white-space:nowrap;padding-right:14px;color:' + (o.col || 'inherit') + '">' + expMoney(v) + '</td></tr>'; };
+  const unit = '<table class="data-table"><tbody>' + line('Selling price per crate', R.p) + line('Delivery fee charged per crate', R.fee, { indent: 1 }) + line('Less: eggs from the supplier', -R.P, { indent: 1 }) + (disc ? line('Add: supplier volume discount at ' + V.toLocaleString() + ' crates', disc, { indent: 1 }) : '') +
+    line('Less: breakage on the long haul', -(R.breakage - disc * R.b), { indent: 1 }) + line('Less: long haul (fuel ' + fmt(Math.round(R.haulFuel)) + ', wear ' + fmt(Math.round(R.haulWear)) + ', driver and other ' + fmt(Math.round(R.haulCrew)) + ')', -R.haul, { indent: 1 }) +
+    line('Less: sales commission', -R.comm, { indent: 1 }) + line('Less: delivery inside the region', -R.loc, { indent: 1 }) + line('Profit per crate', mAt, { bold: 1, col: mAt > 0 ? 'var(--lime)' : 'var(--red)' }) + '</tbody></table>';
+  const grossBefore = R.p + R.fee - R.P - R.breakage - R.comm - R.loc;
+  const haulShare = grossBefore > 0 ? Math.round(R.haul / grossBefore * 100) : null;
+  const tiersPanel = '<div class="panel"><div class="panel-hdr"><div class="panel-title">Supplier volume discounts</div><div class="panel-tag">the discount a supplier gives once your monthly volume reaches a level</div></div><div class="panel-body">' +
+    ((s.tiers || []).length ? s.tiers.map(t => '<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center"><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">From</span><input class="form-input" style="flex:1" type="number" min="0" step="any" value="' + (t.min === null ? '' : escapeHtml(t.min)) + '" placeholder="crates a month" onchange="expRowSet(\'tiers\',\'' + t.id + '\',\'min\',this.value)"/><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">discount ₦</span><input class="form-input" style="flex:1" type="number" min="0" step="any" value="' + (t.disc === null ? '' : escapeHtml(t.disc)) + '" placeholder="per crate" onchange="expRowSet(\'tiers\',\'' + t.id + '\',\'disc\',this.value)"/><button class="btn btn-ghost no-print" style="padding:2px 8px" onclick="expRowDel(\'tiers\',\'' + t.id + '\')">✕</button></div>').join('') : '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist);margin-bottom:6px">No discount entered: the planner assumes the supplier gives none at any volume.</div>') +
+    '<button class="btn btn-ghost no-print" onclick="expRowAdd(\'tiers\')">+ Add discount level</button></div></div>';
+  body.innerHTML =
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">' + escapeHtml(s.name) + '</div><div class="panel-tag">scenario name</div></div><div class="panel-body"><input class="form-input" style="max-width:320px" value="' + escapeHtml(s.name) + '" onchange="expSet(\'name\',this.value)"/></div></div>' +
+    (need.length ? '<div class="alert-banner info" style="margin:0 0 12px"><span>Still to fill in for a full answer: ' + need.join(', ') + '.</span></div>' : '') +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">The answer</div><div class="panel-tag">recalculates as you type</div></div><div class="panel-body">' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px">' +
+    card('Profit per crate', expMoney(mAt), 'at ' + (V ? V.toLocaleString() + ' crates a month' : 'your expected volume'), mAt > 0 ? 'var(--lime)' : 'var(--red)') +
+    card('Break-even volume', beTxt, beSub) +
+    card('Monthly profit at expected volume', V ? expMoney(monthly) : '—', V ? 'after fixed costs of ' + expMoney(R.F) : 'enter expected crates', V ? (monthly >= 0 ? 'var(--lime)' : 'var(--red)') : '') +
+    card('Payback on set-up spend', R.S <= 0 ? '—' : (payback === null ? 'Never' : payback.toFixed(1) + ' months'), 'set-up spend ' + expMoney(R.S) + (R.S > 0 && payback === null && V ? ' · monthly profit is not positive' : '')) + '</div>' +
+    (haulShare !== null && R.haul > 0 ? '<div style="font-family:\'DM Mono\',monospace;font-size:11px;margin-bottom:8px">The long haul takes <b>' + haulShare + '%</b> of the margin that would be left without it (' + expMoney(grossBefore) + ' a crate before the haul' + (disc ? ' and before the supplier discount' : '') + ').</div>' : '') +
+    (discLines ? '<div style="font-family:\'DM Mono\',monospace;font-size:11px;line-height:1.7">' + discLines + '</div>' : '') + '</div></div>' +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">Profit per crate</div><div class="panel-tag">at the expected volume</div></div><div class="panel-body" style="overflow-x:auto">' + unit + '</div></div>' +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">Selling side and eggs</div><div class="panel-tag">' + (ref ? 'started from Lagos, last 90 days since ' + escapeHtml(ref.since) + ' (' + ref.crates.toLocaleString() + ' crates)' : 'all editable') + '</div></div><div class="panel-body">' + grid(
+      F_('Selling price', 'price', { unit: '₦ per crate', note: ref ? 'Lagos price now: ' + fmt(ref.price) : '' }) + F_('Delivery fee charged', 'fee', { unit: '₦ per crate', note: ref ? 'Lagos average: ' + fmt(ref.fee) : '' }) +
+      F_('Eggs bought from the supplier', 'purchase', { unit: '₦ per crate, before discount', note: ref ? 'Lagos latest batch cost: ' + fmt(ref.cost) : '' }) + F_('Breakage on the long haul', 'breakagePct', { unit: '% of egg value', ph: 'e.g. 1' }) +
+      F_('Sales commission', 'commission', { unit: '₦ per crate', note: ref ? 'Lagos average: ' + fmt(ref.commission) : '' }) + F_('Delivery cost inside the region', 'localDelivery', { unit: '₦ per crate', note: ref ? 'Lagos waybill average: ' + fmt(ref.localDelivery) : '' })) + '</div></div>' +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">The long haul</div><div class="panel-tag">one round trip by van, shared across the crates it carries</div></div><div class="panel-body">' + grid(
+      F_('Distance to the supplier, one way', 'oneWayKm', { unit: 'km' }) + F_('Van fuel economy', 'kmPerLitre', { unit: 'km per litre' }) + F_('Fuel price', 'fuelPrice', { unit: '₦ per litre' }) + F_('Wear and tear (tyres, service, repairs)', 'wearPerKm', { unit: '₦ per km' }) +
+      F_('Driver pay for the trip', 'driverPerTrip', { unit: '₦ per trip' }) + F_('Other trip costs (tolls, loading, feeding)', 'otherPerTrip', { unit: '₦ per trip' }) + F_('Crates one van carries', 'cratesPerTrip', { unit: 'crates per trip' }) + F_('Most trips one van can make', 'maxTripsPerMonth', { unit: 'per month', note: 'optional; used to flag when a plan needs more vans' })) +
+      '<div style="margin-top:10px;font-family:\'DM Mono\',monospace;font-size:11px">Cost of one round trip: <b>' + expMoney(R.tripCost) + '</b>' + (R.cpt > 0 ? ' · per crate: <b>' + expMoney(R.haul) + '</b>' : ' · enter the crates a van carries to see the per-crate cost') + '</div></div></div>' +
+    tiersPanel +
+    rows('fixed', 'Monthly fixed costs', 'costs you carry whether or not a crate sells') + rows('setup', 'One-time set-up spend', 'paid once before the first sale') +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">Expected volume and payback target</div><div class="panel-tag">your own estimate</div></div><div class="panel-body">' + grid(F_('Crates you expect to sell', 'expectedVolume', { unit: 'a month' }) + F_('Pay back set-up spend within', 'paybackTarget', { unit: 'months' })) + '</div></div>' +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">How fragile is it?</div><div class="panel-tag">break-even crates a month if the prices move (supplier discounts still apply)</div></div><div class="panel-body" style="overflow-x:auto">' + sens + '</div></div>';
 }
 function renderPnL() {
   ensurePnLData();
