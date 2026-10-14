@@ -3114,7 +3114,7 @@ async function renderMyLoyaltyPanel(customerName) {
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.8">
       Engagement points (build your case for your next tier review): ${profile.loyaltyPoints} —
       Advocacy ${profile.breakdown.advocacy} · Feedback ${profile.breakdown.feedback} ·
-      Communication ${profile.breakdown.communication} · Respect ${profile.breakdown.respect}
+      Communication ${profile.breakdown.communication} · Respect ${profile.breakdown.respect}${profile.breakdown.other ? ` · Relationship ${profile.breakdown.other}` : ''}
     </div>
     ${profile.referralCode ? `
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:8px;padding-top:8px;border-top:1px solid rgba(240,180,40,0.15)">

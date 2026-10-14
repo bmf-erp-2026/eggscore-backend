@@ -1146,6 +1146,16 @@ input[type=number]{-moz-appearance:textfield;}
   function erpOutboxPaint() {
     let el = document.getElementById('erp-outbox-banner');
     let items = []; try { items = erpOutboxItems(); } catch(e) {}
+    // Oct 14 2026 — the red "NOT SAVED TO SERVER" tag on a Sales Log row used to stay on screen after the server had
+    // accepted the sale (only this bar was redrawn). Redraw the open Sales Log whenever the set of unsaved records changes.
+    try {
+      const sig = items.map(i => i.kind + ':' + (i.o.id || i.o.entryId || i.o.cid || '') + ':' + (i.o.syncError || '')).join('|');
+      if(erpOutboxPaint._sig !== undefined && erpOutboxPaint._sig !== sig) {
+        const led = document.getElementById('ledger-search');
+        if(led && led.offsetParent !== null && typeof renderLedger === 'function') renderLedger();
+      }
+      erpOutboxPaint._sig = sig;
+    } catch(e) {}
     const unlinked = erpIsRepRole() && ERP_REP_READY && !ERP_REP;
     if(!items.length && !unlinked) { if(el) el.style.display = 'none'; return; }
     if(!document.body) return;
@@ -3509,6 +3519,10 @@ input[type=number]{-moz-appearance:textfield;}
         existing.referralCode = row.referral_code || existing.referralCode;
         existing.backendId   = row.id; // explicit, reliable — regardless of what existing.id happens to look like
         existing.ownerRep    = row.owner_rep || null;   // Oct 13 2026 — the rep who pitched this customer
+        // Oct 14 2026 (queue item C) — credit-onboarding verification: the server is the only authority.
+        existing.shopVerifiedAt = row.shop_verified_at || null; existing.shopVerifiedBy = row.shop_verified_by || null; existing.shopVerifiedNote = row.shop_verified_note || '';
+        existing.phoneVerifiedAt = row.phone_verified_at || null; existing.phoneVerifiedBy = row.phone_verified_by || null; existing.phoneVerifiedNote = row.phone_verified_note || '';
+        existing.verifyGrandfathered = !!row.verify_grandfathered;
       } else {
         byCid.set(row.cid, {
           id: 'sync-' + row.id, cid: row.cid, name: row.name, location: row.location,
@@ -3519,6 +3533,9 @@ input[type=number]{-moz-appearance:textfield;}
           referralCode: row.referral_code || undefined,
           backendId: row.id,
           ownerRep: row.owner_rep || null,
+          shopVerifiedAt: row.shop_verified_at || null, shopVerifiedBy: row.shop_verified_by || null, shopVerifiedNote: row.shop_verified_note || '',
+          phoneVerifiedAt: row.phone_verified_at || null, phoneVerifiedBy: row.phone_verified_by || null, phoneVerifiedNote: row.phone_verified_note || '',
+          verifyGrandfathered: !!row.verify_grandfathered,
         });
       }
     });
@@ -8623,6 +8640,18 @@ input[type=number]{-moz-appearance:textfield;}
 
       <button class="btn btn-primary" onclick="saveScorecardSettings()">Save Scoring Settings</button>
       <div id="sc-settings-status" style="margin-top:10px;font-family:'DM Mono',monospace;font-size:9.5px"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">✅ Credit-onboarding verification</div><div class="panel-tag" id="sc-verify-count">—</div></div>
+    <div class="panel-body">
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);margin-bottom:8px">A customer gets credit terms, or a higher tier, only after the Owner has confirmed the shop was visited and the phone number reaches them. This is in addition to the loyalty score and the badge clearances below, not instead of them. Until both are confirmed the customer pays cash or transfer in full. Customers who were already trading before this began are marked existing and keep what they have.</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <select class="form-select" style="max-width:190px" onchange="erpVerifyFilter=this.value;renderVerifyPanel()"><option value="incomplete">Show: still to verify</option><option value="all">Show: every customer</option></select>
+        <input id="sc-verify-search" class="form-input" style="flex:1;min-width:160px" placeholder="Search a customer…" oninput="renderVerifyPanel()">
+      </div>
+      <div id="sc-verify-list" class="panel-scroll"></div>
     </div>
   </div>
 
@@ -17409,7 +17438,8 @@ function renderCustomers() {
             <div class="cm-item"><div class="cm-val">${c.creditLimit>0?fmtK(c.creditLimit):'Cash Only'}</div><div class="cm-lbl">credit limit</div></div>
             <div class="cm-item"><div class="cm-val">${custFreq(c.id)}</div><div class="cm-lbl">orders/mo</div></div>
           </div>
-          <div style="margin-top:8px;display:flex;justify-content:flex-end;gap:6px">
+          <div style="margin-top:8px;display:flex;justify-content:flex-end;gap:6px;align-items:center">
+            <span style="margin-right:auto">${erpVerifyChip(c)}</span>
             <button class="btn btn-ghost" style="font-size:9px;padding:2px 8px"
               onclick="event.stopPropagation();openEditContactModal('${c.id}')">
               📱 Edit Contact Info
@@ -22446,6 +22476,7 @@ function goToScTablePage(page) { paginationState['sc-table'] = page; renderCusto
 
 function renderCustomerScorecard() {
   refreshTierClearanceQueue();
+  try { renderVerifyPanel(); } catch(e) { console.warn('verify panel', e); }
   renderCreditLineRegister();
   updateCreditLineBadge();
   const s = ensureScorecardSettings();
@@ -22499,6 +22530,7 @@ function renderCustomerScorecard() {
           <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">
             Score ${sc.finalScore} (objective ${sc.objectiveScore} · relationship ${sc.relationshipScore}) · ${sc.purchaseCount} purchases on record
           </div>
+          ${isCustomerUnverified(cl.customerName) ? `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--amber);margin-top:4px">⚠ Not verified yet — confirm the shop and the phone (Credit-onboarding verification, above) before clearing.</div>` : ''}
         </div>`;
       }).join('');
     }
@@ -25532,6 +25564,8 @@ function refreshTierClearanceQueue() {
     if(!sc.eligible) return;
     const currentRank   = getTierRank(c.loyalty || 'New');
     const suggestedRank = getTierRank(sc.suggestedTier);
+    // Oct 14 2026 (queue item C): an unverified customer is not offered for an upgrade at all.
+    if(suggestedRank > currentRank && isCustomerUnverified(c.name)) return;
 
     if(suggestedRank > currentRank) {
       const alreadyQueued = STATE.customerBadgeClearances.some(cl =>
@@ -25572,6 +25606,7 @@ function clearTierUpgrade(clearanceId) {
   // clear look like it silently failed.
   const matches = STATE.customers.filter(c => c.name === cl.customerName);
   if(!matches.length) { showToast('⚠ Customer not found.'); return; }
+  if(isCustomerUnverified(cl.customerName)) { showToast('⚠ ' + cl.customerName + ' is not verified yet — confirm the shop and the phone first (Customer Scores).'); return; }
 
   matches.forEach(c => {
     c.loyalty = cl.toTier;
@@ -25656,6 +25691,11 @@ function getCustomerTrustTier(customerName) {
 function setCustomerTrustTier(customerName, tier) {
   const cust = STATE.customers.find(c => c.name === customerName);
   if(!cust) return;
+  if(tier !== 'new' && isCustomerUnverified(customerName)) {
+    showToast('⚠ ' + customerName + ' is not verified yet — confirm the shop and the phone before giving credit terms.');
+    if(currentModule === 'loyalty') renderCustomerScorecard();
+    return;
+  }
   cust.trustTier = tier;
   saveState();
   // NOTE: backend persistence for trustTier is not wired yet — needs a
@@ -26540,13 +26580,85 @@ function creditBlockReason(customerName) {
   if(getCustomerBadDebtOutstanding(customerName) > 0) return 'written_off';
   if(getCreditBlockedNamesCached().includes(customerName)) return 'written_off';
   if(getOverdueCreditNames().has(customerName)) return 'overdue';
+  // Oct 14 2026 (queue item C): no credit until the Owner has confirmed the shop and the phone.
+  if(isCustomerUnverified(customerName)) return 'unverified';
   return '';
 }
 function isCustomerCreditBlocked(customerName) { return !!creditBlockReason(customerName); }
 function creditBlockWhy(customerName) {
-  return creditBlockReason(customerName) === 'overdue'
-    ? 'a credit balance is still unpaid 90 days or more after the sale'
+  const r = creditBlockReason(customerName);
+  return r === 'overdue' ? 'a credit balance is still unpaid 90 days or more after the sale'
+    : r === 'unverified' ? 'the Owner has not yet confirmed this customer\'s shop and phone (Customer Scores, Credit-onboarding verification)'
     : 'an old debt that was written off is still unpaid';
+}
+
+// ── Credit-onboarding verification (Oct 14 2026, queue item C) ──
+// Two things the Owner must confirm before a customer can be given credit or moved up a tier:
+// the shop was visited, and the phone number reaches the customer. This is IN ADDITION to the
+// existing Loyalty score / Scorecard tier rules, never instead of them. A customer who already
+// had trade history when this began is "grandfathered" (set once, by the migration) and keeps
+// what they have. Customers with no cid (the built-in samples) are treated the same way.
+function customerVerifyInfo(name) {
+  const ms = (STATE.customers || []).filter(x => x.name === name);
+  if(!ms.length) return null;
+  const grandfathered = ms.some(c => c.verifyGrandfathered || !c.cid);
+  const shop = ms.some(c => !!c.shopVerifiedAt), phone = ms.some(c => !!c.phoneVerifiedAt);
+  return { c: ms[0], grandfathered, shop, phone, verified: grandfathered || (shop && phone) };
+}
+function isCustomerUnverified(name) { const v = customerVerifyInfo(name); return !!v && !v.verified; }
+function erpVerifyChip(c) {
+  const v = customerVerifyInfo(c.name); if(!v) return '';
+  if(v.shop && v.phone) return '<span class="panel-tag" style="font-size:9px;color:var(--teal)">✓ verified</span>';
+  if(v.grandfathered) return '<span class="panel-tag" style="font-size:9px;color:var(--mist)" title="Had trade history before verification began">existing customer</span>';
+  return '<span class="panel-tag" style="font-size:9px;color:var(--amber)" title="Cash or transfer only until the Owner confirms the shop and the phone">⚠ not verified — ' + (v.shop ? 'phone' : v.phone ? 'shop' : 'shop + phone') + ' to confirm</span>';
+}
+let erpVerifyFilter = 'incomplete';
+function renderVerifyPanel() {
+  const box = document.getElementById('sc-verify-list'); if(!box) return;
+  if(ERP_ROLE !== 'owner') { box.innerHTML = '<div style="color:var(--mist);font-size:11px">Only the Owner confirms verification. A customer who is not verified is cash or transfer only.</div>'; return; }
+  const q = (document.getElementById('sc-verify-search')?.value || '').trim().toLowerCase();
+  const all = (STATE.customers || []).filter(c => c.cid && c.backendId);
+  const seen = new Set();
+  let rows = all.filter(c => { if(seen.has(c.name)) return false; seen.add(c.name); return true; }).map(c => ({ c, v: customerVerifyInfo(c.name) }));
+  const incompleteCount = rows.filter(r => !r.v.verified).length;
+  setText('sc-verify-count', incompleteCount + ' to verify');
+  if(erpVerifyFilter === 'incomplete') rows = rows.filter(r => !r.v.verified);
+  if(q) rows = rows.filter(r => r.c.name.toLowerCase().includes(q));
+  rows = rows.slice(0, 60);
+  const esc = erpEsc;
+  box.innerHTML = rows.length === 0 ? '<div style="color:var(--mist);font-size:11px">' + (erpVerifyFilter === 'incomplete' ? 'Nothing waiting — every customer is verified or an existing customer.' : 'No customer matches.') + '</div>' :
+    rows.map((r, i) => {
+      const c = r.c, v = r.v, nid = 'vf-note-' + c.backendId;
+      const item = (kind, on, at, by, note, label) => on
+        ? '<div style="flex:1;min-width:190px"><span style="color:var(--teal)">✓ ' + label + '</span> <span style="color:var(--mist)">' + esc((at || '').slice(0, 10)) + (by ? ' · ' + esc(by) : '') + '</span>' + (note ? '<div style="color:var(--dust)">' + esc(note) + '</div>' : '') + '<a href="#" style="color:var(--mist);font-size:9px" onclick="event.preventDefault();erpVerifySet(' + c.backendId + ',\'' + kind + '\',false)">undo</a></div>'
+        : '<div style="flex:1;min-width:190px"><button class="btn btn-primary" style="font-size:9px;padding:3px 10px" onclick="erpVerifySet(' + c.backendId + ',\'' + kind + '\',true)">Confirm ' + label.toLowerCase() + '</button></div>';
+      return '<div style="padding:10px 12px;background:rgba(61,214,192,0.04);border:1px solid rgba(61,214,192,0.18);border-radius:8px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px"><strong style="font-family:\'Syne\',sans-serif;font-size:13px;color:var(--cream)">' + esc(c.name) + '</strong>' +
+        '<span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">' + esc(c.phone || '') + ' · ' + esc(c.location || '') + (c.ownerRep ? ' · 👤 ' + esc(c.ownerRep) : '') + ' ' + erpVerifyChip(c) + '</span></div>' +
+        '<input id="' + nid + '" class="form-input" style="width:100%;margin-bottom:6px" placeholder="How you checked (e.g. visited 14 Oct, met Mrs Ada; called and she answered) — required to confirm">' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;font-family:\'DM Mono\',monospace;font-size:10px">' +
+        item('shop', v.shop, c.shopVerifiedAt, c.shopVerifiedBy, c.shopVerifiedNote, 'Shop visited') +
+        item('phone', v.phone, c.phoneVerifiedAt, c.phoneVerifiedBy, c.phoneVerifiedNote, 'Phone confirmed') + '</div></div>';
+    }).join('');
+}
+async function erpVerifySet(backendId, kind, on) {
+  if(ERP_ROLE !== 'owner') return;
+  const c = STATE.customers.find(x => x.backendId === backendId); if(!c) return;
+  const noteEl = document.getElementById('vf-note-' + backendId);
+  const note = ((noteEl && noteEl.value) || '').trim();
+  if(on && note.length < 3) { showToast('⚠ Type how you checked it first (a few words).'); if(noteEl) noteEl.focus(); return; }
+  const body = kind === 'shop' ? { shopVerified: !!on, shopNote: on ? note : '' } : { phoneVerified: !!on, phoneNote: on ? note : '' };
+  const r = await erpApi('PATCH', '/customers/' + backendId, body);
+  if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not save — try again.')); return; }
+  const row = r.json || {};
+  STATE.customers.filter(x => x.backendId === backendId).forEach(x => {
+    x.shopVerifiedAt = row.shop_verified_at || null; x.shopVerifiedBy = row.shop_verified_by || null; x.shopVerifiedNote = row.shop_verified_note || '';
+    x.phoneVerifiedAt = row.phone_verified_at || null; x.phoneVerifiedBy = row.phone_verified_by || null; x.phoneVerifiedNote = row.phone_verified_note || '';
+  });
+  saveState();
+  showToast(on ? '✓ ' + (kind === 'shop' ? 'Shop' : 'Phone') + ' confirmed for ' + c.name + '.' : 'Confirmation removed for ' + c.name + '.');
+  try { if(isCustomerUnverified(c.name) === false) { refreshTierClearanceQueue(); } } catch(e) {}
+  renderCustomerScorecard();
 }
 async function syncCreditBlockedFromBackend() {
   const token = await erpGetAuthToken();

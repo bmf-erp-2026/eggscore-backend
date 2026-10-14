@@ -105,10 +105,10 @@ router.post('/owner-rep', requireSupabaseAuth(), requireRole('owner'), async (re
 // silently applying only the allowed ones — a silent partial-apply here
 // would mean a rep believes they changed a credit limit that quietly
 // never took effect, discovered only much later.
-const OWNER_ONLY_CUSTOMER_FIELDS = ['creditLimit', 'trustTier', 'loyaltyTier'];
+const OWNER_ONLY_CUSTOMER_FIELDS = ['creditLimit', 'trustTier', 'loyaltyTier', 'shopVerified', 'shopNote', 'phoneVerified', 'phoneNote'];
 
 router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
-  const { phone, location, contact, type, creditLimit, trustTier, loyaltyTier, referralCode } = req.body;
+  const { phone, location, contact, type, creditLimit, trustTier, loyaltyTier, referralCode, shopVerified, shopNote, phoneVerified, phoneNote } = req.body;
 
   if(req.user.role !== 'owner') {
     const attempted = OWNER_ONLY_CUSTOMER_FIELDS.filter(f => req.body[f] !== undefined);
@@ -146,6 +146,21 @@ router.patch('/:id', requireSupabaseAuth(), async (req, res) => {
   // getOrCreateReferralCode() genuinely has to mint a brand-new code
   // (nothing existed yet, anywhere) — never overwrites an existing one.
   if(referralCode !== undefined) { fields.push('referral_code = ?'); values.push(referralCode); }
+
+  // Oct 14 2026 (queue item C) — credit-onboarding verification. Owner only (guarded above). Confirming needs
+  // a written note of how it was checked; the server stamps who and when; undoing clears all three.
+  const who = req.user.email || 'owner';
+  for(const [flag, note, col] of [[shopVerified, shopNote, 'shop'], [phoneVerified, phoneNote, 'phone']]) {
+    if(flag === undefined) continue;
+    if(flag) {
+      const n = String(note || '').trim();
+      if(n.length < 3) return res.status(400).json({ error: 'Say how the ' + col + ' was checked (a few words) before confirming it.' });
+      fields.push(`${col}_verified_at = now()`, `${col}_verified_by = ?`, `${col}_verified_note = ?`); values.push(who, n.slice(0, 300));
+    } else {
+      fields.push(`${col}_verified_at = NULL`, `${col}_verified_by = NULL`, `${col}_verified_note = NULL`);
+    }
+    console.log(`[audit] ${col} ${flag ? 'confirmed' : 'confirmation removed'} for customer ${existing.name} by ${who}`);
+  }
 
   if(fields.length === 0) return res.status(400).json({ error: 'No updatable fields provided.' });
   values.push(req.params.id);
