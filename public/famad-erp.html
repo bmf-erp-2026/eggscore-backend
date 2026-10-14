@@ -36769,7 +36769,11 @@ function computeDebtTimeValue(outstandingNaira, daysOutstanding) {
 function getWalletTimeValue(customerName) {
   const txns = (STATE.walletTransactions || [])
     .filter(t => t.customerName === customerName)
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Oct 14 2026 — dates here are day-only (YYYY-MM-DD) and the list is held newest-first, so a credit and
+    // the withdrawal that used it on the same day could be replayed withdrawal-first, leaving the credit
+    // counted as still held (live: headline wallet total about ₦1.1M above the true balance). On a tie,
+    // credits are replayed first, which is the only order that can really have happened.
+    .sort((a, b) => (new Date(a.date) - new Date(b.date)) || ((b.type === 'credit' ? 1 : 0) - (a.type === 'credit' ? 1 : 0)));
 
   const queue = []; // { amount, date } — oldest first
   txns.forEach(t => {
