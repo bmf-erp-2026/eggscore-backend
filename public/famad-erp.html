@@ -1419,7 +1419,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'incomestmt', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -6289,6 +6289,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('voltrack')"><span class="icon">🥚</span><span>Volume Tracker</span></div>
   <div class="si" onclick="switchModule('receivables')"><span class="icon">⏳</span><span>Receivables Aging</span></div>
   <div class="si" onclick="switchModule('pnl')"><span class="icon">📈</span><span>P&amp;L Calculator</span></div>
+  <div class="si" onclick="switchModule('incomestmt')"><span class="icon">📑</span><span>Income Statement</span></div>
   <div class="si" onclick="switchModule('taxpanel')"><span class="icon">🧾</span><span>Tax Panel</span></div>
   <div class="si" onclick="switchModule('commission')"><span class="icon">💰</span><span>Commission</span></div>
   <div class="si" onclick="switchModule('credit')"><span class="icon">⚠</span><span>Credit / Debt <span class="si-badge" id="debt-badge">0</span></span></div>
@@ -7992,6 +7993,27 @@ input[type=number]{-moz-appearance:textfield;}
 </div>
 
 <!-- ════ MODULE: P&L CALCULATOR ════════════════════════════════════ -->
+<!-- ════ MODULE: INCOME STATEMENT (Oct 14 2026, queue item F) ═════════════════ -->
+<div class="module-page" id="mod-incomestmt">
+  <div class="ph">
+    <div>
+      <h2>Income Statement</h2>
+      <div class="ph-sub">The P&amp;L Calculator's own figures, laid out in standard order — one month beside the month before</div>
+    </div>
+    <div class="ph-actions">
+      <input class="form-input" type="month" id="is-month" style="width:auto;padding:4px 8px" onchange="renderIncomeStatement()"/>
+      <button class="btn btn-ghost" onclick="printModule('Income Statement')">🖨 Print</button>
+    </div>
+  </div>
+  <div id="is-asof" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px"></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title" id="is-title">Income statement</div><div class="panel-tag">every figure is the same one the P&amp;L Calculator shows for that month</div></div>
+    <div class="panel-body" id="is-body" style="overflow-x:auto"></div></div>
+  <div class="alert-banner info" id="is-memo" style="margin:12px 0"></div>
+  <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin-bottom:14px">
+    Reading it: Revenue is egg sales plus delivery fees from the Sales Log. Cost of goods sold is the batch cost of the crates sold. Operating costs are commission, depreciation, the lines you entered under Other Cost Elements, and bad-debt loss. Net profit before tax equals Net Profit on the P&amp;L Calculator. The tax lines are the Tax Panel's estimate, not a filing. The current month is month-to-date, so compare it with the month before only once it is complete. Percentages are shares of that month's total revenue.
+  </div>
+</div>
+
 <div class="module-page" id="mod-pnl">
   <div class="ph">
     <div>
@@ -12637,6 +12659,7 @@ function switchModule(name) {
        (name==='voltrack' && txt.includes('volume tracker')) ||
        (name==='receivables' && txt.includes('receivables aging')) ||
        (name==='pnl' && txt.includes('p&l calculator')) ||
+       (name==='incomestmt' && txt.includes('income statement')) ||
        (name==='taxpanel' && txt.includes('tax panel')) ||
        (name==='doccentre' && txt.includes('document centre'))) {
       el.classList.add('active');
@@ -12649,7 +12672,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -12679,6 +12702,7 @@ function switchModule(name) {
     suppliers: renderSuppliers,
     supplierscorecard: renderSupplierScorecard,
     pnl: renderPnL,
+    incomestmt: renderIncomeStatement,
     taxpanel: renderTaxPanel,
     doccentre: renderDocumentCentre,
   };
@@ -21151,6 +21175,79 @@ function computeNetProfitForPeriod(from, to) {
   return round2(grossProfit - totalOperatingCosts);
 }
 
+// ── Income Statement (Oct 14 2026, queue item F) ──
+// Same formulas and helpers as computeNetProfitForPeriod()/renderPnL(), laid out in standard order. Pure function of
+// (from, to): nothing is entered here, so it can never disagree with the P&L Calculator for the same range.
+function incomeStatementFor(from, to) {
+  const pnl = ensurePnLData();
+  const sales = (STATE.sales || []).filter(x => x.date >= from && x.date <= to);
+  const eggRevenue = round2(sales.reduce((a, x) => a + (x.gross || 0), 0));
+  const deliveryRevenue = round2(sales.reduce((a, x) => a + (x.deliveryTotal || 0), 0));
+  const totalRevenue = round2(eggRevenue + deliveryRevenue);
+  const cogs = round2(sales.reduce((a, x) => a + ((x.batchCost || 0) * (x.crates || 0)), 0));
+  const grossProfit = round2(totalRevenue - cogs);
+  const commission = round2(sales.reduce((a, x) => a + (x.comm || 0), 0));
+  const depreciation = round2(pnl.fixedAssets.reduce((a, x) => a + getAssetDepreciationForPeriod(x, from, to), 0));
+  const custom = [];
+  pnl.customCostElements.forEach(c => { const v = round2(getCustomElementValueForPeriod(c, from, to)); if(v) custom.push({ label: (c.label || '').trim() || 'Unnamed cost line', value: v }); });
+  const otherCosts = round2(custom.reduce((a, x) => a + x.value, 0));
+  const badDebt = getBadDebtPnLInPeriod(from, to).net;
+  const operatingCosts = round2(commission + depreciation + otherCosts + badDebt);
+  const profitBeforeTax = round2(grossProfit - operatingCosts);
+  let tax = null;
+  try { const est = getTaxEstimateForPeriod(from, to, profitBeforeTax); tax = { vatAbsorbed: est.vat.absorbed || 0, vatReclaim: est.vat.reclaimInPnl || 0, companyTax: est.applied.total || 0, mode: est.applied.mode, after: est.profitAfterTax }; } catch(err) { tax = null; }
+  let tripCosts = 0, trips = 0;
+  try { getAllWaybills().filter(w => w.type === 'delivery' && w.generatedAt && String(w.generatedAt).slice(0, 10) >= from && String(w.generatedAt).slice(0, 10) <= to).forEach(w => { tripCosts += Number(w.costs && w.costs.total) || 0; trips++; }); } catch(err) {}
+  return { from, to, sales: sales.length, eggRevenue, deliveryRevenue, totalRevenue, cogs, grossProfit, commission, depreciation, custom, otherCosts, badDebt, operatingCosts, profitBeforeTax, tax, tripCosts: round2(tripCosts), trips };
+}
+function incomeStatementMonths(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const pad = n => String(n).padStart(2, '0');
+  const last = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  const today = recvToday();
+  let to = ym + '-' + pad(last(y, m));
+  const mtd = today >= ym + '-01' && today < to;
+  if(mtd) to = today;
+  const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1, pym = py + '-' + pad(pm);
+  return { cur: { from: ym + '-01', to, ym, mtd }, prev: { from: pym + '-01', to: pym + '-' + pad(last(py, pm)), ym: pym } };
+}
+function renderIncomeStatement() {
+  const body = document.getElementById('is-body'); if(!body) return;
+  const inp = document.getElementById('is-month');
+  if(inp && !inp.value) inp.value = recvToday().slice(0, 7);
+  const per = incomeStatementMonths(inp ? inp.value : recvToday().slice(0, 7));
+  const A = incomeStatementFor(per.cur.from, per.cur.to), B = incomeStatementFor(per.prev.from, per.prev.to);
+  const MN = ym => { const [y, m] = ym.split('-').map(Number); return ['January','February','March','April','May','June','July','August','September','October','November','December'][m - 1] + ' ' + y; };
+  document.getElementById('is-title').textContent = 'Income statement — ' + MN(per.cur.ym) + (per.cur.mtd ? ' (month to date)' : '');
+  document.getElementById('is-asof').textContent = 'Chosen month ' + per.cur.from + ' to ' + per.cur.to + ' · month before ' + per.prev.from + ' to ' + per.prev.to + ' · ' + A.sales + ' and ' + B.sales + ' sales';
+  const pct = (v, tot) => tot > 0 ? (Math.round(v / tot * 1000) / 10).toFixed(1) + '%' : '—';
+  const chg = (a, b) => { const d = round2(a - b); const p = b !== 0 ? ' (' + (d >= 0 ? '+' : '−') + Math.abs(Math.round(d / Math.abs(b) * 100)) + '%)' : ''; return (d > 0 ? '+' : d < 0 ? '−' : '') + (d === 0 ? '—' : fmt(Math.abs(d))) + (d === 0 ? '' : p); };
+  const CELL = (inner, extra) => '<td class="mono" style="padding-right:14px;white-space:nowrap;text-align:right;' + (extra || '') + '">' + inner + '</td>';
+  const row = (label, a, b, o) => { o = o || {}; const bold = o.bold ? 'font-weight:700;' : '';
+    const top = o.top ? 'border-top:1px solid var(--border);' : '';
+    const col = v => o.signColor ? (v >= 0 ? 'var(--lime)' : 'var(--red)') : 'inherit';
+    return '<tr style="' + bold + top + '"><td style="padding-right:14px;' + (o.indent ? 'padding-left:18px;' : '') + '">' + label + '</td>' +
+      CELL(fmt(a), 'color:' + col(a)) + CELL(o.noPct ? '' : pct(a, A.totalRevenue), 'color:var(--mist)') +
+      CELL(fmt(b), 'color:' + col(b)) + CELL(o.noPct ? '' : pct(b, B.totalRevenue), 'color:var(--mist)') + CELL(chg(a, b)) + '</tr>'; };
+  const head = (t) => '<tr><td colspan="6" style="padding-top:10px;font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mist)">' + t + '</td></tr>';
+  const labels = new Map(); A.custom.concat(B.custom).forEach(x => labels.set(x.label, 1));
+  let h = '<table class="data-table"><thead><tr><th></th><th style="text-align:right">' + MN(per.cur.ym) + (per.cur.mtd ? ' (to date)' : '') + '</th><th style="text-align:right">% of revenue</th><th style="text-align:right">' + MN(per.prev.ym) + '</th><th style="text-align:right">% of revenue</th><th style="text-align:right">Change</th></tr></thead><tbody>';
+  h += head('Revenue') + row('Egg sales', A.eggRevenue, B.eggRevenue, { indent: 1 }) + row('Delivery fees', A.deliveryRevenue, B.deliveryRevenue, { indent: 1 }) + row('Total revenue', A.totalRevenue, B.totalRevenue, { bold: 1, top: 1 });
+  h += head('Cost of goods sold') + row('Less: batch cost of crates sold', A.cogs, B.cogs, { indent: 1 }) + row('Gross profit', A.grossProfit, B.grossProfit, { bold: 1, top: 1, signColor: 1 });
+  h += head('Operating costs') + row('Less: sales commission', A.commission, B.commission, { indent: 1 }) + row('Less: depreciation', A.depreciation, B.depreciation, { indent: 1 });
+  [...labels.keys()].forEach(l => { const f = (X) => (X.custom.find(x => x.label === l) || { value: 0 }).value; h += row('Less: ' + escapeHtml(l), f(A), f(B), { indent: 1 }); });
+  h += row('Less: bad-debt loss (net of recoveries)', A.badDebt, B.badDebt, { indent: 1 }) + row('Total operating costs', A.operatingCosts, B.operatingCosts, { bold: 1, top: 1 });
+  h += row('Net profit before tax', A.profitBeforeTax, B.profitBeforeTax, { bold: 1, top: 1, signColor: 1 });
+  if(A.tax && B.tax) {
+    h += head('Tax (estimate from the Tax Panel)');
+    if(A.tax.vatAbsorbed || B.tax.vatAbsorbed) h += row('Less: VAT taken out of delivery fees', A.tax.vatAbsorbed, B.tax.vatAbsorbed, { indent: 1 });
+    if(A.tax.vatReclaim || B.tax.vatReclaim) h += row('Add: input VAT reclaimed', A.tax.vatReclaim, B.tax.vatReclaim, { indent: 1 });
+    h += row('Less: estimated company tax and levy', A.tax.companyTax, B.tax.companyTax, { indent: 1 }) + row('Profit after tax (estimate)', A.tax.after, B.tax.after, { bold: 1, top: 1, signColor: 1 });
+  }
+  h += '</tbody></table>';
+  body.innerHTML = h;
+  document.getElementById('is-memo').innerHTML = '<span>Memo, not deducted above: estimated delivery trip costs from waybills (fuel, labour, maintenance and the like) were <b>' + fmt(A.tripCosts) + '</b> on ' + A.trips + ' trip stop' + (A.trips === 1 ? '' : 's') + ' in ' + MN(per.cur.ym) + ' and ' + fmt(B.tripCosts) + ' on ' + B.trips + ' the month before. The P&amp;L Calculator does not deduct them, so profit above is higher than it would be if they were counted' + (A.tripCosts ? '; counted, net profit before tax for the chosen month would be ' + fmt(round2(A.profitBeforeTax - A.tripCosts)) + '.' : '.') + '</span>';
+}
 function renderPnL() {
   ensurePnLData();
   const { from, to } = getPnLPeriodDates();
