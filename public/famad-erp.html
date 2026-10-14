@@ -8055,9 +8055,10 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
   </div>
   <div class="panel no-print" id="exp-new-panel"><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <input class="form-input" id="exp-newname" style="max-width:260px" value="Port Harcourt" placeholder="Region or scenario name"/>
-    <button class="btn btn-primary" onclick="expCreate()">+ New scenario from Lagos figures</button>
-    <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">Starts with your recent Lagos selling price, cost, commission and delivery figures; change anything that will differ there.</span>
+    <input class="form-input" id="exp-newname" style="max-width:220px" value="Port Harcourt" placeholder="Region or scenario name"/>
+    <input class="form-input" id="exp-newtown" style="max-width:200px" value="Uyo" placeholder="Supplier town, e.g. Uyo"/>
+    <button class="btn btn-primary" onclick="expCreate()">+ New scenario from home-base figures</button>
+    <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">The first box is the new region; the second is the town the long haul starts from. The scenario starts with your recent selling price, cost, commission and delivery figures from your own sales records (Lagos); change anything that will differ there, and rename the comparison base inside the scenario.</span>
   </div></div>
   <div id="exp-body"></div>
   <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin:14px 0">
@@ -21430,15 +21431,17 @@ function expCreate() {
   const name = ((inp && inp.value) || '').trim();
   if(!name) { showToast('⚠ Give the scenario a name first.'); return; }
   const ref = expLagosReference();
+  const tinp = document.getElementById('exp-newtown');
+  const town = ((tinp && tinp.value) || '').trim();
   const s = { id: 'exp' + Date.now() + Math.random().toString(36).slice(2, 6), name, createdAt: Date.now(),
     price: ref.price, fee: ref.fee, purchase: ref.cost, commission: ref.commission, localDelivery: ref.localDelivery,
-    breakagePct: null, oneWayKm: null, kmPerLitre: null, fuelPrice: null, wearPerKm: null, driverPerTrip: null, otherPerTrip: null, cratesPerTrip: null, maxTripsPerMonth: null,
+    haulTown: town, homeBase: 'Lagos', breakagePct: null, oneWayKm: null, kmPerLitre: null, fuelPrice: null, wearPerKm: null, driverPerTrip: null, otherPerTrip: null, cratesPerTrip: null, maxTripsPerMonth: null,
     tiers: [],
     fixed: ['Depot or warehouse rent', 'Cold room and power', 'Salaries (rep, driver, helpers)', 'Vehicle lease or depreciation', 'Insurance and licences', 'Phone, internet and admin', 'Marketing'].map((l, i) => ({ id: 'f' + i, label: l, amount: null })),
     setup: ['Deposit and rent advance', 'Cold room and equipment', 'Extra van', 'Opening stock (working capital)', 'Registration and licences', 'Branding and launch'].map((l, i) => ({ id: 's' + i, label: l, amount: null })),
     expectedVolume: null, paybackTarget: 12, lagosRef: ref };
   expScenarios().push(s); EXP_SEL = s.id; expSave(); renderExpansion();
-  showToast('✓ Scenario "' + name + '" created from your Lagos figures of the last 90 days.');
+  showToast('✓ Scenario "' + name + '" created from your home-base figures of the last 90 days.');
 }
 function expPick(id) { EXP_SEL = id; renderExpansion(); }
 function expDuplicate() {
@@ -21454,6 +21457,8 @@ function expDelete() {
 function expSet(key, val) {
   const s = expCurrent(); if(!s) return;
   if(key === 'name') s.name = String(val || '').trim() || s.name;
+  else if(key === 'haulTown') s.haulTown = String(val || '').trim();
+  else if(key === 'homeBase') s.homeBase = String(val || '').trim() || 'Lagos';
   else s[key] = (val === '' || val === null) ? null : EXP_NUM(val);
   expSave(); renderExpansion();
 }
@@ -21483,7 +21488,7 @@ function renderExpansion() {
   const body = document.getElementById('exp-body'), pick = document.getElementById('exp-pick'); if(!body) return;
   const list = expScenarios(), s = expCurrent();
   if(pick) { pick.innerHTML = list.map(x => '<option value="' + escapeHtml(x.id) + '"' + (s && x.id === s.id ? ' selected' : '') + '>' + escapeHtml(x.name) + '</option>').join(''); pick.style.display = list.length ? '' : 'none'; }
-  if(!s) { body.innerHTML = '<div class="panel"><div class="panel-body" style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No scenario yet. Type a name above (Port Harcourt is filled in) and press “New scenario from Lagos figures”.</div></div>'; return; }
+  if(!s) { body.innerHTML = '<div class="panel"><div class="panel-body" style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No scenario yet. Type a region and the supplier town above (Port Harcourt and Uyo are filled in) and press “New scenario from home-base figures”.</div></div>'; return; }
   EXP_SEL = s.id;
   const R = expCompute(s), V = EXP_NUM(s.expectedVolume), disc = expDiscount(s, V), mAt = R.margin(V);
   const monthly = V * mAt - R.F;
@@ -21492,6 +21497,8 @@ function renderExpansion() {
   const F_ = (label, key, o) => { o = o || {}; const v = s[key]; return '<div class="form-group" style="margin:0"><label class="form-label">' + label + (o.unit ? ' <span style="color:var(--mist)">' + o.unit + '</span>' : '') + '</label><input class="form-input" type="number" step="any" min="0" value="' + (v === null || v === undefined ? '' : escapeHtml(v)) + '" placeholder="' + escapeHtml(o.ph || '') + '" onchange="expSet(\'' + key + '\',this.value)"/>' + (o.note ? '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist);margin-top:3px">' + o.note + '</div>' : '') + '</div>'; };
   const grid = inner => '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">' + inner + '</div>';
   const ref = s.lagosRef;
+  const HB = escapeHtml(s.homeBase || 'Lagos'), TOWN = escapeHtml(s.haulTown || ''), DEST = escapeHtml(s.name || '');
+  const HAULNAME = TOWN ? TOWN + ' to ' + DEST : '';
   const rows = (listKey, title, hint) => '<div class="panel"><div class="panel-hdr"><div class="panel-title">' + title + '</div><div class="panel-tag">' + hint + '</div></div><div class="panel-body">' +
     (s[listKey].length ? s[listKey].map(r => '<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center"><input class="form-input" style="flex:2" value="' + escapeHtml(r.label) + '" placeholder="What is it?" onchange="expRowSet(\'' + listKey + '\',\'' + r.id + '\',\'label\',this.value)"/><input class="form-input" style="flex:1" type="number" min="0" step="any" value="' + (r.amount === null ? '' : escapeHtml(r.amount)) + '" placeholder="₦" onchange="expRowSet(\'' + listKey + '\',\'' + r.id + '\',\'amount\',this.value)"/><button class="btn btn-ghost no-print" style="padding:2px 8px" onclick="expRowDel(\'' + listKey + '\',\'' + r.id + '\')">✕</button></div>').join('') : '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist);margin-bottom:6px">Nothing listed.</div>') +
     '<button class="btn btn-ghost no-print" onclick="expRowAdd(\'' + listKey + '\')">+ Add line</button><div style="margin-top:8px;font-family:\'Syne\',sans-serif;font-weight:700">Total ' + expMoney(listKey === 'fixed' ? R.F : R.S) + (listKey === 'fixed' ? ' a month' : '') + '</div></div></div>';
@@ -21513,8 +21520,8 @@ function renderExpansion() {
   let sens = '<table class="data-table"><thead><tr><th style="text-align:left">Purchase price ↓ · Selling price →</th>' + steps.map(d => '<th style="text-align:right">' + (d > 0 ? '+' : d < 0 ? '−' : '') + (d === 0 ? 'as entered' : fmt(Math.abs(d))) + '</th>').join('') + '</tr></thead><tbody>' +
     steps.map(PD => '<tr><td style="white-space:nowrap">' + (PD > 0 ? '+' : PD < 0 ? '−' : '') + (PD === 0 ? 'as entered' : fmt(Math.abs(PD))) + '</td>' + steps.map(pD => { const r = expCompute(s, pD, PD); const base = pD === 0 && PD === 0; return '<td class="mono" style="text-align:right;white-space:nowrap;' + (base ? 'font-weight:700;border:1px solid var(--border);' : '') + '">' + (r.be === null ? '<span style="color:var(--red)">never</span>' : r.be.toLocaleString()) + '</td>'; }).join('') + '</tr>').join('') + '</tbody></table>';
   const line = (label, v, o) => { o = o || {}; return '<tr style="' + (o.bold ? 'font-weight:700;border-top:1px solid var(--border);' : '') + '"><td style="' + (o.indent ? 'padding-left:18px;' : '') + '">' + label + '</td><td class="mono" style="text-align:right;white-space:nowrap;padding-right:14px;color:' + (o.col || 'inherit') + '">' + expMoney(v) + '</td></tr>'; };
-  const unit = '<table class="data-table"><tbody>' + line('Selling price per crate', R.p) + line('Delivery fee charged per crate', R.fee, { indent: 1 }) + line('Less: eggs from the supplier', -R.P, { indent: 1 }) + (disc ? line('Add: supplier volume discount at ' + V.toLocaleString() + ' crates', disc, { indent: 1 }) : '') +
-    line('Less: breakage on the long haul', -(R.breakage - disc * R.b), { indent: 1 }) + line('Less: long haul (fuel ' + fmt(Math.round(R.haulFuel)) + ', wear ' + fmt(Math.round(R.haulWear)) + ', driver and other ' + fmt(Math.round(R.haulCrew)) + ')', -R.haul, { indent: 1 }) +
+  const unit = '<table class="data-table"><tbody>' + line('Selling price per crate', R.p) + line('Delivery fee charged per crate', R.fee, { indent: 1 }) + line('Less: eggs from the supplier' + (TOWN ? ' in ' + TOWN : ''), -R.P, { indent: 1 }) + (disc ? line('Add: supplier volume discount at ' + V.toLocaleString() + ' crates', disc, { indent: 1 }) : '') +
+    line('Less: breakage on the long haul' + (TOWN ? ' from ' + TOWN : ''), -(R.breakage - disc * R.b), { indent: 1 }) + line('Less: long haul' + (TOWN ? ' from ' + TOWN : '') + ' (fuel ' + fmt(Math.round(R.haulFuel)) + ', wear ' + fmt(Math.round(R.haulWear)) + ', driver and other ' + fmt(Math.round(R.haulCrew)) + ')', -R.haul, { indent: 1 }) +
     line('Less: sales commission', -R.comm, { indent: 1 }) + line('Less: delivery inside the region', -R.loc, { indent: 1 }) + line('Profit per crate', mAt, { bold: 1, col: mAt > 0 ? 'var(--lime)' : 'var(--red)' }) + '</tbody></table>';
   const grossBefore = R.p + R.fee - R.P - R.breakage - R.comm - R.loc;
   const haulShare = grossBefore > 0 ? Math.round(R.haul / grossBefore * 100) : null;
@@ -21522,7 +21529,11 @@ function renderExpansion() {
     ((s.tiers || []).length ? s.tiers.map(t => '<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center"><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">From</span><input class="form-input" style="flex:1" type="number" min="0" step="any" value="' + (t.min === null ? '' : escapeHtml(t.min)) + '" placeholder="crates a month" onchange="expRowSet(\'tiers\',\'' + t.id + '\',\'min\',this.value)"/><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mist)">discount ₦</span><input class="form-input" style="flex:1" type="number" min="0" step="any" value="' + (t.disc === null ? '' : escapeHtml(t.disc)) + '" placeholder="per crate" onchange="expRowSet(\'tiers\',\'' + t.id + '\',\'disc\',this.value)"/><button class="btn btn-ghost no-print" style="padding:2px 8px" onclick="expRowDel(\'tiers\',\'' + t.id + '\')">✕</button></div>').join('') : '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist);margin-bottom:6px">No discount entered: the planner assumes the supplier gives none at any volume.</div>') +
     '<button class="btn btn-ghost no-print" onclick="expRowAdd(\'tiers\')">+ Add discount level</button></div></div>';
   body.innerHTML =
-    '<div class="panel"><div class="panel-hdr"><div class="panel-title">' + escapeHtml(s.name) + '</div><div class="panel-tag">scenario name</div></div><div class="panel-body"><input class="form-input" style="max-width:320px" value="' + escapeHtml(s.name) + '" onchange="expSet(\'name\',this.value)"/></div></div>' +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">' + escapeHtml(s.name) + '</div><div class="panel-tag">name, supplier town and comparison base</div></div><div class="panel-body"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">' +
+      '<div class="form-group" style="margin:0"><label class="form-label">Scenario name</label><input class="form-input" value="' + escapeHtml(s.name) + '" onchange="expSet(\'name\',this.value)"/></div>' +
+      '<div class="form-group" style="margin:0"><label class="form-label">Supplier town <span style="color:var(--mist)">where the long haul starts</span></label><input class="form-input" value="' + escapeHtml(s.haulTown || '') + '" placeholder="e.g. Uyo" onchange="expSet(\'haulTown\',this.value)"/></div>' +
+      '<div class="form-group" style="margin:0"><label class="form-label">Compare against <span style="color:var(--mist)">where the starting figures came from</span></label><input class="form-input" value="' + escapeHtml(s.homeBase || 'Lagos') + '" placeholder="Lagos" onchange="expSet(\'homeBase\',this.value)"/></div>' +
+    '</div></div></div>' +
     (need.length ? '<div class="alert-banner info" style="margin:0 0 12px"><span>Still to fill in for a full answer: ' + need.join(', ') + '.</span></div>' : '') +
     '<div class="panel"><div class="panel-hdr"><div class="panel-title">The answer</div><div class="panel-tag">recalculates as you type</div></div><div class="panel-body">' +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px">' +
@@ -21533,12 +21544,12 @@ function renderExpansion() {
     (haulShare !== null && R.haul > 0 ? '<div style="font-family:\'DM Mono\',monospace;font-size:11px;margin-bottom:8px">The long haul takes <b>' + haulShare + '%</b> of the margin that would be left without it (' + expMoney(grossBefore) + ' a crate before the haul' + (disc ? ' and before the supplier discount' : '') + ').</div>' : '') +
     (discLines ? '<div style="font-family:\'DM Mono\',monospace;font-size:11px;line-height:1.7">' + discLines + '</div>' : '') + '</div></div>' +
     '<div class="panel"><div class="panel-hdr"><div class="panel-title">Profit per crate</div><div class="panel-tag">at the expected volume</div></div><div class="panel-body" style="overflow-x:auto">' + unit + '</div></div>' +
-    '<div class="panel"><div class="panel-hdr"><div class="panel-title">Selling side and eggs</div><div class="panel-tag">' + (ref ? 'started from Lagos, last 90 days since ' + escapeHtml(ref.since) + ' (' + ref.crates.toLocaleString() + ' crates)' : 'all editable') + '</div></div><div class="panel-body">' + grid(
-      F_('Selling price', 'price', { unit: '₦ per crate', note: ref ? 'Lagos price now: ' + fmt(ref.price) : '' }) + F_('Delivery fee charged', 'fee', { unit: '₦ per crate', note: ref ? 'Lagos average: ' + fmt(ref.fee) : '' }) +
-      F_('Eggs bought from the supplier', 'purchase', { unit: '₦ per crate, before discount', note: ref ? 'Lagos latest batch cost: ' + fmt(ref.cost) : '' }) + F_('Breakage on the long haul', 'breakagePct', { unit: '% of egg value', ph: 'e.g. 1' }) +
-      F_('Sales commission', 'commission', { unit: '₦ per crate', note: ref ? 'Lagos average: ' + fmt(ref.commission) : '' }) + F_('Delivery cost inside the region', 'localDelivery', { unit: '₦ per crate', note: ref ? 'Lagos waybill average: ' + fmt(ref.localDelivery) : '' })) + '</div></div>' +
-    '<div class="panel"><div class="panel-hdr"><div class="panel-title">The long haul</div><div class="panel-tag">one round trip by van, shared across the crates it carries</div></div><div class="panel-body">' + grid(
-      F_('Distance to the supplier, one way', 'oneWayKm', { unit: 'km' }) + F_('Van fuel economy', 'kmPerLitre', { unit: 'km per litre' }) + F_('Fuel price', 'fuelPrice', { unit: '₦ per litre' }) + F_('Wear and tear (tyres, service, repairs)', 'wearPerKm', { unit: '₦ per km' }) +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">Selling side and eggs</div><div class="panel-tag">' + (ref ? 'started from ' + HB + ', last 90 days since ' + escapeHtml(ref.since) + ' (' + ref.crates.toLocaleString() + ' crates)' : 'all editable') + '</div></div><div class="panel-body">' + grid(
+      F_('Selling price', 'price', { unit: '₦ per crate', note: ref ? HB + ' price now: ' + fmt(ref.price) : '' }) + F_('Delivery fee charged', 'fee', { unit: '₦ per crate', note: ref ? HB + ' average: ' + fmt(ref.fee) : '' }) +
+      F_('Eggs bought from the supplier' + (TOWN ? ' in ' + TOWN : ''), 'purchase', { unit: '₦ per crate, before discount', note: ref ? HB + ' latest batch cost: ' + fmt(ref.cost) : '' }) + F_('Breakage on the long haul', 'breakagePct', { unit: '% of egg value', ph: 'e.g. 1' }) +
+      F_('Sales commission', 'commission', { unit: '₦ per crate', note: ref ? HB + ' average: ' + fmt(ref.commission) : '' }) + F_('Delivery cost inside the region', 'localDelivery', { unit: '₦ per crate', note: ref ? HB + ' waybill average: ' + fmt(ref.localDelivery) : '' })) + '</div></div>' +
+    '<div class="panel"><div class="panel-hdr"><div class="panel-title">The long haul' + (HAULNAME ? ': ' + HAULNAME : '') + '</div><div class="panel-tag">one round trip by van, shared across the crates it carries</div></div><div class="panel-body">' + grid(
+      F_(HAULNAME ? 'Distance, ' + HAULNAME + ', one way' : 'Distance to the supplier, one way', 'oneWayKm', { unit: 'km' }) + F_('Van fuel economy', 'kmPerLitre', { unit: 'km per litre' }) + F_('Fuel price', 'fuelPrice', { unit: '₦ per litre' }) + F_('Wear and tear (tyres, service, repairs)', 'wearPerKm', { unit: '₦ per km' }) +
       F_('Driver pay for the trip', 'driverPerTrip', { unit: '₦ per trip' }) + F_('Other trip costs (tolls, loading, feeding)', 'otherPerTrip', { unit: '₦ per trip' }) + F_('Crates one van carries', 'cratesPerTrip', { unit: 'crates per trip' }) + F_('Most trips one van can make', 'maxTripsPerMonth', { unit: 'per month', note: 'optional; used to flag when a plan needs more vans' })) +
       '<div style="margin-top:10px;font-family:\'DM Mono\',monospace;font-size:11px">Cost of one round trip: <b>' + expMoney(R.tripCost) + '</b>' + (R.cpt > 0 ? ' · per crate: <b>' + expMoney(R.haul) + '</b>' : ' · enter the crates a van carries to see the per-crate cost') + '</div></div></div>' +
     tiersPanel +
