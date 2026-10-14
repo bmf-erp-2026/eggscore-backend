@@ -7211,6 +7211,21 @@ input[type=number]{-moz-appearance:textfield;}
 
   <div id="rep-leaderboard-full"></div>
 
+  <!-- REP SCORECARD WITH COLLECTIONS (Oct 14 2026, queue item D) -->
+  <div class="panel" id="rep-scorecard-panel">
+    <div class="panel-hdr"><div class="panel-title">Rep Scorecard — sales and collections</div>
+      <div class="panel-tag"><select id="rep-sc-period" class="form-input" style="padding:2px 6px;font-size:10px;height:24px;width:auto" onchange="renderRepScorecard()">
+        <option value="month">This month</option><option value="90">Last 90 days</option><option value="all">All time</option></select></div></div>
+    <div class="panel-body panel-scroll">
+      <div id="rep-sc-reading" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);margin-bottom:8px"></div>
+      <div id="rep-sc-table"></div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:8px;line-height:1.5">
+        Crates, revenue and credit share cover the period chosen. Owed, past due and 90+ days are what is still unpaid today on every sale the rep made, however old. Days to collect is the average time credit sales took to be paid in full (same period). Information only: commission is not changed by anything on this panel.<br>
+        <b>Grade</b> = the worse of two scores. Days to collect: A up to 7 days, B up to 14, C up to 30, D more than 30. Past-due share of what is owed: A none, B up to 25%, C up to 50%, D over 50%. Any balance over 90 days old caps the grade at C. A dash means no credit activity to grade.
+      </div>
+    </div>
+  </div>
+
   <!-- AI REP COACHING -->
   <div class="ai-box" id="ai-rep-coaching-box" style="margin-bottom:14px">
     <div class="ai-box-hdr"><div class="ai-box-label">● Rep Coaching Insights</div><button class="btn btn-ghost" style="font-size:9px;padding:2px 8px" onclick="generateRepCoaching()">↻ Refresh</button></div>
@@ -17293,6 +17308,7 @@ function renderReps() {
   renderRPReps(repData, max);
   renderFormerReps();
   renderRepComparison();
+  try { renderRepScorecard(); } catch(e) { console.warn('Rep scorecard failed', e); }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -28377,6 +28393,59 @@ function renderReceivables() {
   document.getElementById('rc-inv').innerHTML = inv.length ? '<table class="data-table"><thead><tr><th>Invoice</th><th>Customer</th><th>Sales Rep</th><th>Sale date</th><th>Owed</th><th>Age</th><th>Term</th><th>Days late</th></tr></thead><tbody>' +
     inv.map(x => '<tr><td>' + escapeHtml(String(x.inv)) + '</td><td style="color:var(--cream)">' + escapeHtml(x.customer) + '</td><td>' + escapeHtml(x.rep) + '</td><td>' + x.date + '</td><td>' + fmt(x.balance) + '</td><td>' + x.age + ' d</td><td>' + x.term + ' d</td><td style="color:' + (x.late > 0 ? 'var(--amber)' : 'var(--mist)') + '">' + (x.late > 0 ? x.late + ' d' : 'on time') + '</td></tr>').join('') + '</tbody></table>'
     : '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No open invoices.</div>';
+}
+// ── Rep Scorecard with collections (Oct 14 2026, queue item D) ──
+// Grade = the worse of: days to collect (<=7 A, <=14 B, <=30 C, else D) and the share of what the rep is owed that is past
+// its due date (none A, <=25% B, <=50% C, else D). Any balance over 90 days old caps the grade at C. No credit activity: '—'.
+function repCollectionGrade(owed, past, over90, avgDays) {
+  if((avgDays === null || avgDays === undefined) && !(owed > 0)) return { g: '—', pts: -1 };
+  const dPts = (avgDays === null || avgDays === undefined) ? 0 : avgDays <= 7 ? 0 : avgDays <= 14 ? 1 : avgDays <= 30 ? 2 : 3;
+  const ratio = owed > 0 ? past / owed : 0;
+  const pPts = !(owed > 0) || ratio <= 0 ? 0 : ratio <= 0.25 ? 1 : ratio <= 0.5 ? 2 : 3;
+  let pts = Math.max(dPts, pPts);
+  if(over90 > 0) pts = Math.max(pts, 2);
+  return { g: 'ABCD'[pts], pts };
+}
+function repScorecardRows(period, today) {
+  const win = period === 'month' ? Math.max(0, recvDayDiff(today.slice(0, 8) + '01', today)) : period === '90' ? 90 : 36500;
+  const from = period === 'month' ? today.slice(0, 8) + '01' : period === '90' ? new Date(Date.parse(today + 'T00:00:00Z') - 90 * 86400000).toISOString().slice(0, 10) : '0000-00-00';
+  const items = recvOpenItems(today), coll = recvCollected(today, win);
+  const sales = (STATE.sales || []).filter(s => s && s.date && !s.fullyReversed && String(s.date).slice(0, 10) >= from);
+  const names = new Set((STATE.reps || []).filter(r => r.name !== 'Direct' && r.status !== 'inactive').map(r => r.name));
+  items.forEach(x => names.add(x.rep)); sales.forEach(x => names.add(x.rep));
+  names.delete('Direct'); names.delete('—'); names.delete(undefined); names.delete('');
+  let list = [...names];
+  if(typeof erpIsRepRole === 'function' && erpIsRepRole()) list = list.filter(n => n === ERP_REP);
+  const isCredit = s => RECV_CREDIT_KEYS.includes(s.payment) || (STATE.settlementLog || []).some(l => settlementMatchesSale(l, s) && RECV_CREDIT_KEYS.includes(l.previousPayment));
+  return list.map(n => {
+    const mine = sales.filter(s => s.rep === n), its = items.filter(x => x.rep === n), cl = coll.filter(x => x.rep === n);
+    const crates = mine.reduce((a, s) => a + (Number(s.crates) || 0), 0), revenue = mine.reduce((a, s) => a + (Number(s.gross) || 0), 0);
+    const credCrates = mine.filter(isCredit).reduce((a, s) => a + (Number(s.crates) || 0), 0);
+    const owed = its.reduce((a, x) => a + x.balance, 0), past = its.filter(x => x.late > 0).reduce((a, x) => a + x.balance, 0);
+    const over90 = its.filter(x => x.bucket === 4).reduce((a, x) => a + x.balance, 0);
+    const avgDays = cl.length ? cl.reduce((a, x) => a + x.days, 0) / cl.length : null;
+    const gr = repCollectionGrade(owed, past, over90, avgDays);
+    return { name: n, crates, revenue, creditPct: crates > 0 ? Math.round(credCrates / crates * 100) : null, owed, past, over90, avgDays, collected: cl.length, grade: gr.g, pts: gr.pts };
+  }).sort((a, b) => (b.crates - a.crates) || a.name.localeCompare(b.name));
+}
+function renderRepScorecard() {
+  const el = document.getElementById('rep-sc-table'); if(!el) return;
+  const per = (document.getElementById('rep-sc-period') || {}).value || 'month';
+  const rows = repScorecardRows(per, recvToday());
+  const GC = { A: 'var(--lime)', B: 'var(--teal)', C: 'var(--amber)', D: 'var(--red)', '—': 'var(--mist)' };
+  const dash = '<span style="color:var(--mist)">—</span>';
+  if(!rows.length) { el.innerHTML = '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No sales or balances to show yet.</div>'; document.getElementById('rep-sc-reading').textContent = ''; return; }
+  const TD = '<td style="padding-right:14px;white-space:nowrap">';
+  el.innerHTML = '<table class="data-table"><thead><tr><th>Rep</th><th>Crates</th><th>Revenue</th><th>Credit share</th><th>Owed now</th><th>Past due</th><th>90+ days</th><th>Days to collect</th><th>Grade</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td style="color:var(--cream);font-weight:600;padding-right:14px">' + escapeHtml(r.name) + '</td>' + TD + r.crates.toLocaleString() + '</td>' + TD + fmt(r.revenue) + '</td>' + TD + (r.creditPct === null ? dash : r.creditPct + '%') + '</td>' +
+      TD + (r.owed > 0 ? fmt(r.owed) : dash) + '</td>' + TD + (r.past > 0 ? '<span style="color:var(--amber)">' + fmt(r.past) + '</span>' : dash) + '</td>' + TD + (r.over90 > 0 ? '<span style="color:var(--red)">' + fmt(r.over90) + '</span>' : dash) + '</td>' +
+      TD + (r.avgDays === null ? dash : r.avgDays.toFixed(1) + ' d <span style="color:var(--mist)">(' + r.collected + ')</span>') + '</td><td><span class="chip" style="font-weight:700;color:' + GC[r.grade] + '">' + r.grade + '</span></td></tr>').join('') + '</tbody></table>';
+  const graded = rows.filter(r => r.pts >= 0), most = rows.slice().sort((a, b) => b.owed - a.owed)[0];
+  const best = graded.filter(r => r.avgDays !== null).sort((a, b) => a.avgDays - b.avgDays)[0];
+  let t = rows.length + ' rep' + (rows.length === 1 ? '' : 's') + ' shown.';
+  if(best) t += ' Fastest collector: ' + best.name + ' (' + best.avgDays.toFixed(1) + ' days).';
+  if(most && most.owed > 0) t += ' Most still owed: ' + most.name + ' (' + fmt(most.owed) + ').';
+  document.getElementById('rep-sc-reading').textContent = t;
 }
 function initVolReqChannel() {
   try {
