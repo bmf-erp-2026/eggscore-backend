@@ -1419,7 +1419,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'incomestmt', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'incomestmt', 'balancesheet', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -6290,6 +6290,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('receivables')"><span class="icon">⏳</span><span>Receivables Aging</span></div>
   <div class="si" onclick="switchModule('pnl')"><span class="icon">📈</span><span>P&amp;L Calculator</span></div>
   <div class="si" onclick="switchModule('incomestmt')"><span class="icon">📑</span><span>Income Statement</span></div>
+  <div class="si" onclick="switchModule('balancesheet')"><span class="icon">⚖️</span><span>Balance Sheet</span></div>
   <div class="si" onclick="switchModule('taxpanel')"><span class="icon">🧾</span><span>Tax Panel</span></div>
   <div class="si" onclick="switchModule('commission')"><span class="icon">💰</span><span>Commission</span></div>
   <div class="si" onclick="switchModule('credit')"><span class="icon">⚠</span><span>Credit / Debt <span class="si-badge" id="debt-badge">0</span></span></div>
@@ -8011,6 +8012,30 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="alert-banner info" id="is-memo" style="margin:12px 0"></div>
   <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin-bottom:14px">
     Reading it: Revenue is egg sales plus delivery fees from the Sales Log. Cost of goods sold is the batch cost of the crates sold. Operating costs are commission, depreciation, the lines you entered under Other Cost Elements, and bad-debt loss. Net profit before tax equals Net Profit on the P&amp;L Calculator. The tax lines are the Tax Panel's estimate, not a filing. The current month is month-to-date, so compare it with the month before only once it is complete. Percentages are shares of that month's total revenue.
+  </div>
+</div>
+
+<!-- ════ MODULE: BALANCE SHEET (Oct 14 2026, queue item G) ═════════════════ -->
+<div class="module-page" id="mod-balancesheet">
+  <div class="ph">
+    <div>
+      <h2>Balance Sheet</h2>
+      <div class="ph-sub">What the business owns, what it owes, and what is left for the owner — as at today</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-primary" id="bs-save-btn" onclick="saveBalanceSnapshot()">💾 Save month-end snapshot</button>
+      <button class="btn btn-ghost" onclick="printModule('Balance Sheet')">🖨 Print</button>
+    </div>
+  </div>
+  <div id="bs-asof" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px"></div>
+  <div class="alert-banner info" id="bs-viewing" style="margin:0 0 12px;display:none"></div>
+  <div class="panel"><div class="panel-hdr"><div class="panel-title" id="bs-title">Balance sheet</div><div class="panel-tag">assets = liabilities + owner's equity</div></div>
+    <div class="panel-body" id="bs-body" style="overflow-x:auto"></div></div>
+  <div class="alert-banner info" id="bs-manual" style="margin:12px 0"></div>
+  <div class="panel no-print"><div class="panel-hdr"><div class="panel-title">Saved month-end snapshots</div><div class="panel-tag">frozen copies — figures do not change after saving</div></div>
+    <div class="panel-body" id="bs-snaps" style="overflow-x:auto"></div></div>
+  <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.6;margin:14px 0">
+    Reading it: Inventory is the crates still on hand, valued at what each batch cost. Receivables is the credit owed by customers (written-off sales are left out) and equals the total on Receivables Aging. Fixed assets are shown at cost less the depreciation counted up to today, never below zero. Customer wallet balances are money customers have paid in advance, so they are a liability: the business owes them eggs or a refund. Cash on hand, payables and long-term loans are numbers you enter on the P&amp;L Calculator (Cash Flow Tracker, Working Capital Monitor, Debt Service Monitor). Owner's equity is not entered anywhere: it is assets minus liabilities, so it balances by construction. Not included unless you put them in Payables: tax owed, salaries owed and supplier invoices not yet paid.
   </div>
 </div>
 
@@ -12660,6 +12685,7 @@ function switchModule(name) {
        (name==='receivables' && txt.includes('receivables aging')) ||
        (name==='pnl' && txt.includes('p&l calculator')) ||
        (name==='incomestmt' && txt.includes('income statement')) ||
+       (name==='balancesheet' && txt.includes('balance sheet')) ||
        (name==='taxpanel' && txt.includes('tax panel')) ||
        (name==='doccentre' && txt.includes('document centre'))) {
       el.classList.add('active');
@@ -12672,7 +12698,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -12703,6 +12729,7 @@ function switchModule(name) {
     supplierscorecard: renderSupplierScorecard,
     pnl: renderPnL,
     incomestmt: renderIncomeStatement,
+    balancesheet: renderBalanceSheet,
     taxpanel: renderTaxPanel,
     doccentre: renderDocumentCentre,
   };
@@ -20191,6 +20218,8 @@ function ensurePnLData() {
   // render time (taxSet), so only the containers are created here.
   if(!STATE.pnl.taxSettings || typeof STATE.pnl.taxSettings !== 'object') STATE.pnl.taxSettings = {};
   if(!Array.isArray(STATE.pnl.taxEntries)) STATE.pnl.taxEntries = [];
+  // Balance Sheet — Oct 14 2026. Month-end snapshots are frozen copies; synced like taxEntries (no review reminder).
+  if(!Array.isArray(STATE.pnl.balanceSnapshots)) STATE.pnl.balanceSnapshots = [];
   // Debt Service — Sep 23 2026. Fully template, no derivable source at
   // all: nothing in this app tracks any loan or financing taken out
   // for vehicles/cold storage/equipment (the P&L Calculator's Fixed
@@ -20331,7 +20360,7 @@ function markPnLReviewedToday() {
 // (the backend applies the same rule when merging, so a device holding a
 // stale copy can never clobber a newer edit made elsewhere).
 // taxEntries syncs like the other sections but carries no review reminder.
-const PNL_SYNC_SECTIONS = PNL_REVIEW_ITEMS.map(i => ({ key: i.key, ts: i.tsField })).concat([{ key: 'taxEntries', ts: 'taxEntriesUpdatedAt' }]);
+const PNL_SYNC_SECTIONS = PNL_REVIEW_ITEMS.map(i => ({ key: i.key, ts: i.tsField })).concat([{ key: 'taxEntries', ts: 'taxEntriesUpdatedAt' }, { key: 'balanceSnapshots', ts: 'balanceSnapshotsUpdatedAt' }]);
 
 // Folds a server copy into local STATE.pnl. A section is only adopted when
 // the server's stamp is STRICTLY newer than this device's — equal stamps
@@ -21247,6 +21276,106 @@ function renderIncomeStatement() {
   h += '</tbody></table>';
   body.innerHTML = h;
   document.getElementById('is-memo').innerHTML = '<span>Memo, not deducted above: estimated delivery trip costs from waybills (fuel, labour, maintenance and the like) were <b>' + fmt(A.tripCosts) + '</b> on ' + A.trips + ' trip stop' + (A.trips === 1 ? '' : 's') + ' in ' + MN(per.cur.ym) + ' and ' + fmt(B.tripCosts) + ' on ' + B.trips + ' the month before. The P&amp;L Calculator does not deduct them, so profit above is higher than it would be if they were counted' + (A.tripCosts ? '; counted, net profit before tax for the chosen month would be ' + fmt(round2(A.profitBeforeTax - A.tripCosts)) + '.' : '.') + '</span>';
+}
+// ── Balance Sheet — Oct 14 2026, queue item G ────────────────────────────
+// Every line reuses a source the app already has; only cash, payables and
+// loans are numbers Bob keeps himself (P&L Calculator). Equity is the
+// balancing figure, never an input.
+function balanceSheetFigures() {
+  const pnl = ensurePnLData();
+  const today = recvToday();
+  ensureBatches();
+  const cash = round2(Number(pnl.cashFlow && pnl.cashFlow.cashOnHand) || 0);
+  const inventory = round2((STATE.batches || []).reduce((s, b) => s + (b.cost || 0) * Math.max(b.remaining || 0, 0), 0));
+  // Same open-invoice list as Receivables Aging (it also skips fully-reversed sales), so the two pages always show one figure.
+  const receivables = round2(recvOpenItems(today).reduce((a, x) => a + x.balance, 0));
+  let fixedAssets = 0;
+  (pnl.fixedAssets || []).forEach(a => {
+    if(!a.cost || (a.purchaseDate && a.purchaseDate > today)) return;
+    const dep = getAssetDepreciationForPeriod(a, a.purchaseDate || today, today);
+    fixedAssets += Math.max(a.cost - dep, 0);
+  });
+  fixedAssets = round2(fixedAssets);
+  const byCust = new Map();
+  (STATE.walletTransactions || []).forEach(t => { if(t.customerName !== undefined) byCust.set(t.customerName, 1); });
+  let wallet = 0;
+  byCust.forEach((_, name) => { wallet += Math.max(getWalletBalance(name), 0); });
+  wallet = round2(wallet);
+  const payables = round2(Number(pnl.workingCapital && pnl.workingCapital.payables) || 0);
+  const loans = round2((pnl.loans || []).reduce((s, l) => s + (Number(l.outstandingBalance) || 0), 0));
+  return bsTotals({ date: today, cash, inventory, receivables, fixedAssets, wallet, payables, loans });
+}
+function bsTotals(L) {
+  const totalAssets = round2(L.cash + L.inventory + L.receivables + L.fixedAssets);
+  const totalLiabilities = round2(L.wallet + L.payables + L.loans);
+  return { ...L, totalAssets, totalLiabilities, equity: round2(totalAssets - totalLiabilities) };
+}
+function bsMoney(v) { return (v < 0 ? '−' : '') + fmt(Math.abs(v)); }
+function bsAgeText(ts) {
+  if(!ts) return 'never confirmed';
+  const d = Math.floor((Date.now() - ts) / 86400000);
+  return d <= 0 ? 'today' : d + ' day' + (d === 1 ? '' : 's') + ' ago';
+}
+let BS_VIEW = null; // date of the saved snapshot being viewed; null = live, as at today
+function renderBalanceSheet() {
+  const body = document.getElementById('bs-body'); if(!body) return;
+  const pnl = ensurePnLData();
+  const snaps = Array.isArray(pnl.balanceSnapshots) ? pnl.balanceSnapshots : [];
+  let F = balanceSheetFigures(), viewing = null;
+  if(BS_VIEW) {
+    const s = snaps.find(x => x.date === BS_VIEW);
+    if(s) { viewing = s; F = bsTotals({ date: s.date, cash: s.cash, inventory: s.inventory, receivables: s.receivables, fixedAssets: s.fixedAssets, wallet: s.wallet, payables: s.payables, loans: s.loans }); } else BS_VIEW = null;
+  }
+  const vb = document.getElementById('bs-viewing');
+  if(vb) { if(viewing) { vb.style.display = ''; vb.innerHTML = '<span>Viewing the snapshot saved for <b>' + viewing.date + '</b>. These figures are frozen. <a href="#" onclick="bsShowLive();return false" style="color:var(--teal)">Back to today</a></span>'; } else vb.style.display = 'none'; }
+  const sb = document.getElementById('bs-save-btn'); if(sb) sb.style.display = viewing ? 'none' : '';
+  document.getElementById('bs-title').textContent = 'Balance sheet — as at ' + F.date + (viewing ? ' (saved snapshot)' : '');
+  document.getElementById('bs-asof').textContent = viewing ? 'Saved snapshot · figures as they were on ' + F.date : 'Live figures as at today, ' + F.date + ' (Lagos time)';
+  const TD = (v, x) => '<td class="mono" style="padding-right:14px;white-space:nowrap;text-align:right;' + (x || '') + '">' + v + '</td>';
+  const row = (label, v, o) => { o = o || {}; return '<tr style="' + (o.bold ? 'font-weight:700;' : '') + (o.top ? 'border-top:1px solid var(--border);' : '') + '"><td style="padding-right:14px;' + (o.indent ? 'padding-left:18px;' : '') + '">' + label + (o.note ? ' <span style="color:var(--mist);font-size:10px;font-weight:400">' + o.note + '</span>' : '') + '</td>' + TD(bsMoney(v), o.signColor ? 'color:' + (v >= 0 ? 'var(--lime)' : 'var(--red)') : '') + '</tr>'; };
+  const head = t => '<tr><td colspan="2" style="padding-top:10px;font-family:\'DM Mono\',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mist)">' + t + '</td></tr>';
+  let h = '<table class="data-table"><thead><tr><th></th><th style="text-align:right">' + F.date + '</th></tr></thead><tbody>';
+  h += head('Assets') + row('Cash on hand', F.cash, { indent: 1, note: '(entered by you)' }) + row('Inventory', F.inventory, { indent: 1, note: '(crates on hand, at cost)' }) + row('Receivables', F.receivables, { indent: 1, note: '(owed by customers)' }) + row('Fixed assets', F.fixedAssets, { indent: 1, note: '(cost less depreciation)' }) + row('Total assets', F.totalAssets, { bold: 1, top: 1 });
+  h += head('Liabilities') + row('Customer wallet balances', F.wallet, { indent: 1, note: '(paid in advance)' }) + row('Payables and short-term loans', F.payables, { indent: 1, note: '(entered by you)' }) + row('Long-term loans', F.loans, { indent: 1, note: '(Debt Service Monitor)' }) + row('Total liabilities', F.totalLiabilities, { bold: 1, top: 1 });
+  h += head("Owner's equity") + row("Owner's equity", F.equity, { bold: 1, signColor: 1, note: '(assets less liabilities)' }) + row("Total liabilities and owner's equity", F.totalLiabilities + F.equity, { bold: 1, top: 1 });
+  h += '</tbody></table>';
+  if(F.equity < 0) h += '<div style="margin-top:10px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--red)">Equity is negative: the business owes more than it owns on these figures. Check that cash on hand and the loan balances are up to date.</div>';
+  body.innerHTML = h;
+  const m = document.getElementById('bs-manual');
+  if(m) m.innerHTML = '<span>Numbers you keep yourself were last confirmed: cash on hand ' + bsAgeText(pnl.cashFlowUpdatedAt) + ', payables ' + bsAgeText(pnl.workingCapitalUpdatedAt) + ', loans ' + bsAgeText(pnl.loansUpdatedAt) + '. Update them on the P&amp;L Calculator before saving a snapshot.</span>';
+  const sn = document.getElementById('bs-snaps');
+  if(sn) {
+    const list = snaps.slice().sort((a, b) => b.date.localeCompare(a.date));
+    sn.innerHTML = list.length ? '<table class="data-table"><thead><tr><th>Date</th><th style="text-align:right">Total assets</th><th style="text-align:right">Liabilities</th><th style="text-align:right">Owner\'s equity</th><th></th></tr></thead><tbody>' +
+      list.map(s => { const t = bsTotals(s); return '<tr><td>' + escapeHtml(s.date) + '</td>' + TD(bsMoney(t.totalAssets)) + TD(bsMoney(t.totalLiabilities)) + TD(bsMoney(t.equity)) + '<td style="white-space:nowrap"><button class="btn btn-ghost" style="padding:2px 8px;font-size:10px" onclick="bsViewSnapshot(\'' + escapeHtml(s.date) + '\')">View</button> <button class="btn btn-ghost" style="padding:2px 8px;font-size:10px" onclick="bsRemoveSnapshot(\'' + escapeHtml(s.date) + '\')">Remove</button></td></tr>'; }).join('') + '</tbody></table>'
+      : '<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--mist)">No snapshot saved yet. On the last day of each month, update the numbers you keep yourself, then press Save month-end snapshot.</div>';
+  }
+}
+function bsViewSnapshot(date) { BS_VIEW = date; renderBalanceSheet(); window.scrollTo(0, 0); }
+function bsShowLive() { BS_VIEW = null; renderBalanceSheet(); }
+function saveBalanceSnapshot() {
+  const pnl = ensurePnLData();
+  const F = balanceSheetFigures();
+  if(!Array.isArray(pnl.balanceSnapshots)) pnl.balanceSnapshots = [];
+  const existing = pnl.balanceSnapshots.find(s => s.date === F.date);
+  if(existing && !confirm('A snapshot for ' + F.date + ' is already saved. Replace it with the figures on screen now?')) return;
+  pnl.balanceSnapshots = pnl.balanceSnapshots.filter(s => s.date !== F.date);
+  pnl.balanceSnapshots.push({ date: F.date, savedAt: Date.now(), cash: F.cash, inventory: F.inventory, receivables: F.receivables, fixedAssets: F.fixedAssets, wallet: F.wallet, payables: F.payables, loans: F.loans });
+  pnl.balanceSnapshotsUpdatedAt = Date.now();
+  saveState();
+  postPnLToBackend();
+  renderBalanceSheet();
+  showToast('✓ Balance sheet snapshot saved for ' + F.date + '.');
+}
+function bsRemoveSnapshot(date) {
+  if(!confirm('Remove the saved snapshot for ' + date + '? This cannot be undone.')) return;
+  const pnl = ensurePnLData();
+  pnl.balanceSnapshots = (pnl.balanceSnapshots || []).filter(s => s.date !== date);
+  pnl.balanceSnapshotsUpdatedAt = Date.now();
+  if(BS_VIEW === date) BS_VIEW = null;
+  saveState();
+  postPnLToBackend();
+  renderBalanceSheet();
 }
 function renderPnL() {
   ensurePnLData();
