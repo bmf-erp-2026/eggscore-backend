@@ -15929,6 +15929,164 @@ function renderFloorRiskKPI() {
   }
 }
 
+// ── Owner approval for a sale that did not come through the Orders Inbox (Oct 15 2026) ─────────────────────────────
+// Record Sale and Quick Entry both end in handleSave(), and both used to accept a sale with no order behind it, or with a
+// live order that never went through Orders Inbox (payment verified, payment terms, waybill delivered). Now a sale from
+// a rep or manager must either arrive from Orders Inbox ("Send to Sales Log" sets window.__saleViaInbox) or carry an
+// approval the Owner gave on his own device for exactly this sale. The Owner is exempt.
+var saleApproval = { cache: {}, use: null, waiting: null, timer: null, busy: false, owner: [], ownerBusy: false };
+function saFp(rep, customer, crates, price, levy, payment) {
+  const n = v => Math.round((Number(v) || 0) * 100) / 100;
+  return [rep, customer, parseInt(crates, 10) || 0, n(price), n(levy), payment].map(x => String(x == null ? '' : x).trim().toLowerCase()).join('|');
+}
+function saMoney(n) { return '₦' + Math.round(Number(n) || 0).toLocaleString(); }
+function saLine(p) {
+  return '<div style="line-height:1.7;margin-bottom:10px"><b>' + erpEsc(p.customer) + '</b> · ' + (parseInt(p.crates, 10) || 0) + ' crates<br>' +
+    'Rep: ' + erpEsc(p.rep || '') + ' · Payment: ' + erpEsc(p.payment || '') + '<br>' +
+    'Total: <b>' + saMoney(((Number(p.price) || 0) + (Number(p.delivery) || 0)) * (parseInt(p.crates, 10) || 0)) + '</b> (' + saMoney(p.price) + ' egg + ' + saMoney(p.delivery) + ' delivery per crate)<br>' +
+    (p.kind === 'skipped_inbox'
+      ? '<span style="color:var(--amber)">This customer has a live order' + (p.orderRef ? ' (' + erpEsc(p.orderRef) + ')' : '') + ' that was not processed through Orders Inbox.</span>'
+      : '<span style="color:var(--amber)">No order is behind this sale.</span>') + '</div>';
+}
+function saleApprovalGate(rep, customer, crates, price, levy, payment) {
+  if(typeof ERP_ROLE !== 'undefined' && ERP_ROLE === 'owner') return true;
+  const linked = document.getElementById('s-inv')?.dataset.linkedOrderRef || '';
+  if(linked && window.__saleViaInbox === linked) return true;
+  const fp = saFp(rep, customer, crates, price, levy, payment);
+  const c = saleApproval.cache[fp];
+  if(c && c.status === 'approved' && Date.now() - c.at < 29 * 60000) { saleApproval.use = { id: c.id, fp }; return true; }
+  saleApproval.use = null;
+  saAsk({ fp, rep, customer, crates, price, delivery: levy, payment, kind: linked ? 'skipped_inbox' : 'no_order', orderRef: linked || null });
+  return false;
+}
+function saDlg(title, body) {
+  erpDlg(title, body + '<div id="erp-dlg-msg" style="min-height:14px"></div>');
+}
+function saShow(p, row, err) {
+  const st = row && row.status;
+  if(err) {
+    saDlg('Could not ask the Owner', saLine(p) + '<div style="color:var(--red);margin-bottom:10px">' + erpEsc(err) + '</div><div style="color:var(--mist);margin-bottom:10px">A sale that needs the Owner\'s approval cannot be recorded without a connection. Nothing has been recorded.</div>' +
+      '<button class="btn btn-primary" onclick="saCancel();saResume()">Try again</button> <button class="btn btn-ghost" onclick="saCancel()">Close</button>');
+  } else if(st === 'declined') {
+    saDlg('The Owner declined this sale', saLine(p) + '<div style="margin-bottom:10px;color:var(--red)">' + (row.declineReason ? 'Reason: ' + erpEsc(row.declineReason) : 'No reason was given.') + '</div><div style="color:var(--mist);margin-bottom:10px">Nothing has been recorded. Stock is unchanged.</div><button class="btn btn-ghost" onclick="saCancel()">Close</button>');
+  } else if(st === 'expired') {
+    saDlg('This request has lapsed', saLine(p) + '<div style="color:var(--mist);margin-bottom:10px">An approval lasts 30 minutes, and a request waits 12 hours. Ask again to send a fresh one.</div><button class="btn btn-primary" onclick="saCancel();saResume()">Ask again</button> <button class="btn btn-ghost" onclick="saCancel()">Close</button>');
+  } else {
+    saDlg('⏳ Waiting for the Owner', saLine(p) + '<div style="color:var(--mist);margin-bottom:10px">The Owner has been asked. You can leave this open: the sale is recorded by itself the moment he approves (usually within a minute). Nothing has been recorded yet.</div><button class="btn btn-ghost" onclick="saCancel()">Cancel</button>');
+  }
+}
+function saCancel() { clearInterval(saleApproval.timer); saleApproval.waiting = null; saleApproval.busy = false; erpDlgClose(); }
+function saResume() {
+  const btn = document.querySelector('#mod-sales .btn-primary[onclick="handleSave()"]');
+  if(btn) btn.dataset.submitting = 'false';
+  handleSave();
+}
+async function saAsk(p) {
+  if(saleApproval.busy) return;
+  saleApproval.busy = true;
+  saShow(p, null);
+  const r = await erpApi('POST', '/sale-approvals', { rep: p.rep, customer: p.customer, crates: p.crates, price: p.price, delivery: p.delivery, payment: p.payment, kind: p.kind, orderRef: p.orderRef });
+  saleApproval.busy = false;
+  if(!r.ok) { saShow(p, null, (r.json && r.json.error) || 'Could not reach the server.'); return; }
+  if(r.json.status === 'pending') logWarn('sales', `Sale held for Owner approval — ${p.customer} · ${p.crates} crates · ${p.kind === 'skipped_inbox' ? 'live order skipped Orders Inbox' : 'no order'}`);
+  saTrack(p, r.json);
+}
+function saTrack(p, row) {
+  clearInterval(saleApproval.timer);
+  saleApproval.waiting = { p, id: row.id };
+  const apply = r => {
+    if(!saleApproval.waiting || saleApproval.waiting.id !== r.id) return;
+    if(r.status === 'approved') {
+      clearInterval(saleApproval.timer); saleApproval.waiting = null;
+      saleApproval.cache[p.fp] = { id: r.id, status: 'approved', at: Date.now() };
+      logOk('sales', `Owner approved the sale — ${p.customer} · ${p.crates} crates`);
+      if(document.getElementById('erp-dlg')) { erpDlgClose(); showToast('✓ The Owner approved. Recording the sale…'); saResume(); }
+      else showToast('✓ The Owner approved ' + p.customer + '. Tap Confirm Sale to record it.');
+      return;
+    }
+    if(r.status === 'declined' || r.status === 'expired') {
+      clearInterval(saleApproval.timer); saleApproval.waiting = null;
+      if(r.status === 'declined') logWarn('sales', `Owner declined the sale — ${p.customer} · ${p.crates} crates` + (r.declineReason ? ' · ' + r.declineReason : ''));
+    }
+    saShow(p, r);
+  };
+  apply(row);
+  if(row.status === 'pending') {
+    saleApproval.timer = setInterval(async () => {
+      const r = await erpApi('GET', '/sale-approvals/mine/' + row.id);
+      if(r.ok) apply(r.json);
+    }, 5000);
+  }
+}
+// Called by handleSave() right after the sale is stored: the approval is spent, the Orders Inbox pass is spent.
+function saleApprovalSaved(sale) {
+  const u = saleApproval.use;
+  saleApproval.use = null;
+  window.__saleViaInbox = null;
+  if(!u) return;
+  delete saleApproval.cache[u.fp];
+  sale.approvalId = u.id;
+  erpApi('POST', '/sale-approvals/' + u.id + '/used', { inv: sale.inv }).catch(() => {});
+}
+// ── the Owner's side: a bar that says how many are waiting, and the list to approve or decline ──
+async function saOwnerPoll(force) {
+  if(typeof ERP_ROLE === 'undefined' || ERP_ROLE !== 'owner' || saleApproval.ownerBusy) return;
+  if(!force && document.hidden) return;
+  if(typeof erpLocked !== 'undefined' && erpLocked) return;
+  saleApproval.ownerBusy = true;
+  try {
+    const r = await erpApi('GET', '/sale-approvals/owner');
+    if(r.ok && Array.isArray(r.json)) { saleApproval.owner = r.json.filter(x => x.status === 'pending'); saPaintBar(); if(document.getElementById('sa-owner-list')) saOwnerRender(); }
+  } catch(e) { /* the bar simply does not update until the next try */ }
+  finally { saleApproval.ownerBusy = false; }
+}
+function saPaintBar() {
+  let b = document.getElementById('sale-approval-bar');
+  const n = saleApproval.owner.length;
+  if(!n) { if(b) b.style.display = 'none'; return; }
+  if(!b) {
+    b = document.createElement('button');
+    b.id = 'sale-approval-bar';
+    b.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9500;background:rgba(240,160,40,0.95);color:#1a1200;border:0;border-radius:20px;padding:8px 18px;font-family:\'DM Mono\',monospace;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.5)';
+    b.onclick = saOwnerOpen;
+    document.body.appendChild(b);
+  }
+  b.style.display = 'block';
+  b.textContent = '🔔 ' + n + (n === 1 ? ' sale' : ' sales') + ' waiting for your approval';
+}
+function saOwnerOpen() {
+  erpDlg('Sales waiting for your approval', '<div id="sa-owner-list"></div>', true);
+  saOwnerRender();
+  saOwnerPoll(true);
+}
+function saOwnerRender() {
+  const el = document.getElementById('sa-owner-list'); if(!el) return;
+  const list = saleApproval.owner;
+  if(!list.length) { el.innerHTML = '<div style="color:var(--teal)">✓ Nothing is waiting.</div>'; return; }
+  el.innerHTML = list.map(r => {
+    const credit = /^credit|^part/.test(String(r.payment || '')) && typeof isCustomerCreditBlocked === 'function' && isCustomerCreditBlocked(r.customer);
+    return '<div style="border:1px solid var(--border,#26334d);border-radius:8px;padding:10px;margin-bottom:10px">' +
+      saLine({ customer: r.customer, crates: r.crates, rep: r.rep || r.requestedBy, payment: r.payment, price: r.price, delivery: r.delivery, kind: r.kind, orderRef: r.orderRef }) +
+      (credit ? '<div style="color:var(--red);margin-bottom:8px">🚫 ' + erpEsc(r.customer) + ' cannot have credit: ' + erpEsc(creditBlockWhy(r.customer)) + '. Decline, or ask for cash or transfer.</div>' : '') +
+      '<input id="sa-reason-' + r.id + '" class="form-input" placeholder="Reason (optional, shown to the rep if you decline)" style="width:100%;margin-bottom:8px"/>' +
+      '<button class="btn btn-primary" style="margin-right:8px' + (credit ? ';opacity:.4' : '') + '" onclick="saDecide(' + r.id + ',\'approve\')">Approve</button>' +
+      '<button class="btn btn-ghost" onclick="saDecide(' + r.id + ',\'decline\')">Decline</button></div>';
+  }).join('');
+}
+async function saDecide(id, action) {
+  const row = saleApproval.owner.find(x => x.id === id);
+  if(action === 'approve' && row && /^credit|^part/.test(String(row.payment || '')) && typeof isCustomerCreditBlocked === 'function' && isCustomerCreditBlocked(row.customer)) { showToast('🚫 ' + row.customer + ' cannot have credit. Decline instead.'); return; }
+  const reason = (document.getElementById('sa-reason-' + id) || {}).value || '';
+  const r = await erpApi('POST', '/sale-approvals/' + id + '/decision', { action, reason });
+  if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not save that.')); saOwnerPoll(true); return; }
+  showToast(action === 'approve' ? '✓ Approved. The rep\'s screen continues by itself.' : '✓ Declined.');
+  if(row) logInfo('sales', `${action === 'approve' ? 'Approved' : 'Declined'} a sale — ${row.customer} · ${row.crates} crates · ${row.rep || row.requestedBy}`);
+  saleApproval.owner = saleApproval.owner.filter(x => x.id !== id);
+  saPaintBar(); saOwnerRender();
+}
+setInterval(() => saOwnerPoll(false), 20000);
+setTimeout(() => saOwnerPoll(true), 8000);
+
 function handleSave() {
   // ── Guard against a double-click/double-tap firing this twice — the ──
   // ── Save button has no built-in debounce, so a slow response or an ──
@@ -15971,6 +16129,8 @@ function handleSave() {
   // order-linked sales). Sep 1 2026 — root cause of receipts showing
   // "SETTLED" for orders that were actually on credit/part payment.
   if(!payment) { showToast('⚠ Select the real Payment Status — no default is assumed.'); return; }
+  // Oct 15 2026 — a sale that did not come through Orders Inbox needs the Owner's approval (Owner exempt). See saleApprovalGate().
+  if(!saleApprovalGate(rep, customer, crates, price, levyPCrate, payment)) return;
   // Oct 11 2026 — Owner's rule: a customer with written-off debt still unpaid gets
   // no credit of any kind (cash or transfer only) until it is paid in full.
   if((payment === 'credit7' || payment === 'credit30' || payment === 'part') && isCustomerCreditBlocked(customer)) {
@@ -16315,6 +16475,7 @@ function handleSave() {
   }
 
   STATE.sales.unshift(sale);
+  saleApprovalSaved(sale);
   if(sale.zeroDeliveryReason) logWarn('sales', `Sale saved with ₦0 delivery — ${customer} · ${inv} · ${crates} crates · reason: ${ZERO_DELIVERY_REASONS[sale.zeroDeliveryReason] || sale.zeroDeliveryReason}`);
   postSaleToBackend(sale).then(r => { if(!r || !r.ok) erpSaleSaveFailed(sale, r); });
 
@@ -16400,6 +16561,7 @@ function autoInvRef() {
 }
 
 function clearSaleForm() {
+  window.__saleViaInbox = null; if(typeof saleApproval !== 'undefined') saleApproval.use = null;
   ['s-crates','s-mtd','s-inv'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const sp = document.getElementById('s-price');
   if(sp) { sp.value = getCurrentSellingPrice(); delete sp.dataset.touched; }
@@ -35820,6 +35982,10 @@ async function sendToSalesLog(orderRef) {
         : '';
       runSaleErrorChecks();
     }
+
+    // Oct 15 2026 — this sale arrived through Orders Inbox (its payment, terms, waybill and delivery gates all passed above),
+    // so handleSave() does not ask the Owner to approve it again. Only when the form really linked THIS order.
+    window.__saleViaInbox = (document.getElementById('s-inv')?.dataset.linkedOrderRef === orderRef) ? orderRef : null;
 
     // Run error checks on pre-filled data
     runSaleErrorChecks();
