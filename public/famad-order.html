@@ -668,6 +668,8 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
         </div>
         <div id="my-loyalty-panel" style="display:none;background:rgba(240,180,40,0.06);border:1px solid rgba(240,180,40,0.25);
           border-radius:8px;padding:12px 14px;margin-top:8px"></div>
+        <div id="my-patronage-panel" style="display:none;background:rgba(109,217,109,0.06);border:1px solid rgba(109,217,109,0.25);
+          border-radius:8px;padding:12px 14px;margin-top:8px"></div>
         <div id="price-change-notice" style="display:none;font-family:'DM Mono',monospace;
           font-size:10.5px;color:var(--amber);background:rgba(224,144,48,0.07);
           border:1px solid rgba(224,144,48,0.2);border-radius:7px;padding:8px 11px;
@@ -3127,6 +3129,48 @@ async function renderMyLoyaltyPanel(customerName) {
 }
 
 
+// Oct 15 2026 — Patronage level ticker (Part payment, Stage 1: display only). Shows the level EggScore has set
+// for this customer, with how far they are toward the next one: a mix of months with us, orders and crates.
+// The level name leads and the % sits beside it, so anyone who finds a percentage hard can still read the level.
+// Nothing here changes a price or a payment term; EggScore confirms every level change.
+async function renderPatronagePanel(customerName) {
+  const panel = document.getElementById('my-patronage-panel');
+  if(!panel) return;
+  let d = null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/patronage/${encodeURIComponent(customerName)}`, { headers: { 'x-api-key': PORTAL_API_KEY } });
+    if(resp.ok) d = await resp.json();
+  } catch(networkErr) { /* backend unreachable: show nothing rather than a wrong figure */ }
+  if(!d || portalState.matchedCustomer?.name !== customerName) { panel.style.display = 'none'; return; }
+  const esc = x => String(x).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const fmt = n => Number(n).toLocaleString('en-NG');
+  let body;
+  if(d.top) {
+    body = `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.8">You are at our highest patronage level. Thank you for building this with us.</div>`;
+  } else {
+    const rows = (d.measures || []).map(m => {
+      const done = m.have >= m.need;
+      return `<span style="white-space:nowrap;color:${done ? 'var(--lime)' : 'var(--dust)'}">${done ? '✓ ' : ''}${esc(m.label)}: ${fmt(m.have)} of ${fmt(m.need)}</span>`;
+    }).join(' &nbsp;·&nbsp; ');
+    body = `
+      <div style="height:8px;background:rgba(255,255,255,0.08);border-radius:6px;overflow:hidden;margin:6px 0 8px">
+        <div style="height:100%;width:${Number(d.progressPct) || 0}%;background:var(--lime);border-radius:6px"></div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.8">
+        ${d.ready
+          ? `You have met every step toward <strong style="color:var(--cream)">${esc(d.nextName)}</strong>. EggScore will confirm your new level.`
+          : `Toward <strong style="color:var(--cream)">${esc(d.nextName)}</strong>: ${rows}`}
+      </div>`;
+  }
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--lime)">🌱 Your Patronage Level: ${esc(d.levelName)}${d.top ? '' : ` &middot; ${Number(d.progressPct) || 0}%`}</span>
+    </div>
+    ${body}
+    <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:6px">Your level grows with your steady orders over time. EggScore confirms every level.</div>`;
+}
+
 // Portal-facing wallet balance — now read live from the backend instead
 // of the old erp.walletTransactions local blob, which a real customer's
 // own device never actually populated (same root cause as the
@@ -3221,6 +3265,7 @@ function showMatch(c) {
   renderWalletNotice(c.name);
   refreshPortalWalletBalance(c.name);
   renderMyLoyaltyPanel(c.name);
+  renderPatronagePanel(c.name);
   checkPhoneMismatch();
   refreshPromoBanner();
   updateOrderCalc();
@@ -3237,6 +3282,8 @@ function hideMatch() {
   if(wnote) wnote.style.display = 'none';
   const loyaltyPanel = document.getElementById('my-loyalty-panel');
   if(loyaltyPanel) loyaltyPanel.style.display = 'none';
+  const patronagePanel = document.getElementById('my-patronage-panel');
+  if(patronagePanel) patronagePanel.style.display = 'none';
   checkPhoneMismatch();
   updateOrderCalc();
 }

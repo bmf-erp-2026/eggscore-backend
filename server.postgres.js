@@ -72,6 +72,8 @@ mount('/respect', './routes-postgres/respect');
 mount('/relationship-tags', './routes-postgres/relationship-tags');
 mount('/feedback', './routes-postgres/feedback');
 mount('/loyalty', './routes-postgres/loyalty');
+// Oct 15 2026 — read-only patronage-level progress for the customer portal (Part payment, Stage 1).
+mount('/patronage', './routes-postgres/patronage');
 mount('/notices', './routes-postgres/notices');
 mount('/ai', './routes-postgres/ai');
 mount('/theme-views', './routes-postgres/theme-views');
