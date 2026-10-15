@@ -3149,6 +3149,10 @@ async function renderPatronagePanel(customerName) {
     body = `<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.8">You are at our highest patronage level. Thank you for building this with us.</div>`;
   } else {
     const rows = (d.measures || []).map(m => {
+      if(m.kind === 'status') {
+        // The Owner's score is never shown; the customer sees only whether their record is on track.
+        return `<span style="white-space:nowrap;color:${m.ok ? 'var(--lime)' : 'var(--dust)'}">${m.ok ? '✓ ' : ''}${esc(m.label)}: ${m.ok ? 'on track' : 'keep it steady'}</span>`;
+      }
       const done = m.have >= m.need;
       return `<span style="white-space:nowrap;color:${done ? 'var(--lime)' : 'var(--dust)'}">${done ? '✓ ' : ''}${esc(m.label)}: ${fmt(m.have)} of ${fmt(m.need)}</span>`;
     }).join(' &nbsp;·&nbsp; ');
@@ -3168,7 +3172,7 @@ async function renderPatronagePanel(customerName) {
       <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--lime)">🌱 Your Patronage Level: ${esc(d.levelName)}${d.top ? '' : ` &middot; ${Number(d.progressPct) || 0}%`}</span>
     </div>
     ${body}
-    <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:6px">Your level grows with your steady orders over time. EggScore confirms every level.</div>`;
+    <div style="font-family:'DM Mono',monospace;font-size:9.5px;color:var(--mist);margin-top:6px">Your level grows with your steady orders and on-time payments. EggScore confirms every level.</div>`;
 }
 
 // Portal-facing wallet balance — now read live from the backend instead

@@ -2,6 +2,7 @@ const express = require('express');
 const { db } = require('../db.postgres');
 const { requireSupabaseAuth, requireEitherAuth, requireRole } = require('../auth.postgres');
 const scope = require('../lib/rep-scope');
+const tb = require('../lib/tier-bars');
 
 const router = express.Router();
 
@@ -62,6 +63,29 @@ router.get('/rep-suggestions', requireSupabaseAuth(), requireRole('owner'), asyn
            (SELECT COUNT(*)::int FROM sales s WHERE s.customer_name = c.name) AS sales_count
     FROM customers c WHERE c.owner_rep IS NULL ORDER BY c.name ASC`).all();
   res.json(rows);
+});
+
+// Oct 15 2026 — Suggested Trust Tier. For every customer that has a Scorecard score: the highest level whose three
+// bars (score, orders, crates; see lib/tier-bars.js) are all met, next to the level the Owner has set. Read-only:
+// it never changes a tier. The ERP shows it in Customer Scores and the Owner approves with one tap (the ERP then
+// saves the new tier the ordinary way). Owner only. Orders are counted one per invoice.
+router.get('/tier-suggestions', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const bars = await tb.getBars();
+  const rows = await db.prepare(`
+    WITH uniq AS (${tb.UNIQ_SQL}),
+    agg AS (SELECT customer_name, COUNT(*)::int AS orders, COALESCE(SUM(crates), 0)::int AS crates FROM uniq GROUP BY customer_name)
+    SELECT c.id, c.name, c.trust_tier, c.scorecard_score,
+           COALESCE(a.orders, 0) AS orders, COALESCE(a.crates, 0) AS crates
+    FROM customers c LEFT JOIN agg a ON a.customer_name = c.name
+    WHERE c.scorecard_score IS NOT NULL`).all();
+  const rank = l => Math.max(0, tb.LEVELS.indexOf(l));
+  const list = rows.map(r => {
+    const current = tb.LEVELS.includes(String(r.trust_tier || '').toLowerCase()) ? String(r.trust_tier).toLowerCase() : 'new';
+    const suggested = tb.levelFor(bars, { score: r.scorecard_score, orders: r.orders, crates: r.crates });
+    const move = rank(suggested) > rank(current) ? 'up' : rank(suggested) < rank(current) ? 'below' : 'same';
+    return { id: r.id, name: r.name, current, suggested, move, score: r.scorecard_score, orders: r.orders, crates: r.crates };
+  });
+  res.json({ bars, customers: list });
 });
 
 // Tie customers to reps. Body: { assignments: [{ id, rep }], reason }. Owner only. Every move is logged.

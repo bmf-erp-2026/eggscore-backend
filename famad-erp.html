@@ -8832,10 +8832,12 @@ input[type=number]{-moz-appearance:textfield;}
       </div>
     </div>
     <div class="panel-body panel-scroll">
+      <div id="sc-bars-note" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin:0 0 8px;line-height:1.6"></div>
       <table class="data-table" id="sc-table" style="width:100%">
         <thead><tr>
           <th>Customer</th><th>Referral Code</th><th>Purchases</th><th>Objective</th><th>Relationship</th><th>Final</th>
           <th>Tier</th><th>Suggested Limit</th><th>Part-Pay</th><th title="Trust Tier gates how much of an order's MARGIN this customer may defer — separate from the loyalty tier, manually set during test phase">Trust Tier</th>
+          <th title="The level this customer's score, orders and crates have earned. You approve it with one tap; nothing changes by itself.">Suggested Trust Tier</th>
         </tr></thead>
         <tbody id="sc-table-body"></tbody>
       </table>
@@ -23029,11 +23031,23 @@ function renderCustomerScorecard() {
   let scored = customers.map(c => ({ c, sc: computeCustomerScorecard(c.name) })).filter(r => r.sc.eligible);
   scored.sort((a,b) => b.sc.finalScore - a.sc.finalScore);
   if(scSearch) scored = scored.filter(r => r.c.name.toLowerCase().includes(scSearch));
-  setText('sc-table-count', scored.length + ' scored');
+  loadTierSuggestions();
+  const upN = scored.filter(r => { const t = tierSugg.map[r.c.name]; return t && t.move === 'up' && !isCustomerCreditBlocked(r.c.name); }).length;
+  setText('sc-table-count', scored.length + ' scored' + (upN ? ' · ' + upN + ' upgrade suggestion' + (upN === 1 ? '' : 's') : ''));
+  const barsNote = document.getElementById('sc-bars-note');
+  if(barsNote) {
+    const b = tierSugg.bars;
+    barsNote.textContent = (ERP_ROLE === 'owner' && b)
+      ? 'Bars for a suggested level (score / orders / crates):  Building ' + b.building.score + ' / ' + b.building.orders + ' / ' + b.building.crates
+        + '  ·  Established ' + b.established.score + ' / ' + b.established.orders + ' / ' + b.established.crates
+        + '  ·  Proven ' + b.proven.score + ' / ' + b.proven.orders + ' / ' + b.proven.crates
+        + '.  A suggestion only moves a customer when you tap Approve.'
+      : '';
+  }
   if(tbody) {
     const result = paginate('sc-table', scored, 50);
     tbody.innerHTML = scored.length === 0
-      ? `<tr><td colspan="10" style="text-align:center;color:var(--mist);padding:20px">No customers have reached ${s.minPurchasesForScoring}+ purchases yet.</td></tr>`
+      ? `<tr><td colspan="11" style="text-align:center;color:var(--mist);padding:20px">No customers have reached ${s.minPurchasesForScoring}+ purchases yet.</td></tr>`
       : result.pageItems.map(({c, sc}) => {
         const limit = getSuggestedCreditLimit(c.name);
         const partPay = Math.round(getSuggestedPartPaymentPct(c.name) * 100);
@@ -23064,6 +23078,7 @@ function renderCustomerScorecard() {
           <td style="color:var(--teal)">₦${limit.toLocaleString()}</td>
           <td>${partPay}% upfront</td>
           <td>${trustTierCell}</td>
+          <td>${suggestedTierCell(c)}</td>
         </tr>`;
       }).join('');
     renderPaginationControls('sc-table-pagination', result, 'goToScTablePage');
@@ -26294,6 +26309,57 @@ function getSuggestedPartPaymentPct(customerName) {
 function getCustomerTrustTier(customerName) {
   const cust = STATE.customers.find(c => c.name === customerName);
   return (cust?.trustTier || 'new').toLowerCase();
+}
+
+// Oct 15 2026 — Suggested Trust Tier (Owner only). The server works out, from each customer's Scorecard result, number of
+// orders and crates bought, the highest level they have earned (bars in lib/tier-bars.js). This shows it beside the level
+// you set; you approve with one tap. It never changes a tier by itself, never suggests a downgrade (a customer sitting
+// under the bar is only flagged), and never offers an upgrade to a customer who is credit-blocked or not yet verified.
+var tierSugg = { at: 0, busy: false, map: {}, bars: null };
+async function loadTierSuggestions(force) {
+  if(typeof ERP_ROLE === 'undefined' || ERP_ROLE !== 'owner' || tierSugg.busy) return;
+  if(!force && Date.now() - tierSugg.at < 60000) return;
+  tierSugg.busy = true; tierSugg.at = Date.now();
+  try {
+    const r = await erpApi('GET', '/customers/tier-suggestions');
+    if(r.ok && r.json && Array.isArray(r.json.customers)) {
+      const m = {}; r.json.customers.forEach(x => { m[x.name] = x; });
+      tierSugg.map = m; tierSugg.bars = r.json.bars || null;
+      if(currentModule === 'loyalty') renderCustomerScorecard();
+    }
+  } catch(e) { /* shown as a dash until the next try */ }
+  finally { tierSugg.busy = false; }
+}
+function suggestedTierCell(c) {
+  if(ERP_ROLE !== 'owner') return '<span style="color:var(--mist)">—</span>';
+  const t = tierSugg.map[c.name];
+  if(!t) return '<span style="color:var(--mist)" title="Not scored on the server yet">—</span>';
+  const names = { new:'New', building:'Building', established:'Established', proven:'Proven' };
+  const facts = 'Score ' + t.score + ' · ' + t.orders + ' orders · ' + Number(t.crates).toLocaleString() + ' crates';
+  const cur = getCustomerTrustTier(c.name);
+  // The server's picture can be a moment behind a change just made here; judge against what this screen shows.
+  const order = ['new','building','established','proven'];
+  const move = order.indexOf(t.suggested) > order.indexOf(cur) ? 'up' : order.indexOf(t.suggested) < order.indexOf(cur) ? 'below' : 'same';
+  if(move === 'up') {
+    if(isCustomerCreditBlocked(c.name)) {
+      return '<span style="color:var(--amber);font-size:10px" title="' + escapeHtml(facts) + '">↑ ' + names[t.suggested] + ' earned, but on hold: ' + escapeHtml(creditBlockWhy(c.name)) + '</span>';
+    }
+    return '<button class="btn btn-primary" style="font-size:10px;padding:3px 10px" title="' + escapeHtml(facts) + '" data-n="' + escapeHtml(c.name) + '" onclick="approveTierSuggestion(this.dataset.n, \'' + t.suggested + '\')">↑ Approve ' + names[t.suggested] + '</button>';
+  }
+  if(move === 'below') {
+    return '<span style="color:var(--amber);font-size:10px" title="Marked ' + names[cur] + ', but ' + escapeHtml(facts) + ' is under the ' + names[cur] + ' bar. Nothing has been changed.">below the ' + names[cur] + ' bar</span>';
+  }
+  return '<span style="color:var(--mist);font-size:10px" title="' + escapeHtml(facts) + '">✓ on the bar</span>';
+}
+function approveTierSuggestion(customerName, tier) {
+  if(ERP_ROLE !== 'owner') return;
+  const t = tierSugg.map[customerName];
+  if(!t || t.suggested !== tier) return;
+  setCustomerTrustTier(customerName, tier);   // the ordinary, guarded way (verification check, saves to the server)
+  if(getCustomerTrustTier(customerName) === tier) {
+    t.current = tier;
+    showToast('✓ ' + customerName + ' moved to ' + tier.charAt(0).toUpperCase() + tier.slice(1) + '.');
+  }
 }
 
 function setCustomerTrustTier(customerName, tier) {
