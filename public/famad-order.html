@@ -887,6 +887,15 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
           </label>
         </div>
 
+        <div id="part-pay-box" style="display:none;margin-top:12px;padding:12px 14px;
+          background:rgba(150,200,60,0.07);border:1px solid rgba(150,200,60,0.3);border-radius:8px">
+          <label style="display:flex;align-items:flex-start;gap:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);cursor:pointer;line-height:1.7">
+            <input type="checkbox" id="part-pay-ack" style="margin-top:3px"/>
+            <span id="part-pay-label"></span>
+          </label>
+          <div id="part-pay-note" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);line-height:1.7;margin-top:6px"></div>
+        </div>
+
         <div id="ussd-details" style="display:none" class="bank-card">
           <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">
             <span data-i18n="s4.ussd_instructions">Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>
@@ -2027,6 +2036,7 @@ async function postOrderToBackend(order) {
         // about. See migration-order-delivery-day.sql.
         preferredDeliveryDay: order.preferredDeliveryDay || null,
         isSpecialVolumeOrder: !!order.isSpecialVolumeOrder,
+        partPaymentRequested: !!order.partPaymentRequested,
       }),
     });
     if(resp.ok) {
@@ -2062,6 +2072,7 @@ async function saveOrder(order) {
     order.ref = result.realOrder.ref; // the backend's ref is now the authoritative one
     order.customerCid    = result.realOrder.customerCid || null;
     order.isNewCustomer  = !!result.realOrder.isNewCustomer;
+    order.partPayment    = result.realOrder.partPayment || null;   // the server's answer to a part-payment request
   }
   // Flags whether this order still needs retryFailedOrders() to pick it
   // up on a future page load — the single source of truth for "did this
@@ -2799,6 +2810,51 @@ function getMaxReservationCrates(erp, customerName) {
   return s.newCustomerMaxCrates;
 }
 
+// ── Part payment request (Oct 15 2026, Portal part payment Stage 2) ──
+// A recognised customer whose level allows it can ASK to pay part of an order now and the rest within a few days.
+// The SERVER decides whether the box appears (it knows the level, the margin and the debts; this phone knows none of
+// them) and works out the pay-now figure. The customer sees the pay-now amount only. EggScore confirms each request
+// before any money is sent, and the server checks again when the order is placed and again when it is confirmed.
+let partPayTimer = null, partPayToken = 0;
+function updatePartPayBox() {
+  clearTimeout(partPayTimer);
+  partPayTimer = setTimeout(runPartPayQuote, 450);
+}
+async function runPartPayQuote() {
+  const box = document.getElementById('part-pay-box');
+  if(!box) return;
+  const hide = () => { box.style.display = 'none'; portalState.partPayQuote = null; const a = document.getElementById('part-pay-ack'); if(a) a.checked = false; };
+  const cust = portalState.matchedCustomer;
+  const phone = (document.getElementById('c-phone')?.value || '').trim();
+  const crates = portalState.crates;
+  if(!cust || !cust.name || !phone || !(crates > 0) || !['bank', 'ussd'].includes(portalState.paymentMethod)) return hide();
+  const erp = loadERPData();
+  const promo = portalState.activePromo;
+  const promoDiscount = promo && crates >= promo.minCrates && promoAppliesToCustomer(promo, cust) ? (promo.discount || 0) : 0;
+  const eggPrice = Math.max(0, getProgressivePricePerCrate(erp, crates) - promoDiscount);
+  if(!(eggPrice > 0)) return hide();
+  const token = ++partPayToken;
+  let q = null;
+  try {
+    const url = `${BACKEND_URL}/part-payment/quote?customer=${encodeURIComponent(cust.name)}&phone=${encodeURIComponent(phone)}&crates=${crates}&eggPrice=${eggPrice}&delivery=${portalState.deliveryTotal || 0}`;
+    const resp = await fetch(url, { headers: { 'x-api-key': PORTAL_API_KEY } });
+    if(resp.ok) q = await resp.json();
+  } catch(networkErr) { /* offline or unreachable: no box, the order simply goes in as full payment */ }
+  if(token !== partPayToken) return;   // a newer answer is on its way
+  if(!q || !q.eligible || !(q.payNow > 0)) return hide();
+  const wasShown = box.style.display === 'block';
+  portalState.partPayQuote = q;
+  const label = document.getElementById('part-pay-label'), note = document.getElementById('part-pay-note');
+  if(label) label.innerHTML = `Request part payment: pay <strong style="color:var(--lime)">₦${Number(q.payNow).toLocaleString('en-NG')}</strong> now and settle the rest within ${q.days} days.`;
+  if(note) note.textContent = 'EggScore confirms each request. Please do not send any money until we confirm.';
+  box.style.display = 'block';
+  if(!wasShown) { const a = document.getElementById('part-pay-ack'); if(a) a.checked = false; }
+}
+function partPayRequested() {
+  const box = document.getElementById('part-pay-box'), a = document.getElementById('part-pay-ack');
+  return !!(box && box.style.display === 'block' && a && a.checked && portalState.partPayQuote);
+}
+
 // Mirrors the ERP's exact adaptive formula — same shape as the reservation
 // window, aimed the same direction Bob asked for: slow day → tolerant,
 // real demand showing up → compresses toward the floor.
@@ -3278,6 +3334,7 @@ function hideMatch() {
   portalState.matchedCustomer = null;
   portalState.walletBalanceCache = 0;
   refreshPromoBanner();
+  updatePartPayBox();
   const box = document.getElementById('customer-match-box');
   if(box) box.style.display = 'none';
   const note = document.getElementById('price-change-notice');
@@ -3617,6 +3674,7 @@ function updateOrderCalc() {
 
   const grandTotal = eggSubtotal;
   portalState.nudgeDiscountApplied = nudgeDiscountTotal; // read by submitOrder()
+  updatePartPayBox();
 
   // ── Stock ticker price display — always the flat headline/ceiling
   // price, since it's quoted before the customer has picked a quantity ──
@@ -3908,6 +3966,7 @@ function selectPaymentByKey(key) {
   document.getElementById('cash-details').style.display   = key==='cash'   ? 'block' : 'none';
   document.getElementById('paystack-section').style.display = key==='paystack' ? 'block' : 'none';
   updatePaymentCommitmentBox();
+  updatePartPayBox();
   const pt = document.getElementById('pay-tag');
   if(pt){ const labels={bank:'Bank Transfer',ussd:'USSD *737#',cash:'Cash on Delivery',paystack:'Card via Paystack'}; pt.textContent=labels[key]||key; }
 }
@@ -4505,6 +4564,7 @@ async function submitOrder() {
     loyaltyTier:    portalState.matchedCustomer?.loyalty || 'New',
     referredByCustomerName: await resolveReferralCode(document.getElementById('c-referral-code')?.value, portalState.matchedCustomer?.cid || null, name),
     paymentCommitmentDeadline, // set only for first-time/large-volume/bank-transfer orders — the customer's own stated deadline
+    partPaymentRequested: partPayRequested(),   // Oct 15 2026 — only a REQUEST; the server re-checks and the Owner confirms
     status:         'pending',
     source:         'portal',
     walletBalanceAtOrder, // advisory — see note above
@@ -4633,6 +4693,14 @@ function showSuccess(order, paid) {
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lime)">
         ${T().paymentConfirmedBody(total)}
       </div>`;
+  } else if(order.partPayment && order.partPayment.status === 'requested') {
+    // Oct 15 2026 — part payment asked for: nothing to pay until EggScore confirms.
+    piEl.innerHTML = `
+      <div class="pi-title">Part payment requested</div>
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--cream);line-height:1.8">
+        If EggScore confirms it, you pay <strong style="color:var(--lime)">₦${Number(order.partPayment.payNow).toLocaleString('en-NG')}</strong> now and the rest within ${order.partPayment.days} days.<br>
+        <strong style="color:var(--amber)">Please do not send any money yet.</strong> We will message you here about this order, and notify your phone, as soon as we decide. If we cannot agree part payment you will be asked for the full ${total}.
+      </div>`;
   } else if(order.paymentMethod === 'cash') {
     piEl.innerHTML = `
       <div class="pi-title">${T().codTitle()}</div>
@@ -4660,6 +4728,10 @@ function showSuccess(order, paid) {
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">
         ${T().escrowNotice()}
       </div>`;
+  }
+
+  if(order.partPayment && order.partPayment.status === 'refused' && piEl) {
+    piEl.insertAdjacentHTML('afterbegin', `<div style="margin-bottom:10px;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--amber);line-height:1.7">Part payment is not available for this order, so please pay the full amount.</div>`);
   }
 
   // Follow-up / payment complaint channel — deliberately NOT a re-announcement

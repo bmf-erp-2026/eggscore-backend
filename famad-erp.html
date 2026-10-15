@@ -16052,7 +16052,7 @@ function handleSave() {
   // trust tier math should never be touched by how much of a customer's
   // own money happens to be sitting in their wallet. Wallet credit is
   // applied as a straight deduction AFTER the split, below.
-  const rawSplit = computeCreditSplit(customer, crates, gross, delivTotal, sale.batchCost);
+  const rawSplit = computeCreditSplit(customer, crates, gross, delivTotal, sale.batchCost, partPayDeclined(sale.linkedOrderRef));
   // Aug 24 fix — computeCreditSplit() is payment-method-agnostic by
   // design (it only knows trust tier), but a tier-driven financed
   // amount is only ever meaningful when the rep actually selected a
@@ -26408,7 +26408,7 @@ function setCustomerTrustTier(customerName, tier) {
 // batchCost is cost PER CRATE, not total. deliveryTotal is passed
 // through untouched for display (totalPayable) only — it never enters
 // the floor/ceiling/financed math and is always due upfront in full.
-function computeCreditSplit(customerName, crates, eggRevenue, deliveryTotal, batchCost) {
+function computeCreditSplit(customerName, crates, eggRevenue, deliveryTotal, batchCost, forceFull) {
   crates = crates || 0;
   eggRevenue = eggRevenue || 0;
   deliveryTotal = deliveryTotal || 0;
@@ -26423,7 +26423,8 @@ function computeCreditSplit(customerName, crates, eggRevenue, deliveryTotal, bat
   // shows what is due today (order card, Apply Wallet, Verify Payment, Pending Transfer) reads this
   // one function, so they all ask for the FULL amount and stop treating a short payment as enough.
   const creditBlocked = !!customerName && isCustomerCreditBlocked(customerName);
-  const deferPct   = creditBlocked ? 0 : (ensureScorecardSettings().marginDeferPct[trustTier] ?? 0);
+  // Oct 15 2026: forceFull is true when the Owner declined this order's part-payment request, so the order is asked for in full.
+  const deferPct   = (creditBlocked || forceFull) ? 0 : (ensureScorecardSettings().marginDeferPct[trustTier] ?? 0);
 
   const financed        = Math.round(marginCeiling * deferPct);
   const upfront          = Math.round(eggRevenue - financed); // egg-revenue portion due now; delivery is separate and always due in full
@@ -28187,6 +28188,61 @@ function ordFollowupPaint() {
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(240,160,40,0.15)"><div style="min-width:0"><div style="font-size:12px;color:var(--cream)">' + escapeHtml(o.customerName || 'Customer') + ' <span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mist)">' + escapeHtml(f.orderRef) + (o.crates ? ' · now ' + o.crates + ' crates' : '') + '</span></div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--amber)">' + ordFollowupIcon(f) + ' Wants to ' + escapeHtml(ordFollowupWhat(f)) + ' · ' + escapeHtml(when) + (ordFollowupLate(f) ? ' · <span style="color:var(--red)">⏰ LATE</span>' : '') + '</div><div style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--dust);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px">“' + escapeHtml(f.sourceText) + '”</div></div><button class="btn btn-primary" style="font-size:10px;padding:5px 12px" onclick="openFollowupModal(' + f.id + ')">Deal with it</button></div>';
   }).join('');
 }
+// ── Portal part payment, Stage 2 (Oct 15 2026) ──────────────────────────────────────────────────────────────────────
+// A customer on the portal can ASK to pay part now and the rest within a few days. The server records the request and
+// the Owner confirms or declines each one here. Only the Owner's device ever loads these figures (they include the
+// balance, which is part of the margin). On any other role nothing is shown and nothing is asked of the server.
+var partPay = { at: 0, busy: false, map: {}, sig: '' };
+function partPayDeclined(ref) { const r = ref && partPay.map[ref]; return !!(r && r.status === 'declined'); }
+async function loadPartPayments(force) {
+  if(typeof ERP_ROLE === 'undefined' || ERP_ROLE !== 'owner' || partPay.busy) return;
+  if(!force && Date.now() - partPay.at < 30000) return;
+  partPay.busy = true; partPay.at = Date.now();
+  try {
+    const r = await erpApi('GET', '/part-payment/owner');
+    if(r.ok && Array.isArray(r.json)) {
+      const m = {}; r.json.forEach(x => { m[x.ref] = x; });
+      const sig = JSON.stringify(r.json.map(x => [x.ref, x.status, x.payNow, x.balance, x.dueDate]));
+      const changed = sig !== partPay.sig;
+      partPay.map = m; partPay.sig = sig;
+      if(changed && window.currentModule === 'orders') renderOrders();
+    }
+  } catch(e) { /* the strip simply does not show until the next try */ }
+  finally { partPay.busy = false; }
+}
+function partPaymentBanner(o) {
+  if(typeof ERP_ROLE === 'undefined' || ERP_ROLE !== 'owner') return '';
+  const r = partPay.map[o.ref];
+  if(!r) return '';
+  const money = n => '₦' + Math.round(Number(n) || 0).toLocaleString();
+  const base = 'width:100%;padding:8px 12px;border-radius:7px;margin-bottom:8px;font-family:\'DM Mono\',monospace;font-size:10px;';
+  if(r.status === 'confirmed') {
+    return '<div style="' + base + 'background:rgba(61,214,192,0.06);border:1px solid rgba(61,214,192,0.3);color:var(--teal)">✓ Part payment confirmed: customer pays <strong>' + money(r.payNow) + '</strong> now, the balance of <strong>' + money(r.balance) + '</strong> is due by <strong>' + escapeHtml(r.dueDate || '—') + '</strong> (' + escapeHtml(r.level) + ').</div>';
+  }
+  if(r.status === 'declined') {
+    return '<div style="' + base + 'background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);color:var(--mist)">Part payment declined: this order needs <strong>full payment</strong>.</div>';
+  }
+  const blocked = isCustomerCreditBlocked(o.customerName);
+  const warn = blocked ? '<br><span style="color:var(--red)">🚫 ' + escapeHtml(o.customerName) + ' cannot have credit: ' + escapeHtml(creditBlockWhy(o.customerName)) + '. Decline this one.</span>' : '';
+  const ref = escapeHtml(o.ref);
+  return '<div style="' + base + 'background:rgba(240,160,40,0.10);border:1px solid rgba(240,160,40,0.45);color:var(--amber)">💳 <strong>Part payment requested</strong> by the customer (' + escapeHtml(r.level) + '): pay <strong>' + money(r.payNow) + '</strong> now, balance <strong>' + money(r.balance) + '</strong> within ' + r.days + ' days. The customer was told not to send money until you confirm.' + warn +
+    '<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" style="font-size:10px;padding:4px 12px' + (blocked ? ';opacity:0.4;cursor:not-allowed' : '') + '" onclick="decidePartPayment(\'' + ref + '\',\'confirm\')">Confirm part payment</button><button class="btn btn-ghost" style="font-size:10px;padding:4px 12px" onclick="decidePartPayment(\'' + ref + '\',\'decline\')">Decline (full payment)</button></div></div>';
+}
+async function decidePartPayment(ref, action) {
+  const o = loadOrders().find(x => x.ref === ref);
+  if(!o) { showToast('⚠ Order not found on this device yet. Refresh and try again.'); return; }
+  if(action === 'confirm' && isCustomerCreditBlocked(o.customerName)) {
+    showToast('🚫 ' + o.customerName + ' cannot have credit: ' + creditBlockWhy(o.customerName) + '. Decline instead.');
+    return;
+  }
+  const r = await erpApi('POST', '/part-payment/' + encodeURIComponent(ref) + '/decision', { action });
+  if(!(r.ok && r.json && r.json.ok)) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not save that. Try again.')); return; }
+  if(action === 'confirm' && !o.agreedPaymentTerms) setOrderPaymentTerms(ref, 'part');
+  showToast(action === 'confirm' ? '✓ Part payment confirmed. The customer has been told.' : '✓ Declined. The customer has been asked for the full amount.');
+  logOk('orders', 'Part payment ' + (action === 'confirm' ? 'confirmed' : 'declined') + ' — ' + o.customerName + ' · ' + ref);
+  await loadPartPayments(true);
+  renderOrders();
+}
 // The strips shown on an order card: not due yet / change request open.
 function orderGateBanners(o) {
   let h = '';
@@ -29718,6 +29774,7 @@ function parseOrderRefTimestamp(ref) {
 }
 
 function renderOrders() {
+  loadPartPayments();
   renderLargeFirstTimerAlerts();
   updateLargeFirstTimerBadge();
   const orders = loadOrders();
@@ -29816,7 +29873,7 @@ function buildOrderCard(o, queueNum) {
       // batch has been drawn from) — getLastCostPrice() is the same
       // current-cost estimate the rest of the app already uses for
       // pre-sale previews.
-      const fullSplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||val, o.deliveryTotal||0, getLastCostPrice());
+      const fullSplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||val, o.deliveryTotal||0, getLastCostPrice(), partPayDeclined(o.ref));
       const dueTodayBeforeWallet = fullSplit.upfront + (o.deliveryTotal||0);
       const walletCreditApplied = Math.min(o.walletCreditApplied || 0, dueTodayBeforeWallet);
       const walletToUpfront  = Math.min(walletCreditApplied, fullSplit.upfront);
@@ -29881,7 +29938,7 @@ function buildOrderCard(o, queueNum) {
       const cust = STATE.customers.find(c => c.name === o.customerName);
       const bal  = getWalletBalance(o.customerName);
       const total = o.grandTotal || (o.crates * (o.pricePerCrate || 5700));
-      const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||total, o.deliveryTotal||0, getLastCostPrice());
+      const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||total, o.deliveryTotal||0, getLastCostPrice(), partPayDeclined(o.ref));
       const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
       const owed  = Math.max(0, dueToday - (o.walletCreditApplied || 0));
       if(!cust || (bal <= 0 && !(o.walletCreditApplied > 0))) return '';
@@ -30006,6 +30063,7 @@ function buildOrderCard(o, queueNum) {
       </span>
     </div>
     ` : ''}
+    ${partPaymentBanner(o)}
     ${orderGateBanners(o)}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       ${isPending ? `
@@ -37777,7 +37835,7 @@ function applyWalletToOrder(orderRef) {
   // due today — upfront (post-tier) plus delivery. Any wallet balance
   // beyond that is deliberately left untouched in her wallet rather
   // than force-applied, same as a cash payment would leave it.
-  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||total, o.deliveryTotal||0, getLastCostPrice());
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||total, o.deliveryTotal||0, getLastCostPrice(), partPayDeclined(o.ref));
   const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
   const owed    = Math.max(0, dueToday - (o.walletCreditApplied || 0));
   if(owed <= 0) { showToast('⚠ This order is already fully covered for what\'s due today — any remaining wallet credit stays banked for next time.'); return; }
@@ -37809,7 +37867,7 @@ function openPaymentVerifyModal(orderRef) {
   // balance (due 2026-09-02), not anything owed today. dueToday below
   // is the real ceiling — upfront (post-tier) plus delivery — the same
   // figure the Apply Wallet button is now capped at.
-  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice(), partPayDeclined(o.ref));
   const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
   // Aug 25 fix — this used to always demand a "new" payment amount
   // even when wallet credit (already verified once, when it was
@@ -37875,7 +37933,7 @@ function updatePVStatus() {
   // "short" — confirmed live, Helen Alabompa: this would have shown a
   // false shortfall warning if she'd typed anything less than the full
   // ₦98,640, when in fact only ₦3,320 of that was ever due today.
-  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice(), partPayDeclined(o.ref));
   const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
   const walletCreditApplied = Math.min(o.walletCreditApplied || 0, dueToday);
   const remainingAfterWallet = Math.max(0, dueToday - walletCreditApplied);
@@ -37902,7 +37960,7 @@ function confirmPaymentVerified() {
   // demanded a genuine ₦3,320 payment for what was actually her
   // financed balance, due 2026-09-02, not today. dueToday is the real
   // ceiling this step should ever ask a rep to verify against.
-  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice(), partPayDeclined(o.ref));
   const dueToday = dueTodaySplit.upfront + (o.deliveryTotal||0);
   // Aug 25 fix — wallet credit already verified once, at the moment it
   // was credited, so it's excluded from what this step needs to
@@ -37991,7 +38049,7 @@ function openPendingTransferModal(orderRef) {
   // any wallet already applied — the rep can still type over it if the
   // real claimed transfer amount differs, this only fixes the starting
   // suggestion.
-  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice());
+  const dueTodaySplit = computeCreditSplit(o.customerName, o.crates, o.eggSubtotal||inv, o.deliveryTotal||0, getLastCostPrice(), partPayDeclined(o.ref));
   const dueToday = Math.max(0, (dueTodaySplit.upfront + (o.deliveryTotal||0)) - (o.walletCreditApplied||0));
   document.getElementById('pt-amount').value    = dueToday || '';
   document.getElementById('pt-notes').value     = '';

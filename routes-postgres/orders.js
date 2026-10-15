@@ -5,6 +5,7 @@ const repScope = require('../lib/rep-scope');
 const { geocodeAddress, getRouteDistance } = require('../lib/geocode');
 const { notifyOrderChange } = require('../lib/push');
 const pc = require('../lib/portal-checks');
+const pp = require('../lib/part-payment');
 
 const router = express.Router();
 
@@ -68,7 +69,10 @@ router.post('/', requireEitherAuth(), async (req, res) => {
           // famad-order.html): the same ref that browser generated
           // locally the first time it hit Submit, resent unchanged on
           // every retry of that same order.
-          clientRef } = req.body;
+          clientRef,
+          // Oct 15 2026 — Portal part payment, Stage 2: the customer ticked 'request part payment'. Only a REQUEST;
+          // the server re-checks eligibility itself and the Owner confirms each one (routes-postgres/part-payment.js).
+          partPaymentRequested } = req.body;
   if(!customerName || !crates || crates < 1) {
     return res.status(400).json({ error: 'customerName and a positive crates value are required.' });
   }
@@ -202,7 +206,22 @@ const ref = clientRef || genOrderRef();
       }
     } catch(e) { console.warn('[price-check] skipped:', e.message); }
   }
-  res.status(201).json({ ...order, customerCid, isNewCustomer });
+  // Oct 15 2026 — part payment request. The order is ALWAYS accepted; if the customer does not qualify (or anything
+  // goes wrong) it simply stays a full-payment order and the reply says so. The figures are the server's own.
+  let partPayment = null;
+  if(fromPortal && partPaymentRequested) {
+    try {
+      const r = await pp.evaluate({ customerName, phone, crates, eggPricePerCrate, deliveryTotal: (Number(deliveryPerCrate) || 0) * Number(crates) });
+      if(r.ok) {
+        await db.prepare(`INSERT INTO part_payments (order_ref, customer_name, level, status, pay_now, balance, days) VALUES (?, ?, ?, 'requested', ?, ?, ?) ON CONFLICT (order_ref) DO NOTHING RETURNING order_ref`)
+          .run(ref, customerName, r.level, r.payNow, r.balance, r.days);
+        partPayment = { status: 'requested', payNow: r.payNow, days: r.days };
+      } else {
+        partPayment = { status: 'refused' };
+      }
+    } catch(e) { console.warn('[part-payment] request not recorded:', e.message); partPayment = { status: 'refused' }; }
+  }
+  res.status(201).json({ ...order, customerCid, isNewCustomer, partPayment });
 });
 
 router.get('/', requireSupabaseAuth(), async (req, res) => {
