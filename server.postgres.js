@@ -75,6 +75,8 @@ mount('/loyalty', './routes-postgres/loyalty');
 // Oct 15 2026 — read-only patronage-level progress for the customer portal (Part payment, Stage 1).
 mount('/patronage', './routes-postgres/patronage');
 mount('/part-payment', './routes-postgres/part-payment');
+// Oct 15 2026 — Owner approval for a sale that did not come through the Orders Inbox.
+mount('/sale-approvals', './routes-postgres/sale-approvals');
 mount('/notices', './routes-postgres/notices');
 mount('/ai', './routes-postgres/ai');
 mount('/theme-views', './routes-postgres/theme-views');
