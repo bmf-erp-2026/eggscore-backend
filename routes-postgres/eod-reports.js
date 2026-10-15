@@ -258,7 +258,7 @@ async function rollup(day, nowMs) {
   const expected = out.filter(r => r.status !== 'excused').length;
   return {
     day, workingDay: working, closed,
-    attendance: { signedIn: out.filter(r => r.attendance).length, lateArrivals: out.filter(r => r.attendance && r.attendance.late).length, lateAfter: '08:00' },
+    attendance: { signedIn: out.filter(r => r.attendance).length, lateArrivals: out.filter(r => r.attendance && r.attendance.late).length, afterHours: out.filter(r => r.attendance && r.attendance.afterHours).length, lateAfter: '08:00' },
     counts: { expected, filed: count('on_time') + count('late'), onTime: count('on_time'), late: count('late'), missing: count('missing'), pending: count('pending'), excused: count('excused') },
     rows: out,
   };

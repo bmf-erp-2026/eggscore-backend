@@ -85,7 +85,24 @@ router.patch('/:repId', requireSupabaseAuth(), requireRole('owner'), async (req,
   values.push(req.params.repId);
   await db.prepare(`UPDATE reps SET ${fields.join(', ')} WHERE rep_id = ?`).run(...values);
 
-  res.json(await db.prepare('SELECT * FROM reps WHERE rep_id = ?').get(req.params.repId));
+  const out = await db.prepare('SELECT * FROM reps WHERE rep_id = ?').get(req.params.repId);
+  // Oct 15 2026 — deboarding: switch the rep's login off, and park any customer still tied to them with the Owner
+  // (the screen normally moves the customers first; this is the safety net so none are left tied to someone who left).
+  if(status === 'inactive' && (existing.status || 'active') !== 'inactive') {
+    const login = await require('./rep-accounts').disableLogin(existing.email);
+    let parked = 0;
+    try {
+      const left = await db.prepare('SELECT id, name FROM customers WHERE owner_rep = ?').all(existing.name);
+      for(const c of left) {
+        await db.prepare("UPDATE customers SET owner_rep = '(Owner hold)', owner_rep_set_by = ?, owner_rep_set_at = now() WHERE id = ?").run(req.user.email || null, c.id);
+        await db.prepare(`INSERT INTO rep_handovers (kind, ref, subject, from_rep, to_rep, reason, by_email) VALUES ('customer', ?, ?, ?, '(Owner hold)', 'Rep deboarded', ?)`)
+          .run(c.name, c.name, existing.name, req.user.email || null);
+        parked++;
+      }
+    } catch(e) { console.error('[reps] could not park customers of', existing.name, e.message); }
+    return res.json({ ...out, loginDisabled: login.ok, loginNote: login.note, customersParked: parked });
+  }
+  res.json(out);
 });
 
 module.exports = router;

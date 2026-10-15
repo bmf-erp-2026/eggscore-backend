@@ -59,6 +59,8 @@ async function forDay(day, nowMs) {
     const online = !signedOut && sameDay && (nowMs - last) < ONLINE_WITHIN_MS;
     const end = signedOut != null ? signedOut : last;
     const l = new Date(first + LAGOS_MS);
+    // Oct 15 2026: minutes worked after the 6:30 PM stop (only possible with the Owner's late permission)
+    const afterMin = Math.max(0, Math.round(((online ? nowMs : end) - Math.max(first, hours.lagosInstant(first, 0, hours.CLOSE_MIN))) / 60000));
     out.set(hours.norm(r.email), {
       clockIn: iso(first),
       clockOut: online ? null : iso(end),
@@ -66,6 +68,8 @@ async function forDay(day, nowMs) {
       estimated: !online && signedOut == null,          // closed without signing out: last activity shown
       minutes: Math.max(0, Math.round(((online ? nowMs : end) - first) / 60000)),
       late: (l.getUTCHours() * 60 + l.getUTCMinutes()) > LATE_AFTER_MIN,
+      afterHours: afterMin >= 1,
+      afterMinutes: afterMin >= 1 ? afterMin : 0,
     });
   });
   return out;

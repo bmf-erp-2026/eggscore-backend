@@ -32,6 +32,16 @@ function realAdmin() {
       if(error) throw new Error(error.message);
       return { email: data.user.email };
     },
+    async banUser(email) {
+      const { data, error } = await c.auth.admin.listUsers({ page: 1, perPage: 200 });
+      if(error || !data) throw new Error(error ? error.message : 'no user list');
+      const u = data.users.find(x => String(x.email || '').toLowerCase() === email);
+      if(!u) throw new Error('no such login');
+      if(((u.app_metadata && u.app_metadata.role) || 'owner') !== 'rep') throw new Error('not a rep login');   // never switch off an Owner or Manager login
+      const r = await c.auth.admin.updateUserById(u.id, { ban_duration: '876000h' });
+      if(r.error) throw new Error(r.error.message);
+      return { email };
+    },
     async setPassword(email, password) {
       const { data, error } = await c.auth.admin.listUsers({ page: 1, perPage: 200 });
       if(error || !data) throw new Error(error ? error.message : 'no user list');
@@ -124,5 +134,17 @@ router.post('/reset', requireSupabaseAuth(), requireRole('owner'), async (req, r
   res.json({ ok: true, repId: rep.rep_id, name: rep.name, email, newPassword: password });
 });
 
+// Oct 15 2026 — called when a rep is deboarded. Switches that rep's login off (a rep login only; the Owner and
+// Manager logins are never touched). Returns { ok, note } and never throws.
+async function disableLogin(email) {
+  const e = norm(email);
+  if(!e) return { ok: false, note: 'No login was linked to this rep.' };
+  const a = adm();
+  if(!a || !a.banUser) return { ok: false, note: 'The server could not switch the login off (Supabase keys not set). Disable it in Supabase.' };
+  try { await a.banUser(e); console.log(`[audit] Rep login ${e} switched off (rep deboarded)`); return { ok: true, note: 'Login switched off.' }; }
+  catch(err) { console.error('[rep-accounts] could not switch off login', e, err.message); return { ok: false, note: 'Could not switch the login off: ' + err.message + '. Disable it in Supabase.' }; }
+}
+
 router.setAdmin = setAdmin;
+router.disableLogin = disableLogin;
 module.exports = router;

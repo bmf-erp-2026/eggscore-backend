@@ -1557,8 +1557,17 @@ input[type=number]{-moz-appearance:textfield;}
   let erpHoursTimer = null, erpHoursInfo = null;
   function erpHoursStart(st) {
     clearInterval(erpHoursTimer);
-    if(!st || !st.open) return;                  // an exception holder has no clock; the server enforces midnight
-    erpHoursInfo = { offset: new Date(st.now).getTime() - Date.now(), cobAt: new Date(st.cobAt).getTime(), closesAt: new Date(st.closesAt).getTime() };
+    erpHoursInfo = null;
+    if(!st || (!st.open && !st.exception)) return;
+    const off = new Date(st.now).getTime() - Date.now();
+    // Oct 15 2026: a late permission now ends at the time the Owner chose (default 8:00 PM), and the
+    // screen signs the person out then, exactly as it does at 6:30 PM for everyone else.
+    if(st.exception && st.exceptionUntil) {
+      const until = new Date(st.exceptionUntil).getTime();
+      erpHoursInfo = { offset: off, cobAt: st.cobAt ? new Date(st.cobAt).getTime() : new Date(st.now).getTime(), closesAt: until, late: true };
+    } else {
+      erpHoursInfo = { offset: off, cobAt: new Date(st.cobAt).getTime(), closesAt: new Date(st.closesAt).getTime() };
+    }
     erpHoursTick();
     erpHoursTimer = setInterval(erpHoursTick, 20000);
   }
@@ -1571,10 +1580,11 @@ input[type=number]{-moz-appearance:textfield;}
       const mins = Math.max(1, Math.ceil((erpHoursInfo.closesAt - now) / 60000));
       const need = (typeof eodNeedsReport === 'function') && eodNeedsReport();
       const filed = (typeof eodIsFiled === 'function') && eodIsFiled();
+      const at = erpHoursInfo.late ? erpHoursFmt(new Date(erpHoursInfo.closesAt).toISOString()).replace(/^[A-Za-z]+ at /, '') : '6:30 PM';
       b.textContent = need
-        ? '🕕 Close of business. File your End-of-Day report now (tap here). You will be signed out at 6:30 PM (' + mins + ' min left).'
-        : (filed ? '✓ Report filed. Finish up; you will be signed out at 6:30 PM (' + mins + ' min left).'
-                 : '🕕 Close of business. Finish up and submit your reports. You will be signed out at 6:30 PM (' + mins + ' min left).');
+        ? '🕕 Close of business. File your End-of-Day report now (tap here). You will be signed out at ' + at + ' (' + mins + ' min left).'
+        : (filed ? '✓ Report filed. Finish up; you will be signed out at ' + at + ' (' + mins + ' min left).'
+                 : '🕕 Close of business. Finish up and submit your reports. You will be signed out at ' + at + ' (' + mins + ' min left).');
       b.style.cursor = need ? 'pointer' : 'default';
       b.onclick = need ? () => eodOpen() : null;
       b.style.display = 'block';
@@ -1616,7 +1626,7 @@ input[type=number]{-moz-appearance:textfield;}
       const d = document.createElement('div');
       d.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)';
       const l = document.createElement('span');
-      l.textContent = x.email + (x.note ? ' · ' + x.note : '');
+      l.textContent = x.email + ' · until ' + erpHoursFmt(new Date(Date.UTC(2000, 0, 1, Number(String(x.until || '23:59').split(':')[0]) - 1, Number(String(x.until || '23:59').split(':')[1]))).toISOString()).replace(/^[A-Za-z]+ at /, '') + (x.note ? ' · ' + x.note : '');
       const b = document.createElement('button');
       b.textContent = 'Revoke';
       b.style.cssText = "font-family:'DM Mono',monospace;font-size:10px;color:var(--red);background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer";
@@ -1628,7 +1638,8 @@ input[type=number]{-moz-appearance:textfield;}
     const email = document.getElementById('sh-email').value.trim().toLowerCase();
     const note = document.getElementById('sh-note').value.trim();
     if(!email) { erpHoursMsg('Enter the staff member\'s sign-in email.'); return; }
-    const r = await erpHoursFetch('/exceptions', { method: 'POST', body: JSON.stringify({ email, note }) });
+    const until = (document.getElementById('sh-until') || {}).value || '20:00';
+    const r = await erpHoursFetch('/exceptions', { method: 'POST', body: JSON.stringify({ email, note, until }) });
     if(!r || !r.ok) {
       let t = 'Could not save. Check your connection and try again.';
       try { const j = await r.json(); if(j && j.error) t = j.error; } catch(e) {}
@@ -1636,7 +1647,7 @@ input[type=number]{-moz-appearance:textfield;}
     }
     document.getElementById('sh-email').value = ''; document.getElementById('sh-note').value = '';
     erpHoursMsg('');
-    showToast('✓ ' + email + ' may work late until midnight.');
+    showToast('✓ ' + email + ' may work late until ' + erpHoursFmt(new Date(Date.UTC(2000, 0, 1, Number(until.split(':')[0]) - 1, Number(until.split(':')[1]))).toISOString()).replace(/^[A-Za-z]+ at /, '') + '.');
     await erpHoursLoad();
   }
   async function erpHoursRevoke(id) {
@@ -4240,6 +4251,16 @@ input[type=number]{-moz-appearance:textfield;}
       <textarea class="form-textarea" id="deboard-notes" placeholder="Any additional context…" style="min-height:60px"></textarea>
     </div>
 
+    <!-- Oct 15 2026 — what happens to the customers this rep looked after -->
+    <div class="form-group" id="deboard-cust-wrap" style="display:none;margin-bottom:12px;padding:10px 12px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.25);border-radius:8px">
+      <label class="form-label">Their customers: who looks after them now?</label>
+      <div id="deboard-cust-note" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.6;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">
+        <span>Move all to</span><select class="form-select" id="deboard-cust-all" onchange="deboardCustAll()" style="flex:1"></select>
+      </div>
+      <div id="deboard-cust-list" style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:2px 8px"></div>
+    </div>
+
     <!-- Acknowledgement checkbox — required when unsettled commission exists -->
     <div id="deboard-settlement-ack-wrap" style="display:none;margin-bottom:16px;
       padding:10px 12px;background:rgba(224,72,72,0.07);border:1px solid rgba(224,72,72,0.2);border-radius:8px">
@@ -5533,7 +5554,7 @@ input[type=number]{-moz-appearance:textfield;}
       <button class="modal-close" onclick="closeModal('modal-staff-hours')">✕</button>
     </div>
     <div class="alert-banner info" style="margin-bottom:14px">
-      Staff can use the ERP Monday to Saturday, 6:00 AM to 6:30 PM (Lagos). You are never locked out. To let one person work late, add their sign-in email here. It lasts until midnight tonight and then lapses by itself.
+      Staff can use the ERP Monday to Saturday, 6:00 AM to 6:30 PM (Lagos). You are never locked out. To let one person work late, add their sign-in email here. It lasts until the time you choose below (8:00 PM unless you change it) and then ends by itself; the person is signed out at that time.
     </div>
     <div class="form-group" style="margin-bottom:12px">
       <label class="form-label">Staff sign-in email <span class="req">*</span></label>
@@ -5544,9 +5565,17 @@ input[type=number]{-moz-appearance:textfield;}
       <label class="form-label">Reason <span style="color:var(--mist)">(optional)</span></label>
       <input class="form-input" id="sh-note" maxlength="140" placeholder="e.g. late delivery close-out"/>
     </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">Allowed until</label>
+      <select class="form-select" id="sh-until">
+        <option value="19:00">7:00 PM</option><option value="19:30">7:30 PM</option>
+        <option value="20:00" selected>8:00 PM</option><option value="21:00">9:00 PM</option>
+        <option value="22:00">10:00 PM</option><option value="23:59">11:59 PM</option>
+      </select>
+    </div>
     <div class="submit-btns" style="margin-bottom:14px">
       <button class="btn btn-ghost" onclick="closeModal('modal-staff-hours')">Close</button>
-      <button class="btn btn-primary" id="sh-grant-btn" onclick="erpHoursGrant()">Allow until midnight</button>
+      <button class="btn btn-primary" id="sh-grant-btn" onclick="erpHoursGrant()">Allow late access</button>
     </div>
     <div id="sh-msg" style="font-family:'DM Mono',monospace;font-size:10.5px;color:var(--amber);margin-bottom:8px;display:none"></div>
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:6px">ALLOWED TO WORK LATE TODAY</div>
@@ -16708,6 +16737,10 @@ function renderDashAlerts() {
   // since this whole alerts panel sits above where that pass started
   // looking (found via a live rep-login test, not a code review).
   if(ERP_ROLE === 'owner') {
+    // Oct 15 2026 — customers parked with the Owner after a rep left: nothing relies on remembering them
+    const held = (STATE.customers || []).filter(c => c.ownerRep === '(Owner hold)');
+    if(held.length)
+      alerts.unshift({cls:'warn', msg:'🧳 ' + held.length + ' customer' + (held.length === 1 ? ' is' : 's are') + ' on hold with you after a rep left (' + held.slice(0, 3).map(c => c.name).join(', ') + (held.length > 3 ? '…' : '') + '). No rep can see them. Give each to a rep: Customers, then the rep button on the customer.'});
     const debt = getTotalDebt();
     if(debt > 500000)
       alerts.push({cls:'warn', msg:'📋 Credit exposure ' + fmt(debt) + ' outstanding — follow up with customers on credit.'});
@@ -25190,6 +25223,28 @@ function renderBatchViewer() {
 /* ═══════════════════════════════════════════════════════
    REP DEBOARDING ENGINE
 ═══════════════════════════════════════════════════════ */
+// Oct 15 2026 — customers tied to the rep being deboarded. The Owner picks, per customer, another rep or
+// "hold with me"; held customers are visible to no rep and show on the Command Centre until given to a rep.
+function deboardCustomersFor(rep) { return (STATE.customers || []).filter(c => c.ownerRep === rep.name); }
+function deboardPaintCustomers(rep) {
+  const wrap = document.getElementById('deboard-cust-wrap'); if(!wrap) return;
+  const custs = deboardCustomersFor(rep);
+  if(!custs.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  const opts = '<option value="__hold__">Hold with me (the Owner)</option>' +
+    STATE.reps.filter(r => r.status !== 'inactive' && r.name !== 'Direct' && r.name !== rep.name).map(r => '<option value="' + escapeHtml(r.name) + '">' + escapeHtml(r.name) + (r.zone ? ' · ' + escapeHtml(r.zone) : '') + '</option>').join('');
+  document.getElementById('deboard-cust-note').textContent = custs.length + ' customer' + (custs.length === 1 ? ' is' : 's are') + ' tied to ' + rep.name + '. Held customers are hidden from every rep and shown on your Command Centre until you give them to a rep. Old sales stay with the rep who closed them.';
+  document.getElementById('deboard-cust-all').innerHTML = '<option value="">— choose to set every customer —</option>' + opts;
+  document.getElementById('deboard-cust-list').innerHTML = custs.map((c, i) =>
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-family:\'DM Mono\',monospace;font-size:10.5px;color:var(--cream)">' +
+    '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(c.name) + '</span>' +
+    '<select class="form-select" id="deboard-cust-' + i + '" style="width:48%">' + opts + '</select></div>').join('');
+}
+function deboardCustAll() {
+  const v = document.getElementById('deboard-cust-all').value; if(!v) return;
+  const rep = STATE.reps.find(r => r.id === document.getElementById('deboard-rep-id').value); if(!rep) return;
+  deboardCustomersFor(rep).forEach((c, i) => { const el = document.getElementById('deboard-cust-' + i); if(el) el.value = v; });
+}
 function openDeboardModal(repId) {
   const rep = STATE.reps.find(r => r.id === repId);
   if(!rep) return;
@@ -25197,6 +25252,7 @@ function openDeboardModal(repId) {
   document.getElementById('deboard-rep-name').textContent = rep.name + ' · ' + rep.zone;
   document.getElementById('deboard-reason').value = '';
   document.getElementById('deboard-notes').value  = '';
+  deboardPaintCustomers(rep);
 
   // ── Settlement check — compute all outstanding emoluments. Sep 23
   // 2026: switched from the raw STATE.commPaid lifetime scalar (which
@@ -25237,7 +25293,7 @@ function openDeboardModal(repId) {
   openModal('modal-deboard-rep');
 }
 
-function confirmDeboard() {
+async function confirmDeboard() {
   const repId  = document.getElementById('deboard-rep-id').value;
   const reason = document.getElementById('deboard-reason').value;
   const comm   = parseFloat(document.getElementById('deboard-comm').value)||0;
@@ -25261,6 +25317,21 @@ function confirmDeboard() {
     return;
   }
 
+  // Oct 15 2026 — move their customers first; if that fails nothing is deboarded, so no one is left half-done.
+  const custs = deboardCustomersFor(rep);
+  let movedNote = '';
+  if(custs.length) {
+    if(custs.some(c => !c.backendId)) { showToast('⚠ Some of this rep\'s customers have not reached the server yet. Wait a minute and try again.'); return; }
+    const assignments = custs.map((c, i) => ({ id: c.backendId, rep: (document.getElementById('deboard-cust-' + i) || {}).value || '__hold__' }));
+    const mv = await erpApi('POST', '/customers/owner-rep', { assignments, reason: 'Rep deboarded: ' + rep.name + ' (' + reason + ')' });
+    if(!mv.ok) { showToast('⚠ ' + (mv.json.error || 'Could not move the customers. The rep was not deboarded.')); return; }
+    const bad = (mv.json.skipped || []).filter(x => x.why !== 'Already set.');
+    if(bad.length) { showToast('⚠ ' + bad[0].why + ' The rep was not deboarded.'); return; }
+    assignments.forEach((a, i) => { custs[i].ownerRep = a.rep === '__hold__' ? '(Owner hold)' : a.rep; });
+    const held = assignments.filter(a => a.rep === '__hold__').length;
+    movedNote = ' ' + custs.length + ' customer' + (custs.length === 1 ? '' : 's') + ' moved' + (held ? ' (' + held + ' on hold with you)' : '') + '.';
+  }
+
   rep.status          = 'inactive';
   rep.deboardedAt     = new Date().toISOString();
   rep.deboardReason   = reason;
@@ -25269,11 +25340,14 @@ function confirmDeboard() {
   rep.settlementAcknowledged = ackChecked;
   rep.settlementOutstandingAtDeboard = outstanding;
 
-  patchRepToBackend(rep.id, {
+  const pr = await erpApi('PATCH', '/reps/' + encodeURIComponent(rep.id), {
     status: 'inactive', deboardedAt: rep.deboardedAt, deboardReason: reason,
     finalCommBalance: comm, deboardNotes: notes,
     settlementAcknowledged: ackChecked, settlementOutstandingAtDeboard: outstanding,
   });
+  const loginNote = pr.ok && pr.json
+    ? (pr.json.loginDisabled ? ' Login switched off.' : (pr.json.loginNote ? ' ' + pr.json.loginNote : ''))
+    : ' Saved on this device only; check the connection and deboard again.';
 
   // If commission was outstanding and acknowledged, create a pending settlement record
   if(outstanding > 0 && ackChecked) {
@@ -25292,7 +25366,8 @@ function confirmDeboard() {
     `Rep deboarded — ${rep.name} · ${rep.zone}`,
     `Reason: ${reason}${notes?' · '+notes:''} · Final comm balance: ₦${comm.toLocaleString()}`
   );
-  showToast(`Rep ${rep.name} deboarded. All records preserved.`);
+  showToast(`Rep ${rep.name} deboarded. All records preserved.` + movedNote + loginNote);
+  try { renderDashAlerts(); if(currentModule==='customers') renderCustomers(); } catch(e) {}
   if(currentModule==='reps') renderReps();
 }
 
@@ -28326,7 +28401,8 @@ function eodDur(min) { const h = Math.floor(min / 60), m = min % 60; return h ? 
 function eodAttHtml(a, closed) {
   const sty = 'font-family:\'DM Mono\',monospace;font-size:10px;margin-top:3px;';
   if(!a) return '<div style="' + sty + 'color:' + (closed ? 'var(--red)' : 'var(--mist)') + '">' + (closed ? 'Did not sign in' : 'Not signed in yet') + '</div>';
-  const late = a.late ? ' <span style="color:var(--amber);border:1px solid var(--amber);border-radius:10px;padding:0 6px">Late arrival</span>' : '';
+  const late = (a.late ? ' <span style="color:var(--amber);border:1px solid var(--amber);border-radius:10px;padding:0 6px">Late arrival</span>' : '')
+    + (a.afterHours ? ' <span style="color:var(--blue);border:1px solid var(--blue);border-radius:10px;padding:0 6px">After hours +' + eodDur(a.afterMinutes) + '</span>' : '');
   if(a.online) return '<div style="' + sty + 'color:var(--teal)">● Online now · In ' + eodTime(a.clockIn) + ' · ' + eodDur(a.minutes) + late + '</div>';
   return '<div style="' + sty + 'color:var(--dust)">In ' + eodTime(a.clockIn) + ' · Out ' + eodTime(a.clockOut) + (a.estimated ? ' (last seen)' : '') + ' · ' + eodDur(a.minutes) + late + '</div>';
 }

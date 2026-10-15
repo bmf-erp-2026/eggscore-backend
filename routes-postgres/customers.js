@@ -66,6 +66,9 @@ router.get('/rep-suggestions', requireSupabaseAuth(), requireRole('owner'), asyn
 
 // Tie customers to reps. Body: { assignments: [{ id, rep }], reason }. Owner only. Every move is logged.
 // rep = null/'' sets a customer back to "nobody's yet" (open to every rep).
+// rep = '__hold__' parks the customer with the Owner (Oct 15 2026, for a rep who left): no rep sees it, and
+// the Command Centre reminds the Owner until it is given to a rep.
+const HOLD = '(Owner hold)';
 router.post('/owner-rep', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const list = Array.isArray(req.body && req.body.assignments) ? req.body.assignments.slice(0, 500) : [];
   const reason = String((req.body && req.body.reason) || '').trim().slice(0, 300) || 'Owner assignment';
@@ -76,7 +79,8 @@ router.post('/owner-rep', requireSupabaseAuth(), requireRole('owner'), async (re
     const c = await db.prepare('SELECT id, name, owner_rep FROM customers WHERE id = ?').get(a.id);
     if(!c) { skipped.push({ id: a.id, why: 'Customer not found.' }); continue; }
     let target = null;
-    if(a.rep) {
+    if(a.rep === '__hold__') target = { name: HOLD };
+    else if(a.rep) {
       target = await db.prepare("SELECT name FROM reps WHERE name = ? AND COALESCE(status,'active') <> 'inactive'").get(String(a.rep));
       if(!target) { skipped.push({ id: a.id, why: `"${a.rep}" is not an active rep.` }); continue; }
     }
