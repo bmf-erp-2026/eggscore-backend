@@ -6983,6 +6983,18 @@ input[type=number]{-moz-appearance:textfield;}
         </div>
       </div>
 
+      <div id="zero-delivery-box" style="display:none;margin:4px 0 14px 0;padding:12px 14px;border:1px solid rgba(255,92,92,0.55);background:rgba(255,92,92,0.08);border-radius:8px">
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);line-height:1.6;margin-bottom:8px">
+          🔴 <strong>Delivery is ₦0 on this sale.</strong> <span id="zero-delivery-quoted"></span>Confirm Sale is blocked until you either put the right delivery component back (use "✎ Adjust delivery component") or choose why it is genuinely ₦0:
+        </div>
+        <select class="form-input" id="s-zero-delivery-reason" onchange="refreshZeroDeliveryBox()">
+          <option value="">— Select a reason —</option>
+          <option value="collects">Customer collects from the yard (no delivery)</option>
+          <option value="free">Free delivery agreed with the Owner</option>
+          <option value="separate">Delivery is billed separately</option>
+        </select>
+      </div>
+
       <div class="form-row cols-2">
         <div class="form-group">
           <label class="form-label">Delivery Revenue</label>
@@ -13232,7 +13244,10 @@ function autoPopulateOrderRef(customerName) {
     // mechanism — same infrastructure used for solo-dispatch/negotiated
     // rates — rather than silently recalculating off today's settings,
     // which would quietly change what the customer agreed to pay.
-    const quotedLevy = portalOrder.deliveryLevy || 0;
+    // Oct 15 2026 fix: an order that came from the server carries its delivery TOTAL but never the per-crate
+    // "deliveryLevy" figure, so this used to lock the component to 0 (and lock the box, so it could not be fixed).
+    // The order's own total divided by its crates is the figure the customer was actually quoted.
+    const quotedLevy = portalOrder.deliveryLevy || ((portalOrder.deliveryTotal && portalOrder.crates) ? Math.round(portalOrder.deliveryTotal / portalOrder.crates) : 0);
     deliveryComponentOverridden = true;
     const transportInput = document.getElementById('s-transport');
     const adjustWrap = document.getElementById('delivery-adjust-wrap');
@@ -14546,6 +14561,37 @@ function toggleDeliveryAdjust(e) {
   computeSale();
 }
 
+// ── Zero-delivery check (Oct 15 2026) ─────────────────────────────────────────────────────────────────────────────
+// Delivery is part of what the customer pays, so a sale with ₦0 delivery is almost always a slip (five portal sales
+// between 3 and 13 October were recorded that way although their orders quoted delivery). When the delivery
+// component is ₦0 the form shows a red box and Confirm Sale is blocked until the right figure is back or a reason is
+// chosen. The reason is kept on the sale and written to the Event Log.
+const ZERO_DELIVERY_REASONS = {
+  collects: 'Customer collects from the yard (no delivery)',
+  free: 'Free delivery agreed with the Owner',
+  separate: 'Delivery is billed separately',
+};
+function zeroDeliveryNeedsReason() {
+  const crates = parseInt(document.getElementById('s-crates')?.value) || 0;
+  if(crates < 1) return false;
+  return !(getDeliveryLevyPerCrate() > 0);
+}
+function zeroDeliveryReason() {
+  return document.getElementById('s-zero-delivery-reason')?.value || '';
+}
+function refreshZeroDeliveryBox() {
+  const box = document.getElementById('zero-delivery-box');
+  if(!box) return;
+  const need = zeroDeliveryNeedsReason();
+  box.style.display = need ? 'block' : 'none';
+  const sel = document.getElementById('s-zero-delivery-reason');
+  if(!need) { if(sel) sel.value = ''; return; }
+  const q = document.getElementById('zero-delivery-quoted');
+  const ref = document.getElementById('s-inv')?.dataset.linkedOrderRef;
+  const o = ref ? loadOrders().find(x => x.ref === ref) : null;
+  if(q) q.textContent = (o && o.deliveryTotal > 0) ? 'The order quoted ₦' + Number(o.deliveryTotal).toLocaleString() + ' for delivery. ' : '';
+  box.style.borderColor = (sel && sel.value) ? 'rgba(240,160,40,0.55)' : 'rgba(255,92,92,0.55)';
+}
 function getDeliveryLevy(crates) {
   return getDeliveryLevyPerCrate() * crates;
 }
@@ -14774,6 +14820,7 @@ function computeSale() {
   // of this sale is delivery" is never something that has to be
   // mentally reconstructed from a per-crate figure elsewhere on the form.
   setC('c-delivery-revenue', crates>0 ? fmt(delivTotal) : '—', 'crates × delivery component');
+  refreshZeroDeliveryBox();
   setC('c-total-customer-revenue', crates>0 ? fmt(gross+delivTotal) : '—', 'egg + delivery, what\'s actually collected');
 
   // Margin per crate
@@ -15910,6 +15957,13 @@ function handleSave() {
   if(!customer) { showToast('⚠ Select a customer.'); return; }
   if(crates < 1) { showToast('⚠ Enter crate count.'); return; }
   if(price < 1) { showToast('⚠ Enter price per crate.'); return; }
+  // Oct 15 2026 — a delivery order with ₦0 delivery needs the right figure or a stated reason before it can be saved.
+  if(levyPCrate <= 0 && !zeroDeliveryReason()) {
+    refreshZeroDeliveryBox();
+    document.getElementById('zero-delivery-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    showToast('🔴 Delivery is ₦0. Put the delivery component back, or choose why it is ₦0, before you confirm.');
+    return;
+  }
   if(!erpSaleGate(rep, customer)) return;     // Oct 13 2026 — refuses BEFORE anything changes on screen
   // Hard safety net — catches any path that reaches this form without
   // Payment Status ever being touched, including manually-entered sales
@@ -16013,6 +16067,7 @@ function handleSave() {
     deliveryMode: 'deliver', // universal now — Self Collection retired, product comes to everyone
     deliveryLevyOverridden: deliveryComponentOverridden,
     deliveryLevy: levyPCrate,
+    zeroDeliveryReason: levyPCrate <= 0 ? (zeroDeliveryReason() || null) : null,   // Oct 15 2026
     deliveryTotal: delivTotal,
     effPrice,
     commRate: rate, comm, payment, inv,
@@ -16260,6 +16315,7 @@ function handleSave() {
   }
 
   STATE.sales.unshift(sale);
+  if(sale.zeroDeliveryReason) logWarn('sales', `Sale saved with ₦0 delivery — ${customer} · ${inv} · ${crates} crates · reason: ${ZERO_DELIVERY_REASONS[sale.zeroDeliveryReason] || sale.zeroDeliveryReason}`);
   postSaleToBackend(sale).then(r => { if(!r || !r.ok) erpSaleSaveFailed(sale, r); });
 
   // ── Derive inventory.main from batch remaining (single source of truth) ──
@@ -16354,6 +16410,7 @@ function clearSaleForm() {
   const sc = document.getElementById('s-crates');
   if(sc) { sc.value = ''; sc.readOnly = false; sc.style.color = ''; sc.style.borderColor = ''; }
   const st = document.getElementById('s-transport'); if(st) st.value='';
+  { const zr = document.getElementById('s-zero-delivery-reason'); if(zr) zr.value=''; const zb = document.getElementById('zero-delivery-box'); if(zb) zb.style.display='none'; }
   ['c-gross','c-rate','c-comm','c-net','c-eff-price','c-margin','c-delivery-revenue','c-total-customer-revenue'].forEach(id => {
     const el = document.getElementById(id); if(!el) return;
     el.querySelector('span:first-child').textContent = '—';
@@ -35604,7 +35661,7 @@ function fulfillOrder(ref) {
     crates:       o.crates,
     price,        gross,
     deliveryMode: o.deliveryMode  || 'deliver',
-    deliveryLevy: o.deliveryLevy  || 0,
+    deliveryLevy: o.deliveryLevy  || ((o.deliveryTotal && o.crates) ? Math.round(o.deliveryTotal / o.crates) : 0),
     deliveryTotal: delivTotal,
     transport:    delivTotal,
     net:          gross - o.crates * rate,
