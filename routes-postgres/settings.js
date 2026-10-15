@@ -541,7 +541,10 @@ router.patch('/price-ramp-settings', requireSupabaseAuth(), requireRole('owner')
   res.json({ ok: true, settings });
 });
 
-router.get('/commission-tier-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+// Oct 15 2026 fix: GET is open to every signed-in staff member (reps, managers). The tiers are the
+// reps' own pay rates and the Sales Log commission picker shows them; with this owner-only, every rep
+// device silently fell back to the built-in 150/200/250/300 defaults. Changing them (PATCH) stays owner-only.
+router.get('/commission-tier-settings', requireSupabaseAuth(), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'commission_tier_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });

@@ -6884,10 +6884,10 @@ input[type=number]{-moz-appearance:textfield;}
       </div>
       <div class="sec-title">Commission Tier</div>
       <div class="tier-display" id="tier-display-area">
-        <div class="tier-card" id="tier-1"><div class="tc-name">Tier 1</div><div class="tc-range">1–99 crates</div><div class="tc-comm">₦150/crate</div></div>
-        <div class="tier-card" id="tier-2"><div class="tc-name">Tier 2</div><div class="tc-range">100–249 crates</div><div class="tc-comm">₦200/crate</div></div>
-        <div class="tier-card" id="tier-3"><div class="tc-name">Tier 3</div><div class="tc-range">250–499 crates</div><div class="tc-comm">₦250/crate</div></div>
-        <div class="tier-card" id="tier-4"><div class="tc-name">Tier 4</div><div class="tc-range">500+ crates</div><div class="tc-comm">₦300/crate</div></div>
+        <div class="tier-card" id="tier-1"><div class="tc-name">Tier 1</div><div class="tc-range">1–99 crates</div><div class="tc-comm">₦25/crate</div></div>
+        <div class="tier-card" id="tier-2"><div class="tc-name">Tier 2</div><div class="tc-range">100–249 crates</div><div class="tc-comm">₦30/crate</div></div>
+        <div class="tier-card" id="tier-3"><div class="tc-name">Tier 3</div><div class="tc-range">250–499 crates</div><div class="tc-comm">₦40/crate</div></div>
+        <div class="tier-card" id="tier-4"><div class="tc-name">Tier 4</div><div class="tc-range">500+ crates</div><div class="tc-comm">₦50/crate</div></div>
       </div>
       <div class="form-row cols-3">
         <div class="form-group"><label class="form-label">Rep MTD Crates <span style="color:var(--mist);font-weight:400">(info only)</span></label><input class="form-input" type="number" placeholder="auto-filled" id="s-mtd" readonly style="color:var(--mist);cursor:default" title="Informational — tier is based on this dispatch size, not MTD"/></div>
@@ -7641,10 +7641,10 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="panel-hdr"><div class="panel-title">Commission Tier Structure</div><div class="panel-tag">editable — a real lever to moderate rep behaviour and margin</div></div>
     <div class="panel-body">
       <div class="tier-display" id="commission-tier-cards">
-        <div class="tier-card active"><div class="tc-name">Tier 1</div><div class="tc-range">1–99 crates/mo</div><div class="tc-comm">₦150/crate</div></div>
-        <div class="tier-card"><div class="tc-name">Tier 2</div><div class="tc-range">100–249 crates/mo</div><div class="tc-comm">₦200/crate</div></div>
-        <div class="tier-card"><div class="tc-name">Tier 3</div><div class="tc-range">250–499 crates/mo</div><div class="tc-comm">₦250/crate</div></div>
-        <div class="tier-card"><div class="tc-name">Tier 4</div><div class="tc-range">500+ crates/mo</div><div class="tc-comm">₦300/crate</div></div>
+        <div class="tier-card active"><div class="tc-name">Tier 1</div><div class="tc-range">1–99 crates/mo</div><div class="tc-comm">₦25/crate</div></div>
+        <div class="tier-card"><div class="tc-name">Tier 2</div><div class="tc-range">100–249 crates/mo</div><div class="tc-comm">₦30/crate</div></div>
+        <div class="tier-card"><div class="tc-name">Tier 3</div><div class="tc-range">250–499 crates/mo</div><div class="tc-comm">₦40/crate</div></div>
+        <div class="tier-card"><div class="tc-name">Tier 4</div><div class="tc-range">500+ crates/mo</div><div class="tc-comm">₦50/crate</div></div>
       </div>
       <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin:14px 0 10px">
         Set the upper crate threshold for Tiers 1–3 (each must exceed the one before it). Tier 4 always catches everything above Tier 3's threshold — no upper bound to set.
@@ -12158,10 +12158,10 @@ const DEFAULT_STATE = {
     customCostElements: [], // { id, label, value, frequency: 'one-time'|'monthly'|'annual' } — added via the panel
   },
   commissionTiers: [
-    { tier: 1, max: 99,   rate: 150 },
-    { tier: 2, max: 249,  rate: 200 },
-    { tier: 3, max: 499,  rate: 250 },
-    { tier: 4, max: null, rate: 300 },
+    { tier: 1, max: 99,   rate: 25 },
+    { tier: 2, max: 249,  rate: 30 },
+    { tier: 3, max: 499,  rate: 40 },
+    { tier: 4, max: null, rate: 50 },
   ],
   // Oct 6 2026 — the 8 demo sales (BEL-INV-0001..0008, May 2026) that used to sit here were
   // being re-posted to the LIVE backend by syncSalesFromBackend()'s retry step (found doubled in
@@ -12865,11 +12865,11 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 ═══════════════════════════════════════════════════════ */
 function ensureCommissionTiers() {
   if(!STATE.commissionTiers || STATE.commissionTiers.length === 0) {
-    STATE.commissionTiers = [
-      { tier: 1, max: 99,   rate: 150 },
-      { tier: 2, max: 249,  rate: 200 },
-      { tier: 3, max: 499,  rate: 250 },
-      { tier: 4, max: null, rate: 300 },
+    STATE.commissionTiers = [ // defaults mirror the live Owner-set tiers (Oct 15 2026); the server value replaces them on load
+      { tier: 1, max: 99,   rate: 25 },
+      { tier: 2, max: 249,  rate: 30 },
+      { tier: 3, max: 499,  rate: 40 },
+      { tier: 4, max: null, rate: 50 },
     ];
   }
   return STATE.commissionTiers;
@@ -24264,6 +24264,9 @@ async function syncCommissionTierSettingsFromBackend() {
     if(!data.settings || !data.settings.tiers) return;
     STATE.commissionTiers = data.settings.tiers;
     saveState();
+    // Oct 15 2026: redraw what shows tier rates — before this the cards kept whatever was on screen
+    try { renderSalesLogTierCards(); } catch(e) {}
+    try { if(document.getElementById('commission-tier-editor')) renderCommissionTierEditor(); } catch(e) {}
   } catch(networkErr) {}
 }
 async function postCommissionTierSettingsToBackend(tiers, updatedBy) {
