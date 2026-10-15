@@ -42,6 +42,16 @@ function realAdmin() {
       if(r.error) throw new Error(r.error.message);
       return { email };
     },
+    async unbanUser(email) {
+      const { data, error } = await c.auth.admin.listUsers({ page: 1, perPage: 200 });
+      if(error || !data) throw new Error(error ? error.message : 'no user list');
+      const u = data.users.find(x => String(x.email || '').toLowerCase() === email);
+      if(!u) throw new Error('no such login');
+      if(((u.app_metadata && u.app_metadata.role) || 'owner') !== 'rep') throw new Error('not a rep login');
+      const r = await c.auth.admin.updateUserById(u.id, { ban_duration: 'none' });
+      if(r.error) throw new Error(r.error.message);
+      return { email };
+    },
     async setPassword(email, password) {
       const { data, error } = await c.auth.admin.listUsers({ page: 1, perPage: 200 });
       if(error || !data) throw new Error(error ? error.message : 'no user list');
@@ -145,6 +155,17 @@ async function disableLogin(email) {
   catch(err) { console.error('[rep-accounts] could not switch off login', e, err.message); return { ok: false, note: 'Could not switch the login off: ' + err.message + '. Disable it in Supabase.' }; }
 }
 
+// Oct 15 2026 — called when a deboarded rep is reinstated. Switches the login back on (same password as before).
+async function enableLogin(email) {
+  const e = norm(email);
+  if(!e) return { ok: true, note: 'This rep had no login to switch on.', none: true };
+  const a = adm();
+  if(!a || !a.unbanUser) return { ok: false, note: 'The server could not switch the login back on (Supabase keys not set). Do it in Supabase.' };
+  try { await a.unbanUser(e); console.log(`[audit] Rep login ${e} switched back on (rep reinstated)`); return { ok: true, note: 'Login switched back on.' }; }
+  catch(err) { console.error('[rep-accounts] could not switch on login', e, err.message); return { ok: false, note: 'Could not switch the login back on: ' + err.message + '. Do it in Supabase.' }; }
+}
+
 router.setAdmin = setAdmin;
 router.disableLogin = disableLogin;
+router.enableLogin = enableLogin;
 module.exports = router;

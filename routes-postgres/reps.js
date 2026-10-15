@@ -102,7 +102,26 @@ router.patch('/:repId', requireSupabaseAuth(), requireRole('owner'), async (req,
     } catch(e) { console.error('[reps] could not park customers of', existing.name, e.message); }
     return res.json({ ...out, loginDisabled: login.ok, loginNote: login.note, customersParked: parked });
   }
+  // Oct 15 2026 — reinstating: the login is switched back on. Customers are handled by the screen (it asks the Owner).
+  if(status === 'active' && (existing.status || 'active') === 'inactive') {
+    const login = await require('./rep-accounts').enableLogin(existing.email);
+    console.log(`[audit] Rep ${existing.name} reinstated by ${req.user.email}`);
+    return res.json({ ...out, loginEnabled: login.ok && !login.none, loginNote: login.ok ? null : login.note });
+  }
   res.json(out);
+});
+
+// Oct 15 2026 — customers parked with the Owner when this rep was deboarded and still waiting on hold.
+// Used by the Reinstate screen so the Owner can hand them back. Owner only.
+router.get('/:repId/parked', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const rep = await db.prepare('SELECT name FROM reps WHERE rep_id = ?').get(req.params.repId);
+  if(!rep) return res.status(404).json({ error: 'Rep not found.' });
+  const rows = await db.prepare(`
+    SELECT c.id, c.name FROM customers c
+    WHERE c.owner_rep = '(Owner hold)'
+      AND (SELECT h.from_rep FROM rep_handovers h WHERE h.kind = 'customer' AND h.subject = c.name ORDER BY h.created_at DESC, h.id DESC LIMIT 1) = ?
+    ORDER BY c.name ASC`).all(rep.name);
+  res.json(rows);
 });
 
 module.exports = router;

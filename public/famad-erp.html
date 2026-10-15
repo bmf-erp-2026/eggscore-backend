@@ -4281,6 +4281,30 @@ input[type=number]{-moz-appearance:textfield;}
   </div>
 </div>
 
+<!-- Oct 15 2026 — Reinstate a deboarded rep -->
+<div class="modal-overlay" id="modal-reinstate-rep">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">Reinstate Sales Rep</div>
+      <button class="modal-close" onclick="closeModal('modal-reinstate-rep')">✕</button>
+    </div>
+    <input type="hidden" id="reinstate-rep-id"/>
+    <div id="reinstate-rep-name" style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--cream);padding:4px 0 8px"></div>
+    <div class="alert-banner warn" style="margin-bottom:12px;font-family:'DM Mono',monospace;font-size:10px;line-height:1.7">
+      Reinstating puts the rep back on every list and switches their login back on (same password as before). Their old sales and commission records were never removed. Any commission balance left at deboarding stays on record; settle it as usual.
+    </div>
+    <div class="form-group" id="reinstate-cust-wrap" style="display:none;margin-bottom:12px;padding:10px 12px;background:rgba(74,158,255,0.06);border:1px solid rgba(74,158,255,0.25);border-radius:8px">
+      <label class="form-label">Customers still on hold from when they left</label>
+      <div id="reinstate-cust-note" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--dust);line-height:1.6;margin-bottom:8px"></div>
+      <div id="reinstate-cust-list" style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:2px 8px"></div>
+    </div>
+    <div class="submit-btns">
+      <button class="btn btn-ghost" onclick="closeModal('modal-reinstate-rep')">Cancel</button>
+      <button class="btn btn-primary" id="reinstate-go" onclick="confirmReinstate()">Reinstate Rep</button>
+    </div>
+  </div>
+</div>
+
 <!-- Credit Quick-Settle Modal -->
 <div class="modal-overlay" id="modal-quick-settle">
   <div class="modal">
@@ -25405,17 +25429,68 @@ function renderFormerReps() {
   }).join('');
 }
 
-function reinstateRep(repId) {
+// Oct 15 2026 — Reinstate now goes to the server (before, it only changed this screen, so the next sync put the rep
+// back as deboarded and the login stayed off). It asks what to do with customers still held from when the rep left.
+var reinstateParked = [];
+async function reinstateRep(repId) {
   const rep = STATE.reps.find(r => r.id === repId);
   if(!rep) return;
-  rep.status = 'active';
-  delete rep.deboardedAt;
-  delete rep.deboardReason;
-  saveState();
-  populateSelects();
-  logOk('rep', `Rep reinstated — ${rep.name} · ${rep.zone}`, 'Returned to active status');
-  showToast(`✓ ${rep.name} reinstated as active rep.`);
-  if(currentModule==='reps') renderReps();
+  document.getElementById('reinstate-rep-id').value = repId;
+  document.getElementById('reinstate-rep-name').textContent = rep.name + (rep.zone ? ' · ' + rep.zone : '');
+  const wrap = document.getElementById('reinstate-cust-wrap');
+  wrap.style.display = 'none';
+  reinstateParked = [];
+  openModal('modal-reinstate-rep');
+  const r = await erpApi('GET', '/reps/' + encodeURIComponent(repId) + '/parked');
+  if(!r.ok) { showToast('⚠ Could not check the held customers. You can still reinstate, then give customers back from the Customers screen.'); return; }
+  reinstateParked = (r.json || []).map(c => ({ id: c.id, name: c.name }));
+  if(!reinstateParked.length) return;
+  const opts = '<option value="' + escapeHtml(rep.name) + '">Give back to ' + escapeHtml(rep.name) + '</option><option value="__hold__">Keep on hold with me</option>' +
+    STATE.reps.filter(x => x.status !== 'inactive' && x.name !== 'Direct' && x.name !== rep.name).map(x => '<option value="' + escapeHtml(x.name) + '">' + escapeHtml(x.name) + (x.zone ? ' · ' + escapeHtml(x.zone) : '') + '</option>').join('');
+  document.getElementById('reinstate-cust-note').textContent = reinstateParked.length + ' customer' + (reinstateParked.length === 1 ? ' is' : 's are') + ' waiting on hold with you. Pick for each; the default gives them back to ' + rep.name + '.';
+  document.getElementById('reinstate-cust-list').innerHTML = reinstateParked.map((c, i) =>
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-family:\'DM Mono\',monospace;font-size:10.5px;color:var(--cream)">' +
+    '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(c.name) + '</span>' +
+    '<select class="form-select" id="reinstate-cust-' + i + '" style="width:48%">' + opts + '</select></div>').join('');
+  wrap.style.display = 'block';
+}
+
+async function confirmReinstate() {
+  const repId = document.getElementById('reinstate-rep-id').value;
+  const rep = STATE.reps.find(r => r.id === repId);
+  if(!rep) return;
+  const btn = document.getElementById('reinstate-go'); if(btn) btn.disabled = true;
+  try {
+    // 1) The rep first, so the server will accept customers being given back to them.
+    const pr = await erpApi('PATCH', '/reps/' + encodeURIComponent(rep.id), {
+      status: 'active', deboardedAt: null, deboardReason: null, finalCommBalance: 0,
+      deboardNotes: null, settlementAcknowledged: false, settlementOutstandingAtDeboard: 0,
+    });
+    if(!pr.ok) { showToast('⚠ ' + ((pr.json && pr.json.error) || 'Could not reach the server. The rep was not reinstated.')); return; }
+    const hadBalance = rep.finalCommBalance || 0;
+    rep.status = 'active';
+    delete rep.deboardedAt; delete rep.deboardReason; delete rep.deboardNotes;
+    rep.finalCommBalance = 0; rep.settlementAcknowledged = false; rep.settlementOutstandingAtDeboard = 0;
+    // 2) Customers still on hold.
+    let movedNote = '';
+    if(reinstateParked.length) {
+      const assignments = reinstateParked.map((c, i) => ({ id: c.id, rep: (document.getElementById('reinstate-cust-' + i) || {}).value || rep.name }));
+      const mv = await erpApi('POST', '/customers/owner-rep', { assignments, reason: 'Rep reinstated: ' + rep.name });
+      if(mv.ok) {
+        const changed = (mv.json && mv.json.changed) || 0;
+        assignments.forEach(a => { const c = (STATE.customers || []).find(x => x.backendId === a.id); if(c) c.ownerRep = a.rep === '__hold__' ? '(Owner hold)' : a.rep; });
+        movedNote = ' ' + changed + ' customer' + (changed === 1 ? '' : 's') + ' moved.';
+      } else movedNote = ' The customers could not be moved; do it from the Customers screen.';
+    }
+    saveState();
+    populateSelects();
+    closeModal('modal-reinstate-rep');
+    logOk('rep', `Rep reinstated — ${rep.name} · ${rep.zone}`, 'Returned to active status' + (hadBalance ? ` · ₦${hadBalance.toLocaleString()} balance at deboarding remains on record` : ''));
+    const loginNote = pr.json && pr.json.loginEnabled ? ' Login switched back on.' : (pr.json && pr.json.loginNote ? ' ' + pr.json.loginNote : '');
+    showToast(`✓ ${rep.name} reinstated as active rep.` + movedNote + loginNote);
+    try { renderDashAlerts(); if(currentModule==='customers') renderCustomers(); } catch(e) {}
+    if(currentModule==='reps') renderReps();
+  } finally { if(btn) btn.disabled = false; }
 }
 
 /* ═══════════════════════════════════════════════════════
