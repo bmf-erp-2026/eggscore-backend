@@ -26325,7 +26325,7 @@ async function loadTierSuggestions(force) {
     if(r.ok && r.json && Array.isArray(r.json.customers)) {
       const m = {}; r.json.customers.forEach(x => { m[x.name] = x; });
       tierSugg.map = m; tierSugg.bars = r.json.bars || null;
-      if(currentModule === 'loyalty') renderCustomerScorecard();
+      if(window.currentModule === 'scorecard') renderCustomerScorecard();
     }
   } catch(e) { /* shown as a dash until the next try */ }
   finally { tierSugg.busy = false; }
@@ -26367,7 +26367,7 @@ function setCustomerTrustTier(customerName, tier) {
   if(!cust) return;
   if(tier !== 'new' && isCustomerUnverified(customerName)) {
     showToast('⚠ ' + customerName + ' is not verified yet — confirm the shop and the phone before giving credit terms.');
-    if(currentModule === 'loyalty') renderCustomerScorecard();
+    if(window.currentModule === 'scorecard') renderCustomerScorecard();
     return;
   }
   cust.trustTier = tier;
@@ -26380,7 +26380,7 @@ function setCustomerTrustTier(customerName, tier) {
   if(cust.backendId && typeof patchCustomerToBackend === 'function') {
     patchCustomerToBackend(cust.backendId, { trustTier: tier });
   }
-  if(currentModule === 'loyalty') renderCustomerScorecard();
+  if(window.currentModule === 'scorecard') renderCustomerScorecard();
 }
 
 // Trust-Tiered Progressive Margin Financing (Aug 22 redesign).
