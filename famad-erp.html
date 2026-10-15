@@ -3889,7 +3889,7 @@ input[type=number]{-moz-appearance:textfield;}
     saveFeedbackSubmissions(mapped);
     if(document.getElementById('feedback-review-panel')) renderFeedbackReview();
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); });
+  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); setTimeout(() => { try { pushScorecardScores(); } catch(e) {} }, 30000); });
 
   // Sep 27 2026 fix — the Delivery Closeouts badge/panel only ever refreshed
   // at login or when someone clicked "↻ Refresh Orders". A driver's
@@ -26168,6 +26168,39 @@ function refreshTierClearanceQueue() {
     }
   });
   if(changed) saveState();
+  pushScorecardScoresSoon();
+}
+
+// Oct 15 2026 — send each customer's Scorecard result to the server (Owner's device only: it is the one that holds
+// the payments, orders, feedback and tags the score is made from). Sent only when a figure changed. This lets the
+// portal ticker and the Trust Tier suggestions use the same score shown in Customer Scores. Never changes a tier.
+var scorePushed = {}, scorePushBusy = false, scorePushTimer = null;
+function pushScorecardScoresSoon() {
+  if(typeof ERP_ROLE === 'undefined' || ERP_ROLE !== 'owner') return;
+  clearTimeout(scorePushTimer); scorePushTimer = setTimeout(pushScorecardScores, 4000);
+}
+async function pushScorecardScores() {
+  if(typeof ERP_ROLE === 'undefined' || ERP_ROLE !== 'owner' || scorePushBusy) return;
+  const out = [], sig = {};
+  (STATE.customers || []).forEach(c => {
+    if(!c.backendId) return;
+    let sc; try { sc = computeCustomerScorecard(c.name); } catch(e) { return; }
+    if(!sc || !sc.eligible) return;
+    const key = sc.finalScore + '|' + sc.objectiveScore + '|' + sc.relationshipScore;
+    if(scorePushed[c.backendId] === key) return;
+    sig[c.backendId] = key;
+    out.push({ id: c.backendId, final: sc.finalScore, objective: sc.objectiveScore, relationship: sc.relationshipScore });
+  });
+  if(!out.length) return;
+  scorePushBusy = true;
+  try {
+    for(let i = 0; i < out.length; i += 200) {
+      const part = out.slice(i, i + 200);
+      const r = await erpApi('POST', '/customers/scorecard-scores', { scores: part });
+      if(r.ok) part.forEach(x => { scorePushed[x.id] = sig[x.id]; });
+    }
+  } catch(e) { /* try again on the next recalculation */ }
+  finally { scorePushBusy = false; }
 }
 
 function clearTierUpgrade(clearanceId) {

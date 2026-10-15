@@ -46,9 +46,16 @@ router.get('/:customerName', requireEitherAuth(), async (req, res) => {
     return res.json({ level, levelName: NAMES[level], top: true, next: null, nextName: null, progressPct: 100, ready: false, measures: [] });
   }
 
+  // One row per invoice. The sales table holds 219 doubled rows from 3 Sep 2026 (a rep's device re-sent other reps'
+  // sales before the duplicate guard existed); counting rows would show a customer too many orders and crates.
   const row = await db.prepare(`
-    SELECT COUNT(*)::int AS orders, COALESCE(SUM(crates), 0)::int AS crates, MIN(sale_date) AS first_sale
-    FROM sales WHERE customer_name = ? AND COALESCE(fully_reversed, 0) = 0`).get(cust.name);
+    WITH uniq AS (
+      SELECT DISTINCT ON (COALESCE(invoice_ref, 'id-' || id::text)) crates, sale_date
+      FROM sales
+      WHERE customer_name = ? AND COALESCE(fully_reversed, 0) = 0
+      ORDER BY COALESCE(invoice_ref, 'id-' || id::text), id
+    )
+    SELECT COUNT(*)::int AS orders, COALESCE(SUM(crates), 0)::int AS crates, MIN(sale_date) AS first_sale FROM uniq`).get(cust.name);
   const orders = (row && row.orders) || 0;
   const crates = (row && row.crates) || 0;
   const first = row && row.first_sale ? new Date(row.first_sale).getTime() : NaN;

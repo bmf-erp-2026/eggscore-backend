@@ -69,6 +69,25 @@ router.get('/rep-suggestions', requireSupabaseAuth(), requireRole('owner'), asyn
 // rep = '__hold__' parks the customer with the Owner (Oct 15 2026, for a rep who left): no rep sees it, and
 // the Command Centre reminds the Owner until it is given to a rep.
 const HOLD = '(Owner hold)';
+// Oct 15 2026 — the Owner's ERP sends each customer's Customer Scorecard result (the same numbers shown in Customer
+// Scores). Only the Owner's device holds all the data the score needs (payments, orders, feedback, tags), so only the
+// Owner may send it. Body: { scores: [{ id, final, objective, relationship }] }. Display and suggestion use only;
+// it never changes a customer's Trust Tier, credit limit or any price.
+router.post('/scorecard-scores', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const list = Array.isArray(req.body && req.body.scores) ? req.body.scores.slice(0, 1000) : [];
+  if(!list.length) return res.status(400).json({ error: 'Nothing to save.' });
+  const n = v => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : null; };
+  let saved = 0;
+  for(const r of list) {
+    const final = n(r.final);
+    if(!r || !Number.isInteger(Number(r.id)) || final === null) continue;
+    const info = await db.prepare('UPDATE customers SET scorecard_score = ?, scorecard_objective = ?, scorecard_relationship = ?, scorecard_at = now() WHERE id = ?')
+      .run(final, n(r.objective), n(r.relationship), Number(r.id));
+    if(info && info.changes) saved++;
+  }
+  res.json({ ok: true, saved });
+});
+
 router.post('/owner-rep', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const list = Array.isArray(req.body && req.body.assignments) ? req.body.assignments.slice(0, 500) : [];
   const reason = String((req.body && req.body.reason) || '').trim().slice(0, 300) || 'Owner assignment';
