@@ -1419,7 +1419,7 @@ input[type=number]{-moz-appearance:textfield;}
   // this list yet; each needs its own look at what's actually on the
   // page before hiding anything, rather than guessing. Flagged as
   // follow-up work, not forgotten.)
-  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'incomestmt', 'balancesheet', 'expansion', 'taxpanel', 'eventlog', 'reps', 'pushnotify'];
+  const OWNER_ONLY_MODULES = ['commission', 'credit', 'timevalue', 'voltrack', 'receivables', 'suppliers', 'supplierscorecard', 'pnl', 'incomestmt', 'balancesheet', 'expansion', 'taxpanel', 'eventlog', 'reps', 'pushnotify', 'payaccts'];
 
   // UI-layer only (see the comment on ERP_ROLE above) — hides nav
   // entries for owner-only modules and, as a hard safety net, refuses
@@ -1864,6 +1864,7 @@ input[type=number]{-moz-appearance:textfield;}
         if(row.trip_cost !== undefined && row.trip_cost !== null) existing.tripCost = Number(row.trip_cost);
         if(row.trip_generated_at) existing.tripGeneratedAt = row.trip_generated_at;
         if(row.trip_delivered_at) existing.tripDeliveredAt = row.trip_delivered_at;
+        if(row.pay_code) existing.payCode = row.pay_code;   // Oct 16 2026 (0.55) — the order's Pay Code, from the server
         if(existing.waybill && existing.waybill.costs) {
           const up = {};
           if((row.trip_cost === undefined || row.trip_cost === null) && existing.waybill.costs.total !== undefined) { up.tripCost = Number(existing.waybill.costs.total) || 0; if(existing.waybill.generatedAt) up.tripGeneratedAt = existing.waybill.generatedAt; }
@@ -1990,6 +1991,7 @@ input[type=number]{-moz-appearance:textfield;}
           tripCost: (row.trip_cost !== undefined && row.trip_cost !== null) ? Number(row.trip_cost) : undefined,   // Oct 16 2026
           tripGeneratedAt: row.trip_generated_at || undefined,
           tripDeliveredAt: row.trip_delivered_at || undefined,
+          payCode: row.pay_code || undefined,   // Oct 16 2026 (0.55)
           paymentVerified: Number(row.payment_verified) === 1,   // Oct 12 2026 — the server's record of payment now comes back too
           createdAt: row.created_at,
           date: new Date(row.created_at).toISOString().split('T')[0],
@@ -3913,7 +3915,10 @@ input[type=number]{-moz-appearance:textfield;}
     saveFeedbackSubmissions(mapped);
     if(document.getElementById('feedback-review-panel')) renderFeedbackReview();
   }
-  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); setTimeout(() => { try { pushScorecardScores(); } catch(e) {} }, 30000); });
+  // Oct 16 2026 (0.55) — wait until every script on the page has loaded before the first sync. This block sits in the first
+  // <script>, but loadOrders()/STATE live in the second one; on a fast session check the first sync could start before they exist.
+  (function(go){ if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go(); })(function(){
+  erpCheckSession().then(() => { syncOrdersFromBackend().then(() => { if(window.currentModule === 'orders') renderOrders(); if(typeof renderDeliveryCloseoutsPanel === 'function') renderDeliveryCloseoutsPanel(); }); syncBatchesFromBackend(); syncSalesFromBackend().then(() => { if(window.currentModule === 'sales') renderLedger(); }); syncCustomersFromBackend().then(() => { if(window.currentModule === 'customers') renderCustomers(); }); syncWalletTransactionsFromBackend(); syncRespectEventsFromBackend(); syncRelationshipTagsFromBackend(); syncFeedbackFromBackend(); syncSettlementsFromBackend().then(() => { if(currentModule==='credit') renderCredit(); if(currentModule==='sales') renderSales(); }); syncRepsFromBackend().then(() => { if(currentModule==='reps') renderReps(); }); setTimeout(() => { try { pushScorecardScores(); } catch(e) {} }, 30000); }); });
 
   // Sep 27 2026 fix — the Delivery Closeouts badge/panel only ever refreshed
   // at login or when someone clicked "↻ Refresh Orders". A driver's
@@ -6383,6 +6388,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('doccentre')"><span class="icon">📄</span><span>Document Centre</span></div>
   <hr class="sdiv"/>
   <div class="sl">System</div>
+  <div class="si" onclick="switchModule('payaccts')"><span class="icon">🏦</span><span>Payment Accounts</span></div>
   <div class="si" onclick="switchModule('eventlog')"><span class="icon">📋</span><span>Event Log</span></div>
   <div class="mbadge">
     <div class="mbadge-inner">
@@ -8024,6 +8030,49 @@ input[type=number]{-moz-appearance:textfield;}
 </div>
 
 <!-- ════ MODULE: TAX PANEL (Owner only) ════════════════════════════ -->
+<div class="module-page" id="mod-payaccts">
+  <div class="ph">
+    <div>
+      <h2>Payment Accounts</h2>
+      <div class="ph-sub">The only bank accounts customers are ever told to pay into. The order portal, the WhatsApp payment messages and the public "Check an account" page all read from this list</div>
+    </div>
+    <div class="ph-actions"><button class="btn btn-ghost" onclick="renderPayAccounts()">↻ Refresh</button></div>
+  </div>
+  <div class="alert-banner warn" style="margin-bottom:14px">
+    ⚠ Type each account exactly as the bank shows it. An account number can never be edited: if one is wrong, retire it and add the right one. Until you add an account here, the portal shows no account number and the ERP refuses to send payment messages.
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Official accounts</div><div class="panel-tag" id="payacct-tag">loading…</div></div>
+    <div class="panel-body" id="payacct-list"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Add an account</div><div class="panel-tag">goes live for customers straight away</div></div>
+    <div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end">
+      <div class="form-group"><label class="form-label">Bank</label><input class="form-input" id="payacct-bank" type="text" placeholder="e.g. First Bank of Nigeria"></div>
+      <div class="form-group"><label class="form-label">Account name (as the bank shows it)</label><input class="form-input" id="payacct-name" type="text" placeholder="BMF EggScore Limited"></div>
+      <div class="form-group"><label class="form-label">Account number (10 digits)</label><input class="form-input" id="payacct-number" type="text" inputmode="numeric" maxlength="14" placeholder="0123456789"></div>
+      <div class="form-group"><label class="form-label">Label (optional)</label><input class="form-input" id="payacct-label" type="text" placeholder="e.g. Main, Large orders"></div>
+      <div><button class="btn btn-primary" onclick="payacctAdd()">+ Add account</button></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Check a number</div><div class="panel-tag">exactly what a customer sees on the public page</div></div>
+    <div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input class="form-input" id="payacct-test" type="text" inputmode="numeric" maxlength="14" placeholder="Type any account number" style="max-width:260px">
+      <button class="btn btn-ghost" onclick="payacctTest()">Check</button>
+      <span id="payacct-test-res" style="font-family:'DM Mono',monospace;font-size:12px"></span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Tell your customers</div><div class="panel-tag">the public page and the Pay Code</div></div>
+    <div class="panel-body" style="font-family:'DM Mono',monospace;font-size:12px;color:var(--dust);line-height:1.8">
+      Customers check any account at <strong id="payacct-link" style="color:var(--blue)"></strong>
+      <button class="btn btn-ghost" style="font-size:10px;margin-left:8px" onclick="payacctCopyLink()">Copy link</button>
+      <div style="margin-top:8px">Every order has a <strong>Pay Code</strong> (the 🔑 tag on each order card). It goes into every confirmation and payment reminder automatically, and the customer sees it on their order confirmation screen. If a customer is ever sent a message without their Pay Code, or with a different one, it did not come from us. A failed check by a customer appears in the Event Log as a warning, so you will know if someone is circulating a false account.</div>
+    </div>
+  </div>
+</div>
+
 <div class="module-page" id="mod-pit">
   <div class="ph">
     <div>
@@ -12835,6 +12884,7 @@ function switchModule(name) {
        (name==='balancesheet' && txt.includes('balance sheet')) ||
        (name==='expansion' && txt.includes('expansion planner')) ||
        (name==='taxpanel' && txt.includes('tax panel')) ||
+       (name==='payaccts' && txt.includes('payment accounts')) ||
        (name==='doccentre' && txt.includes('document centre'))) {
       el.classList.add('active');
     }
@@ -12846,7 +12896,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',pit:'My Tax (PIT)',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',expansion:'Expansion Planner',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',pit:'My Tax (PIT)',payaccts:'Payment Accounts',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',expansion:'Expansion Planner',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -12881,6 +12931,7 @@ function switchModule(name) {
     expansion: renderExpansion,
     taxpanel: renderTaxPanel,
     pit: renderPit,
+    payaccts: renderPayAccounts,
     doccentre: renderDocumentCentre,
   };
   if(renders[name]) renders[name]();
@@ -24413,6 +24464,17 @@ async function postReservationSettingsToBackend(settings, updatedBy) {
   } catch(networkErr) {}
 }
 
+// Oct 16 2026 (0.55) — the official EggScore bank accounts. Every staff login reads them (a rep sends reminders); only the Owner edits.
+async function syncPaymentAccountsFromBackend() {
+  const token = await erpGetAuthToken();
+  if(!token) return;
+  try {
+    const resp = await fetch(`${BACKEND_URL}/payment-accounts`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(Array.isArray(data.accounts)) { STATE.paymentAccounts = data.accounts; saveState(); }
+  } catch(networkErr) {}
+}
 async function syncLogisticsSettingsFromBackend() {
   const token = await erpGetAuthToken();
   if(!token) return;
@@ -30195,6 +30257,7 @@ function buildOrderCard(o, queueNum) {
               })()
             : (o.lockedPrice?`<span class="chip chip-teal" title="Price locked at order creation">🔒 ₦${o.lockedPrice.toLocaleString()}/crate</span>`:'')}
           ${srTagHtml(o)}
+          ${o.payCode ? `<span class="chip chip-teal" title="This order's Pay Code. Every payment message about it carries this code.">🔑 ${escapeHtml(o.payCode)}</span>` : ''}
           ${o.preferredDeliveryDay?`<span class="chip chip-teal" title="Customer's preferred delivery day, chosen at order booking">📅 ${escapeHtml(o.preferredDeliveryDay)}${o.isSpecialVolumeOrder?' (any-day eligible)':''}</span>`:''}
         </div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px">${o.location||'—'} · ${o.phone||'—'} · <span style="color:var(--blue)">${o.ref}</span></div>
@@ -36155,11 +36218,42 @@ function deleteOrder(ref) {
 async function refreshOrders(){ await syncOrdersFromBackend(); renderOrders(); renderDeliveryCloseoutsPanel(); showToast('↻ Orders refreshed.'); }
 async function refreshSales(){ await syncSalesFromBackend(); renderLedger(); showToast('↻ Sales refreshed.'); }
 
-function waReplyOrder(ref, type) {
+// ── Oct 16 2026 (0.55) — official payment accounts and the Pay Code in every payment message ──
+// The account lines in WhatsApp messages used to be typed into the code. They now come from the Owner's official list
+// (Payment Accounts), and every message that asks for money also carries the order's / invoice's Pay Code, which only the
+// server can produce, so a customer can tell a real message from a fake one.
+const ERP_PAYCODES = {};
+async function erpPayCode(ref) {
+  if(!ref) return null;
+  if(ERP_PAYCODES[ref]) return ERP_PAYCODES[ref];
+  const token = await erpGetAuthToken(); if(!token) return null;
+  try {
+    const r = await fetch(`${BACKEND_URL}/payment-accounts/code/${encodeURIComponent(ref)}`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!r.ok) return null;
+    const j = await r.json(); if(j && j.code) { ERP_PAYCODES[ref] = j.code; return j.code; }
+  } catch(e) {}
+  return null;
+}
+function erpOfficialAccounts() { return (STATE.paymentAccounts || []).filter(a => a && a.accountNumber); }
+// Returns { block, footer } for a message, or null (with a toast) when it must not be sent.
+async function erpPaymentLines(ref, knownCode) {
+  const accts = erpOfficialAccounts();
+  if(!accts.length) { showToast('⚠ No official payment account is set yet. The Owner adds them under Payment Accounts. Nothing was sent.'); return null; }
+  const code = knownCode || await erpPayCode(ref);
+  if(!code) { showToast('⚠ Could not get the Pay Code for this message (no connection?). Nothing was sent. Try again.'); return null; }
+  return {
+    block: accts.map(a => `🏦 ${a.bank} · ${a.accountName} · Acc: ${a.accountNumber}\n`).join(''),
+    footer: `🔑 *Pay Code:* ${code}\n🔎 Check any account before you pay: ${location.origin}/verify-payment.html\n`,
+  };
+}
+
+async function waReplyOrder(ref, type) {
   const orders=loadOrders(), o=orders.find(x=>x.ref===ref);
   if(!o) return;
   const phone=sanitisePhone(o.phone);
   if(!phone){ showToast('⚠ No valid phone for this order.'); return; }
+  let pay = null;
+  if(type==='confirm') { pay = await erpPaymentLines(o.ref, o.payCode); if(!pay) return; }
   const perCrate = o.pricePerCrate||5700;
   // Sep 24 2026 — Context 1 fix, then Sep 24 2026 revision: o.pricePerCrate
   // is the EGG price only (the figure locked at order creation); the
@@ -36198,7 +36292,7 @@ function waReplyOrder(ref, type) {
   // separately (generateOrderConfirmationPDF()) for a rep to attach
   // by hand in WhatsApp if a formal document is wanted.
   const msg = type==='confirm'
-    ? `Hello ${o.customerName} 👋,\n\nYour order has been *confirmed* ✅\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💵 *Price:* ${priceLine}\n💰 *Total:* ${val}\n\n*Payment:*\n🏦 First Bank Nigeria\n👤 BMF EggScore Limited\n🔢 Acc: 3012345678\n📝 Narration: ${o.ref}\n\nDispatch follows payment confirmation.\n\n*BMF EggScore Limited* 🥚`
+    ? `Hello ${o.customerName} 👋,\n\nYour order has been *confirmed* ✅\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💵 *Price:* ${priceLine}\n💰 *Total:* ${val}\n\n*Payment:*\n${pay.block}📝 Narration: ${o.ref}\n${pay.footer}\nDispatch follows payment confirmation.\n\n*BMF EggScore Limited* 🥚`
     : `Hello ${o.customerName},\n\nThank you for your order with *BMF EggScore Limited*.\n\n📋 *Ref:* ${o.ref}\n📦 *Crates:* ${o.crates}\n💵 *Price:* ${priceLine}\n💰 *Estimated Total:* ${val}\n\nWe are reviewing your order and will confirm shortly — price and availability are confirmed at that point.\n\n*BMF EggScore Limited* 🥚🇳🇬`;
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`,'_blank');
 }
@@ -36265,7 +36359,7 @@ function generateOrderConfirmationPDF(ref) {
    Three tone variants — friendly, firm, urgent —
    selected automatically based on days overdue.
 ═══════════════════════════════════════════════════════ */
-function waCreditReminder(saleId) {
+async function waCreditReminder(saleId) {
   const s = STATE.sales.find(x => x.id === saleId);
   if(!s) { showToast('⚠ Sale record not found.'); return; }
 
@@ -36284,6 +36378,9 @@ function waCreditReminder(saleId) {
     showToast(`✓ ${s.customer} has no outstanding balance — fully settled.`);
     return;
   }
+
+  const pay = await erpPaymentLines(s.inv || s.id);
+  if(!pay) return;
 
   const now        = new Date();
   const saleDate   = new Date(s.date);
@@ -36306,10 +36403,9 @@ function waCreditReminder(saleId) {
       `📅 *Due Date:* ${dueDate}\n\n` +
       `Kindly arrange payment before the due date.\n\n` +
       `*Payment Details:*\n` +
-      `🏦 First Bank Nigeria\n` +
-      `👤 BMF EggScore Limited\n` +
-      `🔢 Acc: 3012345678\n` +
-      `📝 Narration: ${s.inv || s.id}\n\n` +
+      pay.block +
+      `📝 Narration: ${s.inv || s.id}\n` +
+      pay.footer + `\n` +
       `Thank you for your continued business! 🥚\n` +
       `*BMF EggScore Limited*`;
 
@@ -36325,8 +36421,9 @@ function waCreditReminder(saleId) {
       (alreadyPaid > 0 ? `✅ *Part Payment Received:* ₦${alreadyPaid.toLocaleString()}\n` : '') +
       `\nKindly settle this balance at your earliest convenience to maintain your credit standing.\n\n` +
       `*Payment Details:*\n` +
-      `🏦 First Bank Nigeria · BMF EggScore Limited · Acc: 3012345678\n` +
-      `📝 Narration: ${s.inv || s.id}\n\n` +
+      pay.block +
+      `📝 Narration: ${s.inv || s.id}\n` +
+      pay.footer + `\n` +
       `Please confirm receipt of this message.\n` +
       `*BMF EggScore Limited* 🥚`;
 
@@ -36341,8 +36438,10 @@ function waCreditReminder(saleId) {
       `💰 *Total Outstanding:* ₦${remaining.toLocaleString()}\n\n` +
       `This account is now *${daysOverdue} days overdue*. ` +
       `Please settle immediately to avoid suspension of credit facilities.\n\n` +
-      `*Payment:* First Bank · BMF EggScore Limited · Acc: 3012345678\n` +
-      `*Ref:* ${s.inv || s.id}\n\n` +
+      `*Payment:*\n` +
+      pay.block +
+      `*Ref:* ${s.inv || s.id}\n` +
+      pay.footer + `\n` +
       `Contact us immediately if there is any issue.\n` +
       `*BMF EggScore Limited*`;
   }
@@ -37317,6 +37416,63 @@ function renderPitResults() {
       <table class="data-table" id="pit-band-table"><thead><tr><th>Tax band (a year)</th><th style="text-align:right">Your income in the band</th><th style="text-align:right">Rate</th><th style="text-align:right">Tax</th></tr></thead><tbody>${bandRows || '<tr><td colspan="4" style="color:var(--mist)">Nothing taxable: your taxable income is within the first ₦800,000.</td></tr>'}</tbody></table>
       <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:10px;line-height:1.6">Bands: first ₦800,000 at 0%, next ₦2.2m at 15%, next ₦9m at 18%, next ₦13m at 21%, next ₦25m at 23%, above ₦50m at 25%. This is a simple estimate from the figures above for one year. Part-year income, tax already deducted at source, other income types and your personal circumstances can change the real figure.</div>
     </div></div>` + checklist;
+}
+
+/* ═══════════════════════════════════════════════════════
+   PAYMENT ACCOUNTS — Oct 16 2026 (0.55). Owner-only page; see the route comments in routes-postgres/payment-accounts.js.
+═══════════════════════════════════════════════════════ */
+async function payacctApi(path, opts) {
+  const token = await erpGetAuthToken();
+  const r = await fetch(`${BACKEND_URL}/payment-accounts${path}`, Object.assign({ headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } }, opts || {}));
+  let j = null; try { j = await r.json(); } catch(e) {}
+  return { ok: r.ok, status: r.status, json: j };
+}
+let payacctPendingRetire = null;
+async function renderPayAccounts() {
+  const lnk = document.getElementById('payacct-link'); if(lnk) lnk.textContent = location.origin + '/verify-payment.html';
+  const box = document.getElementById('payacct-list'), tag = document.getElementById('payacct-tag'); if(!box) return;
+  let r; try { r = await payacctApi('/all'); } catch(e) { r = { ok: false }; }
+  if(!r.ok) { box.innerHTML = `<div style="color:var(--red);font-family:'DM Mono',monospace;font-size:11px">Could not load the accounts${r.status === 403 ? ' (Owner only)' : ''}. Check your connection and press Refresh.</div>`; if(tag) tag.textContent = 'not loaded'; return; }
+  const list = r.json.accounts || [];
+  STATE.paymentAccounts = list.filter(a => a.active).map(a => ({ id: a.id, bank: a.bank, accountName: a.accountName, accountNumber: a.accountNumber, label: a.label })); saveState();
+  const active = list.filter(a => a.active).length;
+  if(tag) tag.textContent = active ? `${active} active · customers can pay into these` : 'none active · customers are shown no account';
+  box.innerHTML = list.length ? `<div style="overflow-x:auto"><table class="data-table" id="payacct-table"><thead><tr><th>Bank</th><th>Account name</th><th>Number</th><th>Label</th><th>Status</th><th></th></tr></thead><tbody>${
+    list.map(a => `<tr style="${a.active ? '' : 'opacity:.55'}"><td data-label="Bank">${escapeHtml(a.bank)}</td><td data-label="Account name">${escapeHtml(a.accountName)}</td><td data-label="Number" class="mono">${escapeHtml(a.accountNumber)}</td><td data-label="Label">${escapeHtml(a.label || '—')}</td><td data-label="Status">${a.active ? '<span class="chip chip-lime">ACTIVE</span>' : '<span class="chip chip-amber">RETIRED</span>'}</td><td data-label=""><button class="btn btn-ghost" style="font-size:10px;padding:3px 9px" data-acct-id="${a.id}" onclick="payacctToggle(${a.id}, ${a.active ? 'false' : 'true'}, this)">${a.active ? 'Retire' : 'Reactivate'}</button></td></tr>`).join('')
+  }</tbody></table></div>` : `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--amber)">No accounts yet. Add your real accounts below. Until then customers see no account number.</div>`;
+}
+async function payacctAdd() {
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const body = { bank: v('payacct-bank').trim(), accountName: v('payacct-name').trim(), accountNumber: v('payacct-number'), label: v('payacct-label').trim() };
+  const r = await payacctApi('', { method: 'POST', body: JSON.stringify(body) });
+  if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not add the account.')); return; }
+  ['payacct-bank', 'payacct-name', 'payacct-number', 'payacct-label'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  showToast('✓ Account added. Customers can see it now.');
+  renderPayAccounts();
+}
+async function payacctToggle(id, on, btn) {
+  if(!on && payacctPendingRetire !== id) {
+    payacctPendingRetire = id; if(btn) { btn.textContent = 'Click again to retire'; btn.style.color = 'var(--amber)'; }
+    setTimeout(() => { if(payacctPendingRetire === id) { payacctPendingRetire = null; if(btn && btn.isConnected) { btn.textContent = 'Retire'; btn.style.color = ''; } } }, 4000);
+    return;
+  }
+  payacctPendingRetire = null;
+  const r = await payacctApi('/' + id, { method: 'PATCH', body: JSON.stringify({ active: on }) });
+  if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not change the account.')); return; }
+  showToast(on ? '✓ Account reactivated.' : '✓ Account retired. Customers will be told it is no longer ours.');
+  renderPayAccounts();
+}
+async function payacctTest() {
+  const n = (document.getElementById('payacct-test') || {}).value || '', out = document.getElementById('payacct-test-res'); if(!out) return;
+  const r = await payacctApi('/verify', { method: 'POST', body: JSON.stringify({ accountNumber: n }) });
+  const j = r.json || {};
+  if(!r.ok) { out.style.color = 'var(--amber)'; out.textContent = j.error || 'Could not check.'; return; }
+  if(j.official) { out.style.color = 'var(--lime)'; out.textContent = '✓ Genuine: ' + j.bank + ' · ' + j.accountName; }
+  else { out.style.color = 'var(--red)'; out.textContent = j.retired ? '✗ Retired. Customers are told it is no longer ours.' : '✗ Not an EggScore account. Customers are told not to pay it.'; }
+}
+function payacctCopyLink() {
+  const t = location.origin + '/verify-payment.html';
+  try { navigator.clipboard.writeText(t).then(() => showToast('✓ Link copied.'), () => showToast(t)); } catch(e) { showToast(t); }
 }
 
 function printModule(moduleName) {
@@ -39619,6 +39775,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncAbuseSettingsFromBackend();
   syncReservationSettingsFromBackend();
   syncLogisticsSettingsFromBackend();
+  syncPaymentAccountsFromBackend();
   syncProcurementReminderSettingsFromBackend();
   syncBrandingReadinessSettingsFromBackend();
   syncTimeValueRateBandFromBackend(); // Sep 27 2026 fix — must sync before the rate below, see saveTimeValueRateBand()

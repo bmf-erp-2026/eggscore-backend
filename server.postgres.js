@@ -48,6 +48,8 @@ function mount(path, file) {
   }
 }
 
+// Oct 16 2026 — the official EggScore bank accounts, the "Check an account" answer and the Pay Code.
+mount('/payment-accounts', './routes-postgres/payment-accounts');
 mount('/orders', './routes-postgres/orders');
 mount('/events', './routes-postgres/events');
 mount('/sales', './routes-postgres/sales');
