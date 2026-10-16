@@ -349,11 +349,10 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
   if(outboundCondition !== undefined || outboundAttestedBy !== undefined) {
     fields.push('outbound_attested_at = now()');
   }
-  // Oct 16 2026 — trip cost for the profit figures. Owner and Manager only (they are the ones who make waybills);
-  // a bad value is refused, never half-saved.
+  // Oct 16 2026 — trip cost for the profit figures. Any staff login that can see the order may save it (a rep dispatches
+  // their own orders, and the cost travels in the SAME request as the dispatch details, so it must never be refused
+  // on role grounds or it would take the whole dispatch down with it). A bad value is refused, never half-saved.
   if(tripCost !== undefined || tripGeneratedAt !== undefined || tripDeliveredAt !== undefined) {
-    const sc = await repScope.scopeOf(req);
-    if(!sc.all) return res.status(403).json({ error: 'Only the Owner or a Manager can record trip costs.' });
     if(tripCost !== undefined) {
       const c = Number(tripCost);
       if(tripCost === null || !isFinite(c) || c < 0 || c > 100000000) return res.status(400).json({ error: 'tripCost must be a number, 0 or more.' });
