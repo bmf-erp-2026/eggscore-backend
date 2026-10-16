@@ -6376,6 +6376,9 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="si" onclick="switchModule('credit')"><span class="icon">⚠</span><span>Credit / Debt <span class="si-badge" id="debt-badge">0</span></span></div>
   <div class="si" onclick="switchModule('timevalue')"><span class="icon">⚖</span><span>Time-Value</span></div>
   <hr class="sdiv"/>
+  <div class="sl">My Tax</div>
+  <div class="si" onclick="switchModule('pit')"><span class="icon">🧮</span><span>My Tax (PIT)</span></div>
+  <hr class="sdiv"/>
   <div class="sl">Document Centre</div>
   <div class="si" onclick="switchModule('doccentre')"><span class="icon">📄</span><span>Document Centre</span></div>
   <hr class="sdiv"/>
@@ -8021,6 +8024,30 @@ input[type=number]{-moz-appearance:textfield;}
 </div>
 
 <!-- ════ MODULE: TAX PANEL (Owner only) ════════════════════════════ -->
+<div class="module-page" id="mod-pit">
+  <div class="ph">
+    <div>
+      <h2>My Tax (PIT)</h2>
+      <div class="ph-sub">Your yearly commission statement, an estimate of your Personal Income Tax under the Nigeria Tax Act 2025, and a filing checklist</div>
+    </div>
+    <div class="ph-actions">
+      <button class="btn btn-ghost" onclick="printModule('My Tax (PIT)')">🖨 Print</button>
+    </div>
+  </div>
+  <div class="alert-banner warn" style="margin-bottom:14px">
+    ⚠ This page is an estimating aid, not tax advice. Personal Income Tax is your own responsibility: you file and pay it yourself with your State Internal Revenue Service. The rates and reliefs below follow the Nigeria Tax Act 2025 as published for income from 1 January 2026. Confirm every figure with your State IRS office or a tax adviser before you file.
+  </div>
+  <div class="panel">
+    <div class="panel-hdr"><div class="panel-title">Who and which year</div><div class="panel-tag" id="pit-note">statement from commission recorded in the ERP</div></div>
+    <div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+      <div class="form-group" id="pit-rep-wrap"><label class="form-label">Sales rep</label><select class="form-select" id="pit-rep" onchange="renderPit()"></select></div>
+      <div class="form-group"><label class="form-label">Tax year</label><select class="form-select" id="pit-year" onchange="renderPit()"></select></div>
+      <div class="form-group"><label class="form-label">Commission counted as income when it is</label><select class="form-select" id="pit-basis" onchange="pitSetField('basis', this.value)"><option value="earned">Earned (recorded on a sale)</option><option value="paid">Paid to me</option></select></div>
+    </div>
+  </div>
+  <div id="pit-body"></div>
+</div>
+
 <div class="module-page" id="mod-taxpanel">
   <div class="ph">
     <div>
@@ -12819,7 +12846,7 @@ function switchModule(name) {
   if(bnav) bnav.classList.add('active');
 
   // Update breadcrumb
-  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',expansion:'Expansion Planner',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
+  const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',pit:'My Tax (PIT)',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',expansion:'Expansion Planner',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
   currentModule = name;
@@ -12853,6 +12880,7 @@ function switchModule(name) {
     balancesheet: renderBalanceSheet,
     expansion: renderExpansion,
     taxpanel: renderTaxPanel,
+    pit: renderPit,
     doccentre: renderDocumentCentre,
   };
   if(renders[name]) renders[name]();
@@ -37119,6 +37147,178 @@ function reconcileInventoryOnLoad() {
    The @media print CSS hides all chrome and shows only
    the active module content with the EggScore letterhead.
 ═══════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════
+   MY TAX (PIT) — Oct 16 2026 (0.54)
+   A sales rep's yearly commission statement, an ESTIMATE of Personal Income Tax
+   under the Nigeria Tax Act 2025 (income from 1 Jan 2026), and a filing checklist.
+   Every figure is read from what the ERP already holds for that rep (their own
+   sales, and the commission payouts the Owner has recorded). The tax bands and the
+   rent relief are written down once, here, so they are easy to update if the law
+   changes. The reliefs and other income are typed in by the rep and kept on that
+   device only (STATE.pitProfiles) — nothing is sent anywhere.
+═══════════════════════════════════════════════════════ */
+const PIT_FIRST_YEAR = 2026;
+const PIT_BANDS = [
+  { upTo: 800000,   rate: 0    },
+  { upTo: 3000000,  rate: 0.15 },
+  { upTo: 12000000, rate: 0.18 },
+  { upTo: 25000000, rate: 0.21 },
+  { upTo: 50000000, rate: 0.23 },
+  { upTo: Infinity, rate: 0.25 },
+];
+const PIT_RENT_RELIEF_RATE = 0.20, PIT_RENT_RELIEF_CAP = 500000;
+const PIT_CHECKLIST = [
+  ['tin',     'My NIN is linked to my Tax Identification Number (TIN). Check it free at tin.jtb.gov.ng; if it shows inactive, activate it at my State IRS office.'],
+  ['records', 'I have kept this statement and my commission payment receipts or bank alerts for the year.'],
+  ['proof',   'I have the evidence for every relief I am claiming (rent receipt, pension statement, NHF, NHIS and life insurance premium receipts). A relief with no document can be refused.'],
+  ['file',    'I have filed my annual return with my State Internal Revenue Service (the state where I live), not with the federal portal.'],
+  ['pay',     'I have paid the tax using the payment reference my State IRS gave me, and kept the receipt.'],
+  ['tcc',     'I have asked my State IRS for my Tax Clearance Certificate (some banks, loans and contracts ask for it).'],
+];
+function pitProfileFor(rep) {
+  if(!STATE.pitProfiles) STATE.pitProfiles = {};
+  if(!STATE.pitProfiles[rep]) STATE.pitProfiles[rep] = { tin:'', stateIrs:'', other:0, rent:0, pension:0, nhf:0, nhis:0, life:0, expenses:0, basis:'earned', done:{} };
+  const p = STATE.pitProfiles[rep]; if(!p.done) p.done = {}; if(!p.basis) p.basis = 'earned';
+  return p;
+}
+function pitNum(x) { const n = Number(String(x == null ? '' : x).replace(/[^0-9.]/g, '')); return (isFinite(n) && n > 0) ? n : 0; }
+function pitCurrentRep() {
+  if(typeof erpIsRepRole === 'function' && erpIsRepRole()) return (typeof ERP_REP !== 'undefined' && ERP_REP) || null;
+  const sel = document.getElementById('pit-rep'); return (sel && sel.value) || null;
+}
+// The pure maths: taxable income and tax from the figures typed in. commission = the year's commission counted as income.
+function pitCompute(p, commission) {
+  const other = pitNum(p.other), gross = round2((commission || 0) + other);
+  const rentRelief = round2(Math.min(pitNum(p.rent) * PIT_RENT_RELIEF_RATE, PIT_RENT_RELIEF_CAP));
+  const lines = [
+    ['Pension contributions', pitNum(p.pension)], ['National Housing Fund (NHF)', pitNum(p.nhf)],
+    ['National Health Insurance (NHIS)', pitNum(p.nhis)], ['Life insurance premiums', pitNum(p.life)],
+    ['Business expenses wholly and exclusively for earning this income', pitNum(p.expenses)],
+    ['Rent relief (20% of rent paid, capped at ₦500,000)', rentRelief],
+  ];
+  const totalDed = round2(lines.reduce((a, l) => a + l[1], 0));
+  const taxable = Math.max(0, round2(gross - totalDed));
+  let prev = 0, tax = 0; const bands = [];
+  PIT_BANDS.forEach(b => {
+    const slice = Math.max(0, Math.min(taxable, b.upTo) - prev);
+    const t = round2(slice * b.rate);
+    bands.push({ from: prev, to: b.upTo, amount: slice, rate: b.rate, tax: t });
+    tax += t; prev = b.upTo;
+  });
+  tax = round2(tax);
+  return { gross, other, lines, totalDed, taxable, bands, tax, effective: gross > 0 ? tax / gross : 0 };
+}
+function pitStatementRows(rep, year) {
+  const rows = []; let e = 0, pd = 0, cr = 0;
+  for(let m = 1; m <= 12; m++) {
+    const ym = year + '-' + String(m).padStart(2, '0');
+    const earned = round2(getRepCommByMonth(rep, ym));
+    const paid = round2((STATE.commPaidMTD && STATE.commPaidMTD[rep] && STATE.commPaidMTD[rep][ym]) || 0);
+    const crates = getRepCratesByMonth(rep, ym);
+    rows.push({ ym, earned, paid, crates }); e += earned; pd += paid; cr += crates;
+  }
+  return { rows, earned: round2(e), paid: round2(pd), crates: cr };
+}
+function pitYearsFor(rep) {
+  const nowY = new Date(Date.now() + 3600000).getUTCFullYear();
+  const ys = new Set([nowY]);
+  (STATE.sales || []).filter(s => s.rep === rep && s.date).forEach(s => ys.add(Number(String(s.date).slice(0, 4))));
+  return [...ys].filter(y => y >= 2020 && y <= nowY).sort((a, b) => b - a);
+}
+function pitSetField(key, val) {
+  const rep = pitCurrentRep(); if(!rep) return;
+  const p = pitProfileFor(rep);
+  if(['tin', 'stateIrs', 'basis'].includes(key)) p[key] = String(val || '').slice(0, 80);
+  else p[key] = pitNum(val);
+  saveState();
+  renderPitResults();
+}
+function pitToggle(key, on) {
+  const rep = pitCurrentRep(); if(!rep) return;
+  const yr = document.getElementById('pit-year').value;
+  pitProfileFor(rep).done[yr + ':' + key] = !!on; saveState();
+  renderPitResults();
+}
+function renderPit() {
+  const body = document.getElementById('pit-body'); if(!body) return;
+  const repWrap = document.getElementById('pit-rep-wrap'), repSel = document.getElementById('pit-rep'), yrSel = document.getElementById('pit-year');
+  const isRepLogin = typeof erpIsRepRole === 'function' && erpIsRepRole();
+  if(isRepLogin) {
+    repWrap.style.display = 'none';
+  } else {
+    repWrap.style.display = '';
+    const keep = repSel.value;
+    const names = (STATE.reps || []).filter(r => r.name !== 'Direct' && r.status !== 'inactive').map(r => r.name);
+    repSel.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    if(keep && names.includes(keep)) repSel.value = keep;
+  }
+  const rep = pitCurrentRep();
+  if(!rep) { body.innerHTML = `<div class="panel"><div class="panel-body" style="color:var(--mist);font-family:'DM Mono',monospace;font-size:11px">${isRepLogin ? 'Your login is not linked to a sales rep record yet. Ask the Owner to link it in Rep Centre.' : 'No active sales reps to show.'}</div></div>`; return; }
+  const keepY = yrSel.value, ys = pitYearsFor(rep);
+  yrSel.innerHTML = ys.map(y => `<option value="${y}">${y}</option>`).join('');
+  if(keepY && ys.map(String).includes(keepY)) yrSel.value = keepY;
+  document.getElementById('pit-basis').value = pitProfileFor(rep).basis;
+  const p = pitProfileFor(rep);
+  const inp = (key, label, hint, isText) => `<div class="form-group"><label class="form-label">${label}</label><input class="form-input" ${isText ? 'type="text"' : 'type="text" inputmode="numeric"'} value="${isText ? escapeHtml(p[key] || '') : (p[key] ? Number(p[key]).toLocaleString('en-NG') : '')}" placeholder="${hint || ''}" onchange="pitSetField('${key}', this.value); renderPit()"></div>`;
+  body.innerHTML = `
+    <div class="panel"><div class="panel-hdr"><div class="panel-title">Commission statement</div><div class="panel-tag" id="pit-stmt-tag"></div></div><div class="panel-body" id="pit-stmt"></div></div>
+    <div class="panel"><div class="panel-hdr"><div class="panel-title">Your tax details</div><div class="panel-tag">kept on this device only · yearly amounts in ₦</div></div>
+      <div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+        ${inp('tin', 'Tax Identification Number (TIN)', 'Your TIN (your NIN works once linked)', true)}
+        ${inp('stateIrs', 'State Internal Revenue Service', 'e.g. Rivers State IRS, LIRS, OGIRS', true)}
+        ${inp('other', 'Other income this year (outside EggScore)', '0')}
+        ${inp('rent', 'Rent you paid this year', '0')}
+        ${inp('pension', 'Pension contributions', '0')}
+        ${inp('nhf', 'National Housing Fund (NHF)', '0')}
+        ${inp('nhis', 'National Health Insurance (NHIS)', '0')}
+        ${inp('life', 'Life insurance premiums', '0')}
+        ${inp('expenses', 'Business expenses you can prove (wholly and exclusively for earning this income)', '0')}
+      </div></div>
+    <div id="pit-results"></div>`;
+  renderPitResults();
+}
+function renderPitResults() {
+  const rep = pitCurrentRep(); if(!rep) return;
+  const year = Number(document.getElementById('pit-year').value) || new Date().getFullYear();
+  const p = pitProfileFor(rep), st = pitStatementRows(rep, year);
+  const mname = ym => new Date(ym + '-15T12:00:00Z').toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
+  const f = n => '₦' + (Math.round(n * 100) / 100).toLocaleString('en-NG', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const tag = document.getElementById('pit-stmt-tag'); if(tag) tag.textContent = rep + ' · ' + year + ' · January to December';
+  const stmt = document.getElementById('pit-stmt');
+  if(stmt) stmt.innerHTML = `<div style="overflow-x:auto"><table class="data-table" id="pit-stmt-table"><thead><tr><th>Month</th><th style="text-align:right">Crates sold</th><th style="text-align:right">Commission earned</th><th style="text-align:right">Paid to you</th><th style="text-align:right">Still owed</th></tr></thead><tbody>${
+    st.rows.filter(r => r.earned || r.paid || r.crates).map(r => `<tr><td data-label="Month">${mname(r.ym)}</td><td data-label="Crates sold" style="text-align:right">${r.crates.toLocaleString()}</td><td data-label="Commission earned" style="text-align:right">${f(r.earned)}</td><td data-label="Paid to you" style="text-align:right">${f(r.paid)}</td><td data-label="Still owed" style="text-align:right;color:${r.earned - r.paid > 0.5 ? 'var(--amber)' : 'var(--mist)'}">${f(Math.max(0, r.earned - r.paid))}</td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mist)">No commission recorded for this year.</td></tr>'
+  }</tbody><tfoot><tr><td style="font-weight:700;color:var(--cream)">Total ${year}</td><td style="text-align:right;font-weight:700;color:var(--cream)">${st.crates.toLocaleString()}</td><td style="text-align:right;font-weight:700;color:var(--cream)" id="pit-tot-earned">${f(st.earned)}</td><td style="text-align:right;font-weight:700;color:var(--cream)" id="pit-tot-paid">${f(st.paid)}</td><td style="text-align:right;font-weight:700;color:var(--amber)">${f(Math.max(0, st.earned - st.paid))}</td></tr></tfoot></table></div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:8px">Commission is earned when a sale is recorded and paid when the Owner records a payout. Keep this statement with your payment receipts.</div>`;
+  const out = document.getElementById('pit-results'); if(!out) return;
+  const dueY = year + 1, due = new Date(Date.UTC(dueY, 2, 31, 23, 59, 59));
+  const days = Math.ceil((due.getTime() - Date.now()) / 86400000);
+  const dueTxt = days >= 0 ? `Due 31 March ${dueY} · ${days} day${days === 1 ? '' : 's'} left` : `31 March ${dueY} has passed — file as soon as you can; late filing carries a penalty`;
+  const items = PIT_CHECKLIST.map(([k, txt]) => `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(74,158,255,0.05);font-size:12px;color:var(--dust);cursor:pointer"><input type="checkbox" data-pit-check="${k}" ${p.done[year + ':' + k] ? 'checked' : ''} onchange="pitToggle('${k}', this.checked)" style="margin-top:3px"><span>${txt}</span></label>`).join('');
+  const checklist = `<div class="panel"><div class="panel-hdr"><div class="panel-title">Filing checklist for ${year}</div><div class="panel-tag" id="pit-due" style="color:${days >= 0 && days < 30 ? 'var(--amber)' : (days < 0 ? 'var(--red)' : 'var(--mist)')}">${dueTxt}</div></div><div class="panel-body">${items}
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:10px;line-height:1.6">Your personal income tax return goes to the State Internal Revenue Service of the state where you live (for example LIRS in Lagos, OGIRS in Ogun, Rivers State IRS in Port Harcourt, FCT-IRS in Abuja). The usual deadline is 31 March of the following year. Reported penalties for late filing start at about ₦100,000 for the first month; ask your State IRS for the current figure. ${p.tin ? 'Your TIN on record here: ' + escapeHtml(p.tin) + '.' : ''}</div></div></div>`;
+  if(year < PIT_FIRST_YEAR) {
+    out.innerHTML = `<div class="alert-banner warn" style="margin-bottom:14px">The tax estimate below only covers income from 1 January ${PIT_FIRST_YEAR}, when the Nigeria Tax Act 2025 took effect. ${year} income was taxed under the earlier rules, so no estimate is shown. The statement above still holds, and the checklist applies.</div>` + checklist;
+    return;
+  }
+  const basisAmt = p.basis === 'paid' ? st.paid : st.earned;
+  const c = pitCompute(p, basisAmt);
+  const bandRows = c.bands.filter(b => b.amount > 0).map(b => `<tr><td data-label="Tax band">${b.to === Infinity ? 'Above ' + f(b.from) : 'Up to ' + f(b.to)}</td><td data-label="Your income in the band" style="text-align:right">${f(b.amount)}</td><td data-label="Rate" style="text-align:right">${Math.round(b.rate * 100)}%</td><td data-label="Tax" style="text-align:right">${f(b.tax)}</td></tr>`).join('');
+  const dedRows = c.lines.filter(l => l[1] > 0).map(l => `<tr><td data-label="Relief">${l[0]}</td><td data-label="Amount" style="text-align:right">− ${f(l[1])}</td></tr>`).join('') || '<tr><td colspan="2" style="color:var(--mist)">No reliefs entered yet. Fill in the boxes above if you have any.</td></tr>';
+  out.innerHTML = `
+    <div class="panel"><div class="panel-hdr"><div class="panel-title">Estimated Personal Income Tax for ${year}</div><div class="panel-tag">estimate only · ${p.basis === 'paid' ? 'commission counted when paid' : 'commission counted when earned'}</div></div><div class="panel-body">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+        <div class="kc"><div class="kc-label">Income counted</div><div class="kc-val" id="pit-gross" style="font-size:18px">${f(c.gross)}</div><div class="kc-sub">commission ${f(basisAmt)}${c.other ? ' + other ' + f(c.other) : ''}</div></div>
+        <div class="kc"><div class="kc-label">Reliefs</div><div class="kc-val" id="pit-ded" style="font-size:18px">${f(c.totalDed)}</div><div class="kc-sub">deducted before tax</div></div>
+        <div class="kc"><div class="kc-label">Taxable income</div><div class="kc-val" id="pit-taxable" style="font-size:18px">${f(c.taxable)}</div><div class="kc-sub">first ₦800,000 is tax-free</div></div>
+        <div class="kc"><div class="kc-label">Estimated tax</div><div class="kc-val" id="pit-tax" style="font-size:18px;color:var(--amber)">${f(c.tax)}</div><div class="kc-sub">about ${(c.effective * 100).toFixed(1)}% of income · set aside ${f(c.tax / 12)} a month</div></div>
+      </div>
+      <table class="data-table"><thead><tr><th>Reliefs entered</th><th style="text-align:right">Amount</th></tr></thead><tbody>${dedRows}</tbody></table>
+      <div style="height:12px"></div>
+      <table class="data-table" id="pit-band-table"><thead><tr><th>Tax band (a year)</th><th style="text-align:right">Your income in the band</th><th style="text-align:right">Rate</th><th style="text-align:right">Tax</th></tr></thead><tbody>${bandRows || '<tr><td colspan="4" style="color:var(--mist)">Nothing taxable: your taxable income is within the first ₦800,000.</td></tr>'}</tbody></table>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-top:10px;line-height:1.6">Bands: first ₦800,000 at 0%, next ₦2.2m at 15%, next ₦9m at 18%, next ₦13m at 21%, next ₦25m at 23%, above ₦50m at 25%. This is a simple estimate from the figures above for one year. Part-year income, tax already deducted at source, other income types and your personal circumstances can change the real figure.</div>
+    </div></div>` + checklist;
+}
+
 function printModule(moduleName) {
   // Stamp the print timestamp on the letterhead
   const tsEl = document.getElementById('print-timestamp');
