@@ -5,6 +5,7 @@ const repScope = require('../lib/rep-scope');
 const { geocodeAddress, getRouteDistance } = require('../lib/geocode');
 const { notifyOrderChange } = require('../lib/push');
 const pc = require('../lib/portal-checks');
+const payCode = require('../lib/pay-code');
 const pp = require('../lib/part-payment');
 
 const router = express.Router();
@@ -92,7 +93,9 @@ router.post('/', requireEitherAuth(), async (req, res) => {
       const cust = already.customer_id
         ? await db.prepare('SELECT cid FROM customers WHERE id = ?').get(already.customer_id)
         : null;
-      return res.status(200).json({ ...already, customerCid: cust?.cid || null, isNewCustomer: false });
+      // The Pay Code goes back on a replay only when the phone number matches the one on the order.
+      let pcv = null; try { if(normalisePhone(phone) && normalisePhone(phone) === normalisePhone(already.phone)) pcv = await payCode.payCodeFor(already.ref); } catch(e) {}
+      return res.status(200).json({ ...already, customerCid: cust?.cid || null, isNewCustomer: false, payCode: pcv });
     }
   }
 
@@ -221,7 +224,9 @@ const ref = clientRef || genOrderRef();
       }
     } catch(e) { console.warn('[part-payment] request not recorded:', e.message); partPayment = { status: 'refused' }; }
   }
-  res.status(201).json({ ...order, customerCid, isNewCustomer, partPayment });
+  // Oct 16 2026 (0.55) — the customer's own Pay Code, shown once on their confirmation screen. Never in any list or GET.
+  let payCodeValue = null; try { payCodeValue = await payCode.payCodeFor(order.ref); } catch(e) {}
+  res.status(201).json({ ...order, customerCid, isNewCustomer, partPayment, payCode: payCodeValue });
 });
 
 router.get('/', requireSupabaseAuth(), async (req, res) => {
@@ -232,6 +237,9 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
   const rows = status
     ? await db.prepare(`SELECT o.* FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.status = ? AND ${cl.sql} ORDER BY o.created_at ASC`).all(status, ...cl.params)
     : await db.prepare(`SELECT o.* FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE ${cl.sql} ORDER BY o.created_at ASC`).all(...cl.params);
+  // Oct 16 2026 (0.55) — staff see each order's Pay Code so it can go into the payment message. Only this staff-only list
+  // carries it; the single-order route the portal key can reach does not.
+  for(const r of rows) { try { r.pay_code = await payCode.payCodeFor(r.ref); } catch(e) {} }
   res.json(rows);
 });
 
