@@ -1858,6 +1858,18 @@ input[type=number]{-moz-appearance:textfield;}
         // delivery-day fields just above. customerAttestedAt landing here
         // for the first time on a device that didn't set it locally is
         // exactly the "live closeout" signal — see the toast fired below.
+        // Oct 16 2026 — trip cost kept on the server (so profit reads the same on every device). Same never-clobber
+        // rule. A device that holds the waybill itself but finds the server empty sends it up, so old waybills
+        // reach the server from whichever device made them.
+        if(row.trip_cost !== undefined && row.trip_cost !== null) existing.tripCost = Number(row.trip_cost);
+        if(row.trip_generated_at) existing.tripGeneratedAt = row.trip_generated_at;
+        if(row.trip_delivered_at) existing.tripDeliveredAt = row.trip_delivered_at;
+        if(existing.waybill && existing.waybill.costs && (ERP_ROLE === 'owner' || ERP_ROLE === 'manager')) {
+          const up = {};
+          if((row.trip_cost === undefined || row.trip_cost === null) && Number(existing.waybill.costs.total) >= 0 && existing.waybill.costs.total !== undefined) { up.tripCost = Number(existing.waybill.costs.total) || 0; if(existing.waybill.generatedAt) up.tripGeneratedAt = existing.waybill.generatedAt; }
+          if(!row.trip_delivered_at && existing.waybill.deliveredAt) up.tripDeliveredAt = existing.waybill.deliveredAt;
+          if(Object.keys(up).length) patchOrderStatusOnBackend(row.ref, up);
+        }
         const hadCustomerAttestation = !!existing.customerAttestedAt;
         if(row.delivery_token !== undefined && row.delivery_token !== null) {
           existing.deliveryToken = row.delivery_token;
@@ -1966,6 +1978,9 @@ input[type=number]{-moz-appearance:textfield;}
           // seeing this order for the FIRST time gets a silently
           // incomplete record.
           agreedPaymentTerms: row.agreed_payment_terms || null,
+          tripCost: (row.trip_cost !== undefined && row.trip_cost !== null) ? Number(row.trip_cost) : undefined,   // Oct 16 2026
+          tripGeneratedAt: row.trip_generated_at || undefined,
+          tripDeliveredAt: row.trip_delivered_at || undefined,
           paymentVerified: Number(row.payment_verified) === 1,   // Oct 12 2026 — the server's record of payment now comes back too
           createdAt: row.created_at,
           date: new Date(row.created_at).toISOString().split('T')[0],
@@ -21525,25 +21540,27 @@ setInterval(() => { try { refreshTeamToday(true); } catch(e) {} }, 60000);
 // Every delivery waybill carries its estimated cost (fuel, driver, maintenance, security, insurance and packaging,
 // worked out from the Logistics settings). Counted in the month the trip was DELIVERED (the day the waybill was
 // generated only when no delivered date exists yet). Delivery trips only: pickup waybills are not counted here.
-// A waybill on an order that was rejected or cancelled before it was delivered is not counted. Read from waybills
-// saved on THIS device (waybills are not synced between devices).
+// A waybill on an order that was rejected or cancelled before it was delivered is not counted. The cost comes from the
+// waybill saved on this device, or else from the trip cost the server holds on the order (made on another device).
 function tripCostsInPeriod(from, to) {
   const out = { total: 0, trips: 0, rows: [] };
   let list = [];
-  try { list = getAllWaybills(); } catch(err) { list = []; }
-  list.forEach(w => {
-    if(w.type !== 'delivery') return;
-    const when = w.deliveredAt || w.generatedAt;
+  try { list = loadOrders(); } catch(err) { list = []; }
+  list.forEach(o => {
+    // The waybill on this device wins; otherwise the trip cost the server holds for the order (made on another device).
+    const wb = o.waybill && o.waybill.costs ? o.waybill : null;
+    const cost = wb ? Number(wb.costs.total) || 0 : (Number(o.tripCost) || 0);
+    if(!cost) return;
+    const delivered = wb ? wb.deliveredAt : o.tripDeliveredAt;
+    const when = delivered || (wb ? wb.generatedAt : o.tripGeneratedAt);
     if(!when) return;
-    if(!w.deliveredAt && (w.orderStatus === 'rejected' || w.orderStatus === 'cancelled' || w.orderStatus === 'expired')) return;
+    if(!delivered && (o.status === 'rejected' || o.status === 'cancelled' || o.status === 'expired')) return;
     const t = Date.parse(when);
     if(!isFinite(t)) return;
     const day = new Date(t + 3600000).toISOString().slice(0, 10);   // Lagos date
     if(day < from || day > to) return;
-    const c = Number(w.costs && w.costs.total) || 0;
-    if(!c) return;
-    out.total += c; out.trips++;
-    out.rows.push([(w.orderRef || w.waybillNumber || 'Trip') + ' · ' + day, c]);
+    out.total += cost; out.trips++;
+    out.rows.push([(o.ref || 'Trip') + ' · ' + day, cost]);
   });
   out.total = round2(out.total);
   return out;
@@ -21636,7 +21653,7 @@ function renderIncomeStatement() {
   }
   h += '</tbody></table>';
   body.innerHTML = h;
-  document.getElementById('is-memo').innerHTML = '<span>Delivery trip costs are deducted above: estimated from the delivery waybills saved on this device (fuel, driver, maintenance, security, insurance, cartons and labels), counted in the month each trip was delivered. ' + MN(per.cur.ym) + ': <b>' + fmt(A.tripCosts) + '</b> on ' + A.trips + ' trip stop' + (A.trips === 1 ? '' : 's') + '; ' + MN(per.prev.ym) + ': ' + fmt(B.tripCosts) + ' on ' + B.trips + '. Supplier pickup trips are not counted here.</span>';
+  document.getElementById('is-memo').innerHTML = '<span>Delivery trip costs are deducted above: estimated from the delivery waybills (fuel, driver, maintenance, security, insurance, cartons and labels), counted in the month each trip was delivered. ' + MN(per.cur.ym) + ': <b>' + fmt(A.tripCosts) + '</b> on ' + A.trips + ' trip stop' + (A.trips === 1 ? '' : 's') + '; ' + MN(per.prev.ym) + ': ' + fmt(B.tripCosts) + ' on ' + B.trips + '. Supplier pickup trips are not counted here.</span>';
 }
 // ── Balance Sheet — Oct 14 2026, queue item G ────────────────────────────
 // Every line reuses a source the app already has; only cash, payables and
@@ -22031,7 +22048,7 @@ function renderPnL() {
           ['− Recovered from customers', '−'+fmt(badDebtPnl.recoveredTotal)],
           ['− Commission held back from reps', '−'+fmt(badDebtPnl.heldNet)],
         ], 'Net bad debt loss', fmt(badDebtPnl.net))}</td><td class="mono">₦${badDebtPnl.net.toLocaleString()}</td></tr>
-        <tr><td>${metricHover('− Delivery Trip Costs','DELIVERY TRIP COSTS — BY ORDER (DELIVERED DATE)', tripPnl.rows.map(r => [r[0], fmt(r[1])]), 'Total trip costs', fmt(tripPnl.total), 'Estimated on each delivery waybill from the Logistics settings. Waybills saved on this device only.')}</td><td class="mono">₦${tripPnl.total.toLocaleString()}</td></tr>
+        <tr><td>${metricHover('− Delivery Trip Costs','DELIVERY TRIP COSTS — BY ORDER (DELIVERED DATE)', tripPnl.rows.map(r => [r[0], fmt(r[1])]), 'Total trip costs', fmt(tripPnl.total), 'Estimated on each delivery waybill from the Logistics settings.')}</td><td class="mono">₦${tripPnl.total.toLocaleString()}</td></tr>
       </tbody></table>
       <div style="margin-top:14px;padding:14px 16px;background:var(--raised);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--cream)">${metricHover('Net Profit','NET PROFIT COMPOSITION', [
@@ -22046,7 +22063,7 @@ function renderPnL() {
       </div>
       ${taxTie}
       <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">
-        Progressive build — Revenue, COGS, and Commission are real, pulled from Sales Log. Delivery trip costs are the estimates on each delivery waybill saved on this device. Depreciation is real math off whatever's in the Fixed Assets table.
+        Progressive build — Revenue, COGS, and Commission are real, pulled from Sales Log. Delivery trip costs are the estimates on each delivery waybill. Depreciation is real math off whatever's in the Fixed Assets table.
         Anything in Other Cost Elements is only as complete as what's been added — a ₦0 total there means nothing's been entered yet, not that there's nothing to pay.
         Hover any line above for its exact composition.
       </div>`;
@@ -31758,6 +31775,8 @@ function generateWaybill(orderRef, opts) {
     outboundCondition: o.outboundCondition,
     outboundAttestedBy: o.outboundAttestedBy,
     outboundNotes: o.outboundNotes,
+    tripCost: Number(o.waybill.costs && o.waybill.costs.total) || 0,   // Oct 16 2026 — so every device sees the trip cost
+    tripGeneratedAt: o.waybill.generatedAt,
   });
   logOk('orders', `Waybill generated — ${o.waybill.waybillNumber}`,
     `${o.customerName} · ${o.crates} crates · ${opts.distanceKm || 0}km · est. cost ₦${costs.total.toLocaleString()} · outbound: ${o.outboundCondition} (${o.outboundAttestedBy})`);
@@ -31883,6 +31902,8 @@ function generateClusterWaybill(orderRefs, opts) {
       outboundCondition: o.outboundCondition,
       outboundAttestedBy: o.outboundAttestedBy,
       outboundNotes: o.outboundNotes,
+      tripCost: Number(o.waybill && o.waybill.costs && o.waybill.costs.total) || 0,   // Oct 16 2026
+      tripGeneratedAt: (o.waybill && o.waybill.generatedAt) || new Date().toISOString(),
     });
   });
 
@@ -31923,6 +31944,7 @@ function confirmDeliveryAndProceed(orderRef, cratesLost, spoilageReason) {
   o.waybill.deliveredAt = new Date().toISOString();
   o.waybill.status = 'delivered';
   saveOrders(orders);
+  patchOrderStatusOnBackend(o.ref, { tripDeliveredAt: o.waybill.deliveredAt });   // Oct 16 2026
   logOk('orders', `Delivery confirmed — ${o.waybill.waybillNumber}`,
     cratesLost > 0 ? `${cratesLost} crate(s) lost/damaged — ${spoilageReason || 'no reason given'}` : 'No spoilage reported');
 
