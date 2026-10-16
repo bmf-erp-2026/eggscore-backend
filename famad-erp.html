@@ -6283,6 +6283,8 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="nav-inv-badge" id="nav-sold-today" onclick="switchModule('sales')"
       style="background:rgba(61,214,192,0.1);border-color:rgba(61,214,192,0.25);color:var(--teal);cursor:pointer"
       title="Crates sold today">🥚 — today</div>
+    <div class="nav-inv-badge" id="nav-team-today" style="display:none;background:rgba(124,156,255,0.1);border-color:rgba(124,156,255,0.25);color:var(--blue);cursor:default"
+      title="Crates the whole team has sold today (all reps together)">👥 Team today: —</div>
     <div class="nav-date" id="liveDate">—</div>
     <div class="nav-phase" id="liveTime">—</div>
   </div>
@@ -16476,6 +16478,7 @@ function handleSave() {
 
   STATE.sales.unshift(sale);
   saleApprovalSaved(sale);
+  try { setTimeout(() => refreshTeamToday(true), 4000); } catch(e) {}
   if(sale.zeroDeliveryReason) logWarn('sales', `Sale saved with ₦0 delivery — ${customer} · ${inv} · ${crates} crates · reason: ${ZERO_DELIVERY_REASONS[sale.zeroDeliveryReason] || sale.zeroDeliveryReason}`);
   postSaleToBackend(sale).then(r => { if(!r || !r.ok) erpSaleSaveFailed(sale, r); });
 
@@ -16737,6 +16740,7 @@ function updateAllKPIs() {
     navSold.textContent = `🥚 ${soldToday} today`;
     navSold.title = `Crates sold today: ${soldToday} · Revenue: ₦${revToday.toLocaleString()}`;
   }
+  try { refreshTeamToday(); } catch(e) {}
 
   // Sales module KPIs
   const avgP = sold > 0 ? (rev/sold) : 0;
@@ -21482,6 +21486,8 @@ function getAllWaybills() {
       vehiclePlate: o.waybill.carrier?.vehiclePlate || '—',
       costs: o.waybill.costs || {},
       orderRef: o.ref,
+      deliveredAt: o.waybill.deliveredAt || null,
+      orderStatus: o.status || '',
     }));
   ensureBatches();
   const pickups = STATE.batches
@@ -21498,6 +21504,51 @@ function getAllWaybills() {
   return [...deliveries, ...pickups];
 }
 
+// ── Team crates sold today (Oct 16 2026) ──
+// Rep logins only. A rep's own counters are rep-scoped (their own sales), so this extra line shows the whole team's
+// crates for today, as one number with no names or money. Owner and manager already see everything, so it stays hidden.
+let TEAM_TODAY_AT = 0;
+async function refreshTeamToday(force) {
+  const el = document.getElementById('nav-team-today'); if(!el) return;
+  if(typeof erpIsAll === 'function' && erpIsAll()) { el.style.display = 'none'; return; }
+  if(!force && Date.now() - TEAM_TODAY_AT < 30000) return;
+  TEAM_TODAY_AT = Date.now();
+  const r = await erpApi('GET', '/sales/team-today');
+  if(r.ok && r.json && typeof r.json.crates === 'number') {
+    el.textContent = '👥 Team today: ' + r.json.crates;
+    el.style.display = '';
+  }
+}
+setInterval(() => { try { refreshTeamToday(true); } catch(e) {} }, 60000);
+
+// ── Delivery trip costs in profit (Oct 16 2026) ──
+// Every delivery waybill carries its estimated cost (fuel, driver, maintenance, security, insurance and packaging,
+// worked out from the Logistics settings). Counted in the month the trip was DELIVERED (the day the waybill was
+// generated only when no delivered date exists yet). Delivery trips only: pickup waybills are not counted here.
+// A waybill on an order that was rejected or cancelled before it was delivered is not counted. Read from waybills
+// saved on THIS device (waybills are not synced between devices).
+function tripCostsInPeriod(from, to) {
+  const out = { total: 0, trips: 0, rows: [] };
+  let list = [];
+  try { list = getAllWaybills(); } catch(err) { list = []; }
+  list.forEach(w => {
+    if(w.type !== 'delivery') return;
+    const when = w.deliveredAt || w.generatedAt;
+    if(!when) return;
+    if(!w.deliveredAt && (w.orderStatus === 'rejected' || w.orderStatus === 'cancelled' || w.orderStatus === 'expired')) return;
+    const t = Date.parse(when);
+    if(!isFinite(t)) return;
+    const day = new Date(t + 3600000).toISOString().slice(0, 10);   // Lagos date
+    if(day < from || day > to) return;
+    const c = Number(w.costs && w.costs.total) || 0;
+    if(!c) return;
+    out.total += c; out.trips++;
+    out.rows.push([(w.orderRef || w.waybillNumber || 'Trip') + ' · ' + day, c]);
+  });
+  out.total = round2(out.total);
+  return out;
+}
+
 function computeNetProfitForPeriod(from, to) {
   const pnl = ensurePnLData();
   const salesInPeriod = STATE.sales.filter(s => s.date >= from && s.date <= to);
@@ -21509,7 +21560,7 @@ function computeNetProfitForPeriod(from, to) {
   const totalDepreciation = round2(pnl.fixedAssets.reduce((sum,a) => sum + getAssetDepreciationForPeriod(a, from, to), 0));
   const totalCustom = round2(pnl.customCostElements.reduce((sum,c) => sum + getCustomElementValueForPeriod(c, from, to), 0));
   const grossProfit = round2(totalRevenue - cogs);
-  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom + getBadDebtPnLInPeriod(from, to).net);   // Oct 11 2026 bad debt
+  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom + getBadDebtPnLInPeriod(from, to).net + tripCostsInPeriod(from, to).total);   // Oct 11 2026 bad debt; Oct 16 2026 trip costs
   return round2(grossProfit - totalOperatingCosts);
 }
 
@@ -21530,12 +21581,12 @@ function incomeStatementFor(from, to) {
   pnl.customCostElements.forEach(c => { const v = round2(getCustomElementValueForPeriod(c, from, to)); if(v) custom.push({ label: (c.label || '').trim() || 'Unnamed cost line', value: v }); });
   const otherCosts = round2(custom.reduce((a, x) => a + x.value, 0));
   const badDebt = getBadDebtPnLInPeriod(from, to).net;
-  const operatingCosts = round2(commission + depreciation + otherCosts + badDebt);
+  const trip = tripCostsInPeriod(from, to);
+  const tripCosts = trip.total, trips = trip.trips;
+  const operatingCosts = round2(commission + depreciation + otherCosts + badDebt + tripCosts);
   const profitBeforeTax = round2(grossProfit - operatingCosts);
   let tax = null;
   try { const est = getTaxEstimateForPeriod(from, to, profitBeforeTax); tax = { vatAbsorbed: est.vat.absorbed || 0, vatReclaim: est.vat.reclaimInPnl || 0, companyTax: est.applied.total || 0, mode: est.applied.mode, after: est.profitAfterTax }; } catch(err) { tax = null; }
-  let tripCosts = 0, trips = 0;
-  try { getAllWaybills().filter(w => w.type === 'delivery' && w.generatedAt && String(w.generatedAt).slice(0, 10) >= from && String(w.generatedAt).slice(0, 10) <= to).forEach(w => { tripCosts += Number(w.costs && w.costs.total) || 0; trips++; }); } catch(err) {}
   return { from, to, sales: sales.length, eggRevenue, deliveryRevenue, totalRevenue, cogs, grossProfit, commission, depreciation, custom, otherCosts, badDebt, operatingCosts, profitBeforeTax, tax, tripCosts: round2(tripCosts), trips };
 }
 function incomeStatementMonths(ym) {
@@ -21574,7 +21625,8 @@ function renderIncomeStatement() {
   h += head('Cost of goods sold') + row('Less: batch cost of crates sold', A.cogs, B.cogs, { indent: 1 }) + row('Gross profit', A.grossProfit, B.grossProfit, { bold: 1, top: 1, signColor: 1 });
   h += head('Operating costs') + row('Less: sales commission', A.commission, B.commission, { indent: 1 }) + row('Less: depreciation', A.depreciation, B.depreciation, { indent: 1 });
   [...labels.keys()].forEach(l => { const f = (X) => (X.custom.find(x => x.label === l) || { value: 0 }).value; h += row('Less: ' + escapeHtml(l), f(A), f(B), { indent: 1 }); });
-  h += row('Less: bad-debt loss (net of recoveries)', A.badDebt, B.badDebt, { indent: 1 }) + row('Total operating costs', A.operatingCosts, B.operatingCosts, { bold: 1, top: 1 });
+  h += row('Less: bad-debt loss (net of recoveries)', A.badDebt, B.badDebt, { indent: 1 });
+  h += row('Less: delivery trip costs (fuel, driver, packaging and the like)', A.tripCosts, B.tripCosts, { indent: 1 }) + row('Total operating costs', A.operatingCosts, B.operatingCosts, { bold: 1, top: 1 });
   h += row('Net profit before tax', A.profitBeforeTax, B.profitBeforeTax, { bold: 1, top: 1, signColor: 1 });
   if(A.tax && B.tax) {
     h += head('Tax (estimate from the Tax Panel)');
@@ -21584,7 +21636,7 @@ function renderIncomeStatement() {
   }
   h += '</tbody></table>';
   body.innerHTML = h;
-  document.getElementById('is-memo').innerHTML = '<span>Memo, not deducted above: estimated delivery trip costs from waybills (fuel, labour, maintenance and the like) were <b>' + fmt(A.tripCosts) + '</b> on ' + A.trips + ' trip stop' + (A.trips === 1 ? '' : 's') + ' in ' + MN(per.cur.ym) + ' and ' + fmt(B.tripCosts) + ' on ' + B.trips + ' the month before. The P&amp;L Calculator does not deduct them, so profit above is higher than it would be if they were counted' + (A.tripCosts ? '; counted, net profit before tax for the chosen month would be ' + fmt(round2(A.profitBeforeTax - A.tripCosts)) + '.' : '.') + '</span>';
+  document.getElementById('is-memo').innerHTML = '<span>Delivery trip costs are deducted above: estimated from the delivery waybills saved on this device (fuel, driver, maintenance, security, insurance, cartons and labels), counted in the month each trip was delivered. ' + MN(per.cur.ym) + ': <b>' + fmt(A.tripCosts) + '</b> on ' + A.trips + ' trip stop' + (A.trips === 1 ? '' : 's') + '; ' + MN(per.prev.ym) + ': ' + fmt(B.tripCosts) + ' on ' + B.trips + '. Supplier pickup trips are not counted here.</span>';
 }
 // ── Balance Sheet — Oct 14 2026, queue item G ────────────────────────────
 // Every line reuses a source the app already has; only cash, payables and
@@ -21949,7 +22001,8 @@ function renderPnL() {
 
   // ── Result ──
   const badDebtPnl = getBadDebtPnLInPeriod(from, to);   // Oct 11 2026
-  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom + badDebtPnl.net);
+  const tripPnl = tripCostsInPeriod(from, to);          // Oct 16 2026
+  const totalOperatingCosts = round2(commission + totalDepreciation + totalCustom + badDebtPnl.net + tripPnl.total);
   const netProfit = round2(grossProfit - totalOperatingCosts);
   const resultEl = document.getElementById('pnl-result-section');
   if(resultEl) {
@@ -21978,6 +22031,7 @@ function renderPnL() {
           ['− Recovered from customers', '−'+fmt(badDebtPnl.recoveredTotal)],
           ['− Commission held back from reps', '−'+fmt(badDebtPnl.heldNet)],
         ], 'Net bad debt loss', fmt(badDebtPnl.net))}</td><td class="mono">₦${badDebtPnl.net.toLocaleString()}</td></tr>
+        <tr><td>${metricHover('− Delivery Trip Costs','DELIVERY TRIP COSTS — BY ORDER (DELIVERED DATE)', tripPnl.rows.map(r => [r[0], fmt(r[1])]), 'Total trip costs', fmt(tripPnl.total), 'Estimated on each delivery waybill from the Logistics settings. Waybills saved on this device only.')}</td><td class="mono">₦${tripPnl.total.toLocaleString()}</td></tr>
       </tbody></table>
       <div style="margin-top:14px;padding:14px 16px;background:var(--raised);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--cream)">${metricHover('Net Profit','NET PROFIT COMPOSITION', [
@@ -21986,12 +22040,13 @@ function renderPnL() {
           ['− Depreciation', '−'+fmt(totalDepreciation)],
           ['− Other Costs', '−'+fmt(totalCustom)],
           ['− Bad Debt Loss (net)', '−'+fmt(badDebtPnl.net)],
+          ['− Delivery Trip Costs', '−'+fmt(tripPnl.total)],
         ], 'Net Profit', fmt(netProfit))}</span>
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;color:${netProfit>=0?'var(--lime)':'var(--red)'}">₦${netProfit.toLocaleString()}</span>
       </div>
       ${taxTie}
       <div style="font-family:'DM Mono',monospace;font-size:8.5px;color:var(--mist);margin-top:8px">
-        Progressive build — Revenue, COGS, and Commission are real, pulled from Sales Log. Depreciation is real math off whatever's in the Fixed Assets table.
+        Progressive build — Revenue, COGS, and Commission are real, pulled from Sales Log. Delivery trip costs are the estimates on each delivery waybill saved on this device. Depreciation is real math off whatever's in the Fixed Assets table.
         Anything in Other Cost Elements is only as complete as what's been added — a ₦0 total there means nothing's been entered yet, not that there's nothing to pay.
         Hover any line above for its exact composition.
       </div>`;
@@ -22011,7 +22066,7 @@ function renderPnL() {
     // the variable side, not just batch cost alone).
     const fixedCostsInPeriod = round2(totalDepreciation + totalCustom);
     const variableCostPerCrate = cratesSoldInPeriod > 0
-      ? round2((cogs + commission) / cratesSoldInPeriod)
+      ? round2((cogs + commission + tripPnl.total) / cratesSoldInPeriod)
       : round2(getLastCostPrice() || 0);
     const marginPerCrate = round2(pricePerCrate - variableCostPerCrate);
     const breakEvenCrates = marginPerCrate > 0 ? Math.ceil(fixedCostsInPeriod / marginPerCrate) : null;
@@ -22038,7 +22093,7 @@ function renderPnL() {
           <table class="data-table"><tbody>
             <tr><td>Fixed Costs (Depreciation + Other, this period)</td><td class="mono">₦${fixedCostsInPeriod.toLocaleString()}</td></tr>
             <tr><td>Price per Crate</td><td class="mono">₦${pricePerCrate.toLocaleString()}</td></tr>
-            <tr><td>Variable Cost per Crate (batch cost + commission, blended)</td><td class="mono">₦${variableCostPerCrate.toLocaleString()}</td></tr>
+            <tr><td>Variable Cost per Crate (batch cost + commission + trip costs, blended)</td><td class="mono">₦${variableCostPerCrate.toLocaleString()}</td></tr>
             <tr><td>Margin per Crate</td><td class="mono" style="color:${marginPerCrate>=0?'var(--lime)':'var(--red)'}">₦${marginPerCrate.toLocaleString()}</td></tr>
           </tbody></table>
           <div style="margin-top:10px;padding:12px 14px;background:var(--raised);border-radius:8px">
