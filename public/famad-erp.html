@@ -7725,7 +7725,7 @@ input[type=number]{-moz-appearance:textfield;}
   <div class="kpi-strip-3">
     <div class="kc c2"><div class="kc-label">Total Commission MTD</div><div class="kc-val" id="comm-total">₦0</div><div class="kc-sub">all reps combined</div></div>
     <div class="kc c3"><div class="kc-label">Paid Out</div><div class="kc-val" id="comm-paid">₦0</div><div class="kc-sub">settled</div></div>
-    <div class="kc c4"><div class="kc-label">Pending Payout</div><div class="kc-val" id="comm-pending">₦0</div><div class="kc-sub">awaiting settlement</div><div class="kc-delta d-wa">action required</div></div>
+    <div class="kc c4"><div class="kc-label">Pending Payout</div><div class="kc-val" id="comm-pending">₦0</div><div class="kc-sub" id="comm-pending-sub">awaiting settlement</div><div class="kc-delta d-wa">action required</div></div>
   </div>
 
   <div class="panel">
@@ -16790,7 +16790,21 @@ function updateAllKPIs() {
     .reduce((a, r) => a + getRepCommPaidMTD(r.name), 0);
   setText('comm-total', fmtK(comm));
   setText('comm-paid', fmtK(paidTotal));
-  setText('comm-pending', fmtK(comm - paidTotal));
+  // Oct 16 2026 (0.53) — Pending Payout is EVERYTHING still owed to the reps, across all months (it used to be this month only,
+  // so commission left unpaid from earlier months showed as zero here while the Deboard warning, which counts every month,
+  // still listed it as owed). Same reconciled math as the Deboard warning: getRepCommOutstandingLifetime().
+  (function() {
+    const mk = new Date().toISOString().slice(0, 7);
+    let total = 0, cur = 0;
+    STATE.reps.filter(r => r.name !== 'Direct' && r.status !== 'inactive').forEach(r => {
+      const life = getRepCommOutstandingLifetime(r.name).outstanding;
+      const thisM = Math.max(0, round2(getRepCommByMonth(r.name, mk) - getRepCommPaidMTD(r.name)));
+      total += life; cur += Math.min(life, thisM);
+    });
+    total = round2(total); cur = round2(cur);
+    setText('comm-pending', fmtK(total));
+    setText('comm-pending-sub', total > 0 ? `this month ₦${Math.round(cur).toLocaleString()} · earlier months ₦${Math.round(Math.max(0, total - cur)).toLocaleString()}` : 'awaiting settlement');
+  })();
 
   // Credit module KPIs — now the same single source of truth as the
   // Outstanding Credit Transactions table (getOutstandingCreditSales),
@@ -30118,6 +30132,18 @@ function renderOrders() {
   if(cnt) cnt.textContent=filtered.length+' orders';
 }
 
+// Oct 16 2026 (0.53) — which sales rep owns this order's customer. Owner and Manager only; a rep already sees just their own.
+// Read from the customer record (so it follows a reassignment), never typed in.
+function srTagHtml(o) {
+  if(typeof erpIsAll === 'function' && !erpIsAll()) return '';
+  const cs = STATE.customers || [];
+  const c = cs.find(x => o.customerId && x.backendId && String(x.backendId) === String(o.customerId)) || cs.find(x => x.name === o.customerName);
+  const rep = c && c.ownerRep;
+  if(!rep) return `<span class="chip chip-amber" data-sr="none" title="This customer has no sales rep yet. Assign one in Customers.">👤 No SR yet</span>`;
+  if(rep === '(Owner hold)') return `<span class="chip chip-violet" data-sr="hold" title="Held by the Owner, no rep assigned.">👤 Owner hold</span>`;
+  return `<span class="chip chip-blue" data-sr="${escapeHtml(rep)}" title="Sales rep responsible for this customer's orders">👤 SR: ${escapeHtml(rep)}</span>`;
+}
+
 function buildOrderCard(o, queueNum) {
   const val=o.crates*(o.pricePerCrate||5700);
   const isPending=o.status==='pending', isConfirmed=o.status==='confirmed', isReserved=o.status==='reserved', isInTransit=o.status==='in_transit';
@@ -30131,7 +30157,16 @@ function buildOrderCard(o, queueNum) {
           <span style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--cream)">${o.customerName}</span>
           ${loyaltyRing(o.loyaltyTier||'New')}
           ${o.crates<=30?'<span class="chip chip-blue">SMALL ≤30</span>':''}
-          ${o.lockedPrice?`<span class="chip chip-teal" title="Price locked at order creation">🔒 ₦${o.lockedPrice.toLocaleString()}/crate</span>`:''}
+          ${isReserved
+            ? (() => {
+                // Oct 16 2026 (0.53) — the lock is read from the price the server stored at booking, so it shows on every device
+                // (it used to depend on a device-only flag that server-synced orders never carried).
+                const lp = Number(o.lockedPrice || o.pricePerCrate || 0);
+                const hl = o.reservationExpiresAt ? Math.max(0, (new Date(o.reservationExpiresAt).getTime() - Date.now()) / 3600000) : null;
+                return lp > 0 ? `<span class="chip chip-amber" data-lock="reserved" title="Held booking: the price is locked at the figure agreed when the customer booked, whatever the selling price does meanwhile.">🔒 ₦${lp.toLocaleString()}/crate${hl !== null ? ' · ' + (hl <= 0 ? 'expiring' : hl.toFixed(1) + 'h left') : ''}</span>` : '';
+              })()
+            : (o.lockedPrice?`<span class="chip chip-teal" title="Price locked at order creation">🔒 ₦${o.lockedPrice.toLocaleString()}/crate</span>`:'')}
+          ${srTagHtml(o)}
           ${o.preferredDeliveryDay?`<span class="chip chip-teal" title="Customer's preferred delivery day, chosen at order booking">📅 ${escapeHtml(o.preferredDeliveryDay)}${o.isSpecialVolumeOrder?' (any-day eligible)':''}</span>`:''}
         </div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px">${o.location||'—'} · ${o.phone||'—'} · <span style="color:var(--blue)">${o.ref}</span></div>
