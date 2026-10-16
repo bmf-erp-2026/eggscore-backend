@@ -147,6 +147,15 @@ router.get('/handovers', requireSupabaseAuth(), requireRole('owner', 'manager'),
 
 // Narrow, portal-facing — only what checkPriceChangeSinceLastOrder()
 // needs. Never returns anything else about the sale or the customer.
+// Oct 16 2026 — "Team crates sold today". One number for the whole team, no names and no money, so a rep can see how
+// the day is going without seeing other reps' sales. Any staff login may read it (a rep's own list is rep-scoped, so
+// this total cannot be worked out from the list). Fully reversed sales do not count. Lagos date (UTC+1).
+router.get('/team-today', requireSupabaseAuth(), async (req, res) => {
+  const today = new Date(Date.now() + 3600000).toISOString().slice(0, 10);
+  const row = await db.prepare("SELECT COALESCE(SUM(crates), 0) AS crates FROM sales WHERE sale_date = ? AND COALESCE(fully_reversed, 0) = 0").get(today);
+  res.json({ date: today, crates: Number(row && row.crates) || 0 });
+});
+
 router.get('/last-price', requireEitherAuth(), async (req, res) => {
   const customerName = (req.query.customer || '').trim();
   if(!customerName) return res.json(null);
