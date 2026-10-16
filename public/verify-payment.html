@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Check an EggScore Payment Account</title>
+<meta name="theme-color" content="#0a0e14"/>
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{--bg:#f4f6fa;--card:#ffffff;--border:#d5dbe6;--cream:#14202e;--dust:#3b4a5c;--mist:#6b7787;--blue:#1d63c9;--ok:#15803d;--okbg:#e6f6ec;--bad:#b42318;--badbg:#fdecea;--warn:#a15c07;--warnbg:#fff4e0;--btn:#1d63c9;--btntx:#ffffff;}
+@media (prefers-color-scheme: dark){:root{--bg:#0a0e14;--card:#141c2a;--border:rgba(80,160,255,0.22);--cream:#eceee8;--dust:#c3c6bd;--mist:#8b94a0;--blue:#4a9eff;--ok:#6dd96d;--okbg:rgba(109,217,109,0.1);--bad:#ff7b72;--badbg:rgba(224,72,72,0.12);--warn:#f0b040;--warnbg:rgba(240,176,64,0.1);--btn:#4a9eff;--btntx:#0a0e14;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--cream);font-family:'DM Mono',monospace;font-size:14px;line-height:1.6}
+.wrap{max-width:560px;margin:0 auto;padding:24px 16px 48px}
+h1{font-family:'Syne',sans-serif;font-size:24px;margin:8px 0 6px}
+.sub{color:var(--dust);font-size:13px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--mist);margin:12px 0 5px}
+label:first-child{margin-top:0}
+input{width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--cream);font-family:inherit;font-size:16px}
+input:focus{outline:2px solid var(--blue);outline-offset:1px}
+.hint{font-size:11px;color:var(--mist);margin-top:4px}
+button{width:100%;margin-top:16px;padding:13px;border:0;border-radius:8px;background:var(--btn);color:var(--btntx);font-family:'Syne',sans-serif;font-weight:700;font-size:15px;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+.res{border-radius:12px;padding:16px;margin-bottom:14px;display:none;border:1px solid}
+.res.ok{display:block;background:var(--okbg);border-color:var(--ok)}
+.res.bad{display:block;background:var(--badbg);border-color:var(--bad)}
+.res.warn{display:block;background:var(--warnbg);border-color:var(--warn)}
+.res h2{font-family:'Syne',sans-serif;font-size:18px;margin:0 0 6px}
+.res.ok h2{color:var(--ok)} .res.bad h2{color:var(--bad)} .res.warn h2{color:var(--warn)}
+.res p{margin:6px 0;color:var(--cream)}
+.acct{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.acct:last-child{border-bottom:0}
+.acct b{font-size:15px;letter-spacing:1px}
+.small{font-size:11px;color:var(--mist)}
+a{color:var(--blue)}
+ol{padding-left:20px;margin:6px 0 0;color:var(--dust)} li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="small" style="font-weight:700;letter-spacing:2px">BMF EGGSCORE LIMITED</div>
+  <h1>Check a payment account</h1>
+  <div class="sub">Before you send money, make sure the account you were given is really ours. It takes ten seconds.</div>
+
+  <div class="card">
+    <label for="acct">Account number you were given</label>
+    <input id="acct" type="text" inputmode="numeric" autocomplete="off" maxlength="14" placeholder="10 digits"/>
+    <label for="ref">Order reference (optional, but better)</label>
+    <input id="ref" type="text" autocomplete="off" autocapitalize="characters" placeholder="e.g. BEL-ORD-261016-185937"/>
+    <label for="code">Pay Code from our message (optional, but better)</label>
+    <input id="code" type="text" autocomplete="off" autocapitalize="characters" maxlength="8" placeholder="e.g. K7M-2QX"/>
+    <div class="hint">Every genuine payment message from EggScore carries a Pay Code for your order. It is also on your order confirmation. A message with no code, or a code that does not match, may not be from us.</div>
+    <button id="go" type="button">Check this account</button>
+  </div>
+
+  <div id="res" class="res" role="status" aria-live="polite"></div>
+
+  <div class="card">
+    <div class="small" style="letter-spacing:1.2px;text-transform:uppercase;margin-bottom:6px">Our official accounts</div>
+    <div id="list" class="small">Loading…</div>
+  </div>
+
+  <div class="card">
+    <div class="small" style="letter-spacing:1.2px;text-transform:uppercase">Stay safe</div>
+    <ol>
+      <li>Only pay into an account that this page confirms.</li>
+      <li>Never pay anyone who sends account details without your order reference and Pay Code.</li>
+      <li>If an account fails, do not pay. <a id="wa" href="#" target="_blank" rel="noopener">Tell us on WhatsApp</a> so we can warn other customers.</li>
+    </ol>
+  </div>
+</div>
+<script>
+const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
+const PORTAL_API_KEY = 'egs_f3f50dec2eb0893d5bc4ef108da8ddda772b26fda5ef92e6';
+const WA = '2349165343020';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function fmtAcct(n) { return String(n).replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3'); }
+function setRes(kind, html) { const r = $('res'); r.className = 'res ' + kind; r.innerHTML = html; r.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+function waLink(msg) { return 'https://wa.me/' + WA + '?text=' + encodeURIComponent(msg); }
+async function api(path, opts) {
+  const r = await fetch(BACKEND_URL + path, Object.assign({ headers: { 'Content-Type': 'application/json', 'x-api-key': PORTAL_API_KEY }, cache: 'no-store' }, opts || {}));
+  let j = null; try { j = await r.json(); } catch(e) {}
+  return { status: r.status, json: j };
+}
+async function loadList() {
+  try {
+    const r = await api('/payment-accounts');
+    const a = (r.json && r.json.accounts) || [];
+    $('list').innerHTML = a.length
+      ? a.map(x => `<div class="acct"><span>${esc(x.bank)}<br><span class="small">${esc(x.accountName)}${x.label ? ' · ' + esc(x.label) : ''}</span></span><b>${esc(fmtAcct(x.accountNumber))}</b></div>`).join('')
+      : 'No account is listed right now. Please ask us on WhatsApp before you pay anyone.';
+  } catch(e) { $('list').textContent = 'Could not load the list. Check your connection.'; }
+}
+async function check() {
+  const acct = $('acct').value.replace(/\D/g, ''), ref = $('ref').value.trim(), code = $('code').value.trim();
+  if(acct.length !== 10) { setRes('warn', '<h2>Type the 10-digit account number</h2><p>Copy it exactly from the message you received.</p>'); return; }
+  if((ref && !code) || (!ref && code)) { setRes('warn', '<h2>Type both, or leave both empty</h2><p>To check the Pay Code we need the order reference and the code together.</p>'); return; }
+  $('go').disabled = true; $('go').textContent = 'Checking…';
+  try {
+    const r = await api('/payment-accounts/verify', { method: 'POST', body: JSON.stringify({ accountNumber: acct, ref, code }) });
+    const j = r.json || {};
+    if(r.status === 429) { setRes('warn', `<h2>Please wait</h2><p>${esc(j.error || 'Too many checks. Try again in a minute.')}</p>`); return; }
+    if(r.status !== 200) { setRes('warn', `<h2>We could not check that</h2><p>${esc(j.error || 'Something went wrong. Try again.')}</p>`); return; }
+    const report = `<a href="${waLink('I was sent account ' + acct + ' to pay EggScore, and your check says it is NOT yours. Order ref: ' + (ref || 'none'))}" target="_blank" rel="noopener">Report it on WhatsApp</a>`;
+    if(!j.official) {
+      setRes('bad', `<h2>NOT an EggScore account. Do not pay.</h2><p>${j.retired ? 'This number was once ours but is no longer in use.' : 'This number is not on our official list.'} Someone may be trying to collect money in our name.</p><p>${report}</p>`);
+    } else if(j.codeChecked && j.codeValid === false) {
+      setRes('warn', `<h2>Account is ours, but the Pay Code does not match</h2><p>${esc(j.bank)} · ${esc(j.accountName)}.</p><p>The code you typed does not belong to that order reference. Check you typed both exactly as written, or ask us on WhatsApp before paying. The message you received may not be from us.</p><p><a href="${waLink('My Pay Code did not match for order ' + ref + '. Please confirm my payment details.')}" target="_blank" rel="noopener">Ask us on WhatsApp</a></p>`);
+    } else if(j.codeChecked && j.codeValid) {
+      setRes('ok', `<h2>Genuine. This is our account and your Pay Code matches.</h2><p>${esc(j.bank)} · ${esc(j.accountName)} · ${esc(fmtAcct(acct))}</p><p>Use <b>${esc(ref.toUpperCase())}</b> as the narration when you pay.</p>`);
+    } else {
+      setRes('ok', `<h2>This is an EggScore account.</h2><p>${esc(j.bank)} · ${esc(j.accountName)} · ${esc(fmtAcct(acct))}</p><p class="small">To be sure the message is for YOUR order, also enter your order reference and the Pay Code from the message.</p>`);
+    }
+  } catch(e) {
+    setRes('warn', '<h2>No connection</h2><p>We could not reach the check service. Do not pay until it works. You can also ask us on WhatsApp.</p>');
+  } finally { $('go').disabled = false; $('go').textContent = 'Check this account'; }
+}
+$('go').addEventListener('click', check);
+['acct','ref','code'].forEach(id => $(id).addEventListener('keydown', e => { if(e.key === 'Enter') check(); }));
+$('wa').href = waLink('Hello BMF EggScore Limited, I want to report a payment account that failed your check.');
+(function prefill() {
+  try {
+    const q = new URLSearchParams(location.search);
+    if(q.get('acct')) $('acct').value = q.get('acct').replace(/\D/g, '').slice(0, 10);
+    if(q.get('ref')) $('ref').value = q.get('ref').slice(0, 40);
+    if(q.get('code')) $('code').value = q.get('code').slice(0, 8);
+  } catch(e) {}
+})();
+loadList();
+</script>
+</body>
+</html>

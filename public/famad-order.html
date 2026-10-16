@@ -842,7 +842,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
         <div class="security-box">
           <div class="sb-hdr"><span class="sb-icon">🔐</span><span class="sb-title" data-i18n="s4.secure_title">Secure Ordering</span></div>
-          <div class="sb-body" data-i18n="s4.secure_body">Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong></div>
+          <div class="sb-body" data-i18n="s4.secure_body">Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong> <a href="/verify-payment.html" style="color:var(--teal);font-weight:700">Check an account before you pay →</a></div>
         </div>
 
         <div class="pay-options" id="pay-options">
@@ -870,9 +870,7 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
         <div id="bank-details" class="bank-card">
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--mist);margin-bottom:10px;text-transform:uppercase;letter-spacing:1.5px" data-i18n="s4.details_sent">Payment details sent after confirmation</div>
-          <div class="bank-row"><span class="br-label" data-i18n="s4.bank_label">Bank</span><span class="br-val">First Bank Nigeria</span></div>
-          <div class="bank-row"><span class="br-label" data-i18n="s4.acct_name_label">Account Name</span><span class="br-val">BMF EggScore Limited</span></div>
-          <div class="bank-row"><span class="br-label" data-i18n="s4.acct_no_label">Account No.</span><span class="br-val">3012 345 678</span></div>
+          <div id="bank-accounts-list"></div>
           <div class="bank-row"><span class="br-label" data-i18n="s4.narration_label">Narration</span><span class="br-val" id="bank-narration" style="color:var(--blue)" data-i18n="s4.narration_placeholder">Your order ref. — after submission</span></div>
         </div>
 
@@ -898,9 +896,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
         <div id="ussd-details" style="display:none" class="bank-card">
           <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">
-            <span data-i18n="s4.ussd_instructions">Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>
-            Account: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>
+            <span data-i18n="s4.ussd_instructions">Dial your bank's USSD transfer code on your mobile and send to one of the accounts below.<br/>
             Use your <strong style="color:var(--blue)">order reference</strong> as narration.</span>
+            <div id="ussd-accounts-list" style="margin-top:8px"></div>
           </div>
         </div>
 
@@ -974,6 +972,8 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
     <div class="ss-sub" data-i18n="ss.submitted_to">Your order has been submitted to<br/><strong style="color:var(--cream)">BMF EggScore Limited</strong></div>
     <div class="ref-badge" id="success-ref">BEL-ORD-——</div>
     <div class="ss-sub" data-i18n="ss.screenshot_ref">Screenshot this reference. BMF EggScore Limited will confirm via WhatsApp shortly.</div>
+    <!-- Oct 16 2026 (0.55) — the order's Pay Code. Filled by showSuccess(). Every genuine payment message from EggScore carries it. -->
+    <div id="success-paycode" style="display:none;max-width:420px;margin:10px auto 0 auto;padding:12px 14px;border-radius:8px;background:rgba(61,214,192,0.09);border:1px solid rgba(61,214,192,0.35);font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);text-align:left;line-height:1.7"></div>
 
     <!-- DELIVERY LOCATION CONFIRMATION — Sep 26 2026. Shows the customer's
          own delivery location straight back to them on their own
@@ -1324,9 +1324,12 @@ const MESSAGES = {
     codStep2: (total) => `Have <strong style="color:var(--lime)">${total}</strong> ready.`,
     codStep3: (ref) => `Quote ref <strong>${ref}</strong> to the BMF EggScore Limited rep.`,
     howToPayTitle: (method) => `How to Pay — ${method}`,
-    bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> to:<br/>🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited`,
+    bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> to:<br/>${officialAccountsInline()}`,
     bankStep2: (ref) => `Use <strong>${ref}</strong> as your narration/reference.`,
-    bankStep3: () => `<strong style="color:var(--sun)">Do not pay to any other account.</strong> BMF EggScore Limited's verified account is the only one above.`,
+    bankStep3: () => `<strong style="color:var(--sun)">Do not pay to any other account.</strong> BMF EggScore Limited's verified accounts are the only ones above, and the Pay Code below proves a message is from us.`,
+    payCodeTitle: () => `🔑 Your EggScore Pay Code`,
+    payCodeBody: (code, ref) => `<strong style="font-size:20px;letter-spacing:3px;color:var(--teal)">${code}</strong><br/>Every genuine payment message from EggScore carries this code. If a message about your order has no Pay Code, or a different one, do not pay. <a href="/verify-payment.html?ref=${encodeURIComponent(ref)}" style="color:var(--teal);font-weight:700">Check an account →</a>`,
+    payCodeLater: () => `Your Pay Code comes in our confirmation message. A payment message without it is not from us.`,
     escrowNotice: () => `Except cash, all transactions are interbank related. Please contact your bank for all transfer clarifications held in escrow.`,
     committedNote: (committed) => `${committed} crates held for pending orders`,
     maxAvailable: (available) => `Max: ${available} crates available to order`,
@@ -1364,9 +1367,12 @@ const MESSAGES = {
     codStep2: (total) => `Get <strong style="color:var(--lime)">${total}</strong> ready.`,
     codStep3: (ref) => `Quote ref <strong>${ref}</strong> give the BMF EggScore Limited rep.`,
     howToPayTitle: (method) => `How You Go Pay — ${method}`,
-    bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> go:<br/>🏦 First Bank · <strong>3012345678</strong> · BMF EggScore Limited`,
+    bankStep1: (total) => `Transfer <strong style="color:var(--lime)">${total}</strong> go:<br/>${officialAccountsInline()}`,
     bankStep2: (ref) => `Use <strong>${ref}</strong> as your transfer gist.`,
     bankStep3: () => `<strong style="color:var(--sun)">No pay enter any other akant.</strong> Na only the one wey dey up there don clear as BMF EggScore Limited's akant.`,
+    payCodeTitle: () => `🔑 Your EggScore Pay Code`,
+    payCodeBody: (code, ref) => `<strong style="font-size:20px;letter-spacing:3px;color:var(--teal)">${code}</strong><br/>Every correct payment message from EggScore dey carry this code. If message about your order no get Pay Code, or e get different one, no pay. <a href="/verify-payment.html?ref=${encodeURIComponent(ref)}" style="color:var(--teal);font-weight:700">Check akant →</a>`,
+    payCodeLater: () => `Your Pay Code go come inside our confirmation message. Payment message wey no get am no be from us.`,
     // TODO(Bob): English text only for now, Sep 7 2026 — needs proper
     // Pidgin wording, same register as the vocabulary pass earlier
     // (bonus mark, awoof, etc.), not a plain English fallback. Bob's
@@ -1474,13 +1480,13 @@ const UI_STRINGS = {
     's3.continue': 'Continue to Payment →',
     's4.title': 'Payment Method', 's4.tag': "choose how you'll pay",
     's4.secure_title': 'Secure Ordering',
-    's4.secure_body': 'Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong>',
+    's4.secure_body': 'Your order is recorded and a reference code generated. Payment details are sent from our verified number — <strong style="color:var(--cream)">never pay anyone who sends you account details without your order reference.</strong> <a href="/verify-payment.html" style="color:var(--teal);font-weight:700">Check an account before you pay →</a>',
     's4.bank_name': 'Bank Transfer', 's4.bank_desc': 'Pay after confirmation',
     's4.small_only': '≤ 30 crates only', 's4.cash_name': 'Cash on Delivery', 's4.cash_desc': 'Pay on receipt',
     's4.card_name': 'Card Payment', 's4.details_sent': 'Payment details sent after confirmation',
     's4.bank_label': 'Bank', 's4.acct_name_label': 'Account Name', 's4.acct_no_label': 'Account No.',
     's4.narration_label': 'Narration', 's4.narration_placeholder': 'Your order ref. — after submission',
-    's4.ussd_instructions': 'Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> on your mobile<br/>Account: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>Use your <strong style="color:var(--blue)">order reference</strong> as narration.',
+    's4.ussd_instructions': 'Dial your bank\'s USSD transfer code on your mobile and send to one of the accounts below.<br/>Use your <strong style="color:var(--blue)">order reference</strong> as narration.',
     's4.cash_instructions': 'Cash payment collected on delivery.<br/>A BMF EggScore Limited sales rep will contact you to arrange delivery and collect payment.',
     's4.paystack_instructions': 'Secure card payment processed by Paystack.<br/>Available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.',
     's4.paystack_btn': '💳 Pay Now via Paystack',
@@ -1592,13 +1598,13 @@ const UI_STRINGS = {
     's3.continue': 'Go Payment →',
     's4.title': 'How You Go Pay', 's4.tag': 'pick how you wan pay',
     's4.secure_title': 'Secure Ordering',
-    's4.secure_body': 'Your order don record, code wey follow am don generate. Payment gist go come from our number wey don clear — <strong style="color:var(--cream)">never pay anybody wey send you akant details without your order ref number.</strong>',
+    's4.secure_body': 'Your order don record, code wey follow am don generate. Payment gist go come from our number wey don clear — <strong style="color:var(--cream)">never pay anybody wey send you akant details without your order ref number.</strong> <a href="/verify-payment.html" style="color:var(--teal);font-weight:700">Check akant before you pay →</a>',
     's4.bank_name': 'Bank Transfer', 's4.bank_desc': 'Pay after we confirm',
     's4.small_only': '≤ 30 crates only', 's4.cash_name': 'Cash on Delivery', 's4.cash_desc': 'Pay when e reach',
     's4.card_name': 'Card Payment', 's4.details_sent': 'Payment gist go land after we confirm',
     's4.bank_label': 'Bank', 's4.acct_name_label': 'Akant Name', 's4.acct_no_label': 'Akant No.',
     's4.narration_label': 'Transfer Gist', 's4.narration_placeholder': 'Your order ref. — after you send am',
-    's4.ussd_instructions': 'Dial <strong style="color:var(--cream)">*737*1*Amount*Account#</strong> for your phone<br/>Akant: <strong style="color:var(--cream)">3012345678</strong> (First Bank)<br/>Use your <strong style="color:var(--blue)">ref number</strong> as your transfer gist.',
+    's4.ussd_instructions': 'Dial your bank USSD transfer code for your phone, then send am to one of the akant dem below.<br/>Use your <strong style="color:var(--blue)">ref number</strong> as your transfer gist.',
     's4.cash_instructions': 'Cash payment na when e reach you go pay.<br/>BMF EggScore Limited sales rep go buzz you to arrange delivery and collect the money.',
     's4.paystack_instructions': 'Card payment wey secure, Paystack dey process am.<br/>E dey available for orders <strong style="color:var(--cream)">1–30 crates</strong> only.',
     's4.paystack_btn': '💳 Pay Now via Paystack',
@@ -1989,6 +1995,35 @@ function toggleCoverageMap() {
 // existing order with that ref before inserting and, if found, just
 // returns it — same idempotency pattern already proven for commission
 // payouts/credit overrides/system events.
+// ── Oct 16 2026 (0.55) — the official EggScore bank accounts. Fetched from the server so the Owner types them once in the ERP;
+// the portal never carries an account number of its own. If the list cannot be fetched, no number is shown at all.
+let OFFICIAL_ACCOUNTS = null;   // null = not loaded yet (or the fetch failed)
+function fmtAcctNo(n) { return String(n || '').replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3'); }
+function officialAccountsInline() {
+  if(!OFFICIAL_ACCOUNTS || !OFFICIAL_ACCOUNTS.length) {
+    return `Our account details come from our verified WhatsApp number. <a href="/verify-payment.html" style="color:var(--teal);font-weight:700">Check any account before you pay →</a>`;
+  }
+  return OFFICIAL_ACCOUNTS.map(a => `🏦 ${escapeHtmlPortal(a.bank)} · <strong>${escapeHtmlPortal(a.accountNumber)}</strong> · ${escapeHtmlPortal(a.accountName)}`).join('<br/>');
+}
+function renderOfficialAccounts() {
+  const rows = (OFFICIAL_ACCOUNTS && OFFICIAL_ACCOUNTS.length)
+    ? OFFICIAL_ACCOUNTS.map(a => `
+        <div class="bank-row"><span class="br-label">${escapeHtmlPortal(a.bank)}${a.label ? ' · ' + escapeHtmlPortal(a.label) : ''}</span><span class="br-val">${escapeHtmlPortal(a.accountName)}</span></div>
+        <div class="bank-row"><span class="br-label" data-i18n="s4.acct_no_label">Account No.</span><span class="br-val">${escapeHtmlPortal(fmtAcctNo(a.accountNumber))}</span></div>`).join('<div style="height:8px"></div>')
+    : `<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7">${officialAccountsInline()}</div>`;
+  const b = document.getElementById('bank-accounts-list'); if(b) b.innerHTML = rows;
+  const u = document.getElementById('ussd-accounts-list');
+  if(u) u.innerHTML = (OFFICIAL_ACCOUNTS && OFFICIAL_ACCOUNTS.length) ? OFFICIAL_ACCOUNTS.map(a => `🏦 ${escapeHtmlPortal(a.bank)} · <strong style="color:var(--cream)">${escapeHtmlPortal(a.accountNumber)}</strong> · ${escapeHtmlPortal(a.accountName)}`).join('<br/>') : officialAccountsInline();
+}
+async function loadOfficialAccounts() {
+  try {
+    const r = await fetch(`${BACKEND_URL}/payment-accounts`, { headers: { 'x-api-key': PORTAL_API_KEY }, cache: 'no-store' });
+    if(r.ok) { const j = await r.json(); OFFICIAL_ACCOUNTS = Array.isArray(j.accounts) ? j.accounts : []; }
+  } catch(e) {}
+  renderOfficialAccounts();
+}
+document.addEventListener('DOMContentLoaded', loadOfficialAccounts);
+
 async function postOrderToBackend(order) {
   try {
     const resp = await fetch(`${BACKEND_URL}/orders`, {
@@ -2073,6 +2108,7 @@ async function saveOrder(order) {
     order.customerCid    = result.realOrder.customerCid || null;
     order.isNewCustomer  = !!result.realOrder.isNewCustomer;
     order.partPayment    = result.realOrder.partPayment || null;   // the server's answer to a part-payment request
+    order.payCode        = result.realOrder.payCode || null;       // Oct 16 2026 — this order's Pay Code
   }
   // Flags whether this order still needs retryFailedOrders() to pick it
   // up on a future page load — the single source of truth for "did this
@@ -2126,6 +2162,7 @@ async function retryFailedOrders() {
         order.ref            = result.realOrder.ref;
         order.customerCid    = result.realOrder.customerCid || null;
         order.isNewCustomer  = !!result.realOrder.isNewCustomer;
+        order.payCode        = result.realOrder.payCode || order.payCode || null;
         order.backendSynced  = true;
         changed = true;
       } else if(result.rejected) {
@@ -4663,6 +4700,14 @@ function showSuccess(order, paid) {
   if(typeof omShowButton === 'function') omShowButton(order);   // Oct 12 2026 — ask about this order
   document.getElementById('success-ref').textContent = order.ref;
   document.getElementById('bank-narration').textContent = order.ref;
+  // Oct 16 2026 (0.55) — the Pay Code, shown to the person who just placed the order (and only them).
+  const pcEl = document.getElementById('success-paycode');
+  if(pcEl) {
+    pcEl.style.display = 'block';
+    pcEl.innerHTML = order.payCode
+      ? `<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--teal);margin-bottom:4px">${T().payCodeTitle()}</div>${T().payCodeBody(escapeHtmlPortal(order.payCode), order.ref)}`
+      : `<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--teal);margin-bottom:4px">${T().payCodeTitle()}</div>${T().payCodeLater()}`;
+  }
 
   // Delivery location confirmation (Sep 26 2026) — see the HTML comment
   // above #success-delivery-location for why this is safe to show here.
