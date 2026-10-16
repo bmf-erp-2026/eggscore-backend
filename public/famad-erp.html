@@ -1864,10 +1864,19 @@ input[type=number]{-moz-appearance:textfield;}
         if(row.trip_cost !== undefined && row.trip_cost !== null) existing.tripCost = Number(row.trip_cost);
         if(row.trip_generated_at) existing.tripGeneratedAt = row.trip_generated_at;
         if(row.trip_delivered_at) existing.tripDeliveredAt = row.trip_delivered_at;
-        if(existing.waybill && existing.waybill.costs && (ERP_ROLE === 'owner' || ERP_ROLE === 'manager')) {
+        if(existing.waybill && existing.waybill.costs) {
           const up = {};
-          if((row.trip_cost === undefined || row.trip_cost === null) && Number(existing.waybill.costs.total) >= 0 && existing.waybill.costs.total !== undefined) { up.tripCost = Number(existing.waybill.costs.total) || 0; if(existing.waybill.generatedAt) up.tripGeneratedAt = existing.waybill.generatedAt; }
+          if((row.trip_cost === undefined || row.trip_cost === null) && existing.waybill.costs.total !== undefined) { up.tripCost = Number(existing.waybill.costs.total) || 0; if(existing.waybill.generatedAt) up.tripGeneratedAt = existing.waybill.generatedAt; }
           if(!row.trip_delivered_at && existing.waybill.deliveredAt) up.tripDeliveredAt = existing.waybill.deliveredAt;
+          // The dispatch details (delivery link token and outbound attestation) are the same kind of fact: made on this
+          // device, and if the server never received them (the dispatch request was refused or lost) the customer's
+          // delivery link says "not recognised". Send them again.
+          if(existing.deliveryToken && (row.delivery_token === undefined || row.delivery_token === null)) {
+            up.deliveryToken = existing.deliveryToken;
+            if(existing.outboundCondition) up.outboundCondition = existing.outboundCondition;
+            if(existing.outboundAttestedBy) up.outboundAttestedBy = existing.outboundAttestedBy;
+            if(existing.outboundNotes) up.outboundNotes = existing.outboundNotes;
+          }
           if(Object.keys(up).length) patchOrderStatusOnBackend(row.ref, up);
         }
         const hadCustomerAttestation = !!existing.customerAttestedAt;
