@@ -307,7 +307,9 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
           // client-side and saved here too, so the public confirmation
           // page (below) can be reached with it before any staff member
           // needs to be involved again.
-          deliveryToken, outboundCondition, outboundAttestedBy, outboundNotes, crates } = req.body;
+          deliveryToken, outboundCondition, outboundAttestedBy, outboundNotes, crates,
+          // Oct 16 2026 — the estimated trip cost on the waybill, and when the trip was made and delivered
+          tripCost, tripGeneratedAt, tripDeliveredAt } = req.body;
   const order = await db.prepare('SELECT * FROM orders WHERE ref = ?').get(req.params.ref);
   if(!order) return res.status(404).json({ error: 'Order not found.' });
   if(!(await repScope.canSeeOrder(await repScope.scopeOf(req), order.ref))) return res.status(403).json(repScope.NOT_YOURS);
@@ -346,6 +348,22 @@ router.patch('/:ref', requireSupabaseAuth(), async (req, res) => {
   if(outboundNotes !== undefined) { fields.push('outbound_notes = ?'); values.push(outboundNotes); }
   if(outboundCondition !== undefined || outboundAttestedBy !== undefined) {
     fields.push('outbound_attested_at = now()');
+  }
+  // Oct 16 2026 — trip cost for the profit figures. Owner and Manager only (they are the ones who make waybills);
+  // a bad value is refused, never half-saved.
+  if(tripCost !== undefined || tripGeneratedAt !== undefined || tripDeliveredAt !== undefined) {
+    const sc = await repScope.scopeOf(req);
+    if(!sc.all) return res.status(403).json({ error: 'Only the Owner or a Manager can record trip costs.' });
+    if(tripCost !== undefined) {
+      const c = Number(tripCost);
+      if(tripCost === null || !isFinite(c) || c < 0 || c > 100000000) return res.status(400).json({ error: 'tripCost must be a number, 0 or more.' });
+      fields.push('trip_cost = ?'); values.push(c);
+    }
+    for(const [col, v] of [['trip_generated_at', tripGeneratedAt], ['trip_delivered_at', tripDeliveredAt]]) {
+      if(v === undefined) continue;
+      if(v === null || !isFinite(Date.parse(v))) return res.status(400).json({ error: col + ' must be a date.' });
+      fields.push(col + ' = ?'); values.push(new Date(v).toISOString());
+    }
   }
   fields.push("updated_at = now()");
 
