@@ -348,7 +348,9 @@ router.patch('/reservation-settings', requireSupabaseAuth(), requireRole('owner'
   res.json({ ok: true, settings });
 });
 
-router.get('/logistics-settings', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+// 0.52: any staff login may READ the cost settings (a rep's device needs them to price the
+// waybills it generates). Changing them (PATCH below) stays owner-only.
+router.get('/logistics-settings', requireSupabaseAuth(), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'logistics_settings'").get();
   if(!row) return res.json({ settings: null });
   res.json({ settings: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
