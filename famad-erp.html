@@ -1865,6 +1865,7 @@ input[type=number]{-moz-appearance:textfield;}
         if(row.trip_generated_at) existing.tripGeneratedAt = row.trip_generated_at;
         if(row.trip_delivered_at) existing.tripDeliveredAt = row.trip_delivered_at;
         if(row.pay_code) existing.payCode = row.pay_code;   // Oct 16 2026 (0.55) — the order's Pay Code, from the server
+        existing.acctCheckedAt = row.acct_checked_at || null;   // Oct 17 2026 (0.56) — when the customer checked the bank account
         if(existing.waybill && existing.waybill.costs) {
           const up = {};
           if((row.trip_cost === undefined || row.trip_cost === null) && existing.waybill.costs.total !== undefined) { up.tripCost = Number(existing.waybill.costs.total) || 0; if(existing.waybill.generatedAt) up.tripGeneratedAt = existing.waybill.generatedAt; }
@@ -1992,6 +1993,7 @@ input[type=number]{-moz-appearance:textfield;}
           tripGeneratedAt: row.trip_generated_at || undefined,
           tripDeliveredAt: row.trip_delivered_at || undefined,
           payCode: row.pay_code || undefined,   // Oct 16 2026 (0.55)
+          acctCheckedAt: row.acct_checked_at || null,   // Oct 17 2026 (0.56)
           paymentVerified: Number(row.payment_verified) === 1,   // Oct 12 2026 — the server's record of payment now comes back too
           createdAt: row.created_at,
           date: new Date(row.created_at).toISOString().split('T')[0],
@@ -2470,6 +2472,14 @@ input[type=number]{-moz-appearance:textfield;}
     }
   }
 
+  // Oct 17 2026 (0.56) — an event's detail can arrive as an object (the server stores it as JSON); show it as readable text,
+  // never "[object Object]".
+  function evDetailText(d) {
+    if(d == null || d === '') return '';
+    if(typeof d === 'string') { const t = d.trim(); if(t[0] === '{' || t[0] === '[') { try { return evDetailText(JSON.parse(t)); } catch(e) {} } return d; }
+    if(typeof d === 'object') return Object.entries(d).filter(([, v]) => v != null && v !== '').map(([k, v]) => k + ': ' + (typeof v === 'object' ? JSON.stringify(v) : v)).join(' · ');
+    return String(d);
+  }
   async function syncEventLogFromBackend() {
     const token = await erpGetAuthToken();
     if(!token) return;
@@ -2491,7 +2501,7 @@ input[type=number]{-moz-appearance:textfield;}
       if(!row.entry_id || localIds.has(row.entry_id)) return;
       log.push({
         id: row.entry_id, ts: row.at || row.created_at, category: row.category,
-        level: row.level, message: row.message, detail: row.detail || null,
+        level: row.level, message: row.message, detail: evDetailText(row.detail) || null,
       });
       changed = true;
     });
@@ -6416,6 +6426,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
   </div>
 
+  <div id="dash-secalerts" style="display:none"></div>
   <div id="dash-alerts"></div>
 
   <!-- COMMAND CENTRE NOTICE BOARD (Oct 1 2026) — owner-authored "revisit
@@ -8039,14 +8050,14 @@ input[type=number]{-moz-appearance:textfield;}
     <div class="ph-actions"><button class="btn btn-ghost" onclick="renderPayAccounts()">↻ Refresh</button></div>
   </div>
   <div class="alert-banner warn" style="margin-bottom:14px">
-    ⚠ Type each account exactly as the bank shows it. An account number can never be edited: if one is wrong, retire it and add the right one. Until you add an account here, the portal shows no account number and the ERP refuses to send payment messages.
+    ⚠ Type each account exactly as the bank shows it. An account number can never be edited: if one is wrong, retire it and add the right one. A new account stays hidden from customers for 24 hours (a safety wait, so a stolen login cannot add a fake account that works at once); you can release it early. Every change here raises a red alert and a phone alert, even when it is you. Until an account is live here, the portal shows no account number and the ERP refuses to send payment messages.
   </div>
   <div class="panel">
     <div class="panel-hdr"><div class="panel-title">Official accounts</div><div class="panel-tag" id="payacct-tag">loading…</div></div>
     <div class="panel-body" id="payacct-list"></div>
   </div>
   <div class="panel">
-    <div class="panel-hdr"><div class="panel-title">Add an account</div><div class="panel-tag">goes live for customers straight away</div></div>
+    <div class="panel-hdr"><div class="panel-title">Add an account</div><div class="panel-tag">goes live for customers after 24 hours, or when you release it</div></div>
     <div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end">
       <div class="form-group"><label class="form-label">Bank</label><input class="form-input" id="payacct-bank" type="text" placeholder="e.g. First Bank of Nigeria"></div>
       <div class="form-group"><label class="form-label">Account name (as the bank shows it)</label><input class="form-input" id="payacct-name" type="text" placeholder="BMF EggScore Limited"></div>
@@ -30258,6 +30269,7 @@ function buildOrderCard(o, queueNum) {
             : (o.lockedPrice?`<span class="chip chip-teal" title="Price locked at order creation">🔒 ₦${o.lockedPrice.toLocaleString()}/crate</span>`:'')}
           ${srTagHtml(o)}
           ${o.payCode ? `<span class="chip chip-teal" title="This order's Pay Code. Every payment message about it carries this code.">🔑 ${escapeHtml(o.payCode)}</span>` : ''}
+          ${acctCheckChipHtml(o)}
           ${o.preferredDeliveryDay?`<span class="chip chip-teal" title="Customer's preferred delivery day, chosen at order booking">📅 ${escapeHtml(o.preferredDeliveryDay)}${o.isSpecialVolumeOrder?' (any-day eligible)':''}</span>`:''}
         </div>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px">${o.location||'—'} · ${o.phone||'—'} · <span style="color:var(--blue)">${o.ref}</span></div>
@@ -36222,6 +36234,83 @@ async function refreshSales(){ await syncSalesFromBackend(); renderLedger(); sho
 // The account lines in WhatsApp messages used to be typed into the code. They now come from the Owner's official list
 // (Payment Accounts), and every message that asks for money also carries the order's / invoice's Pay Code, which only the
 // server can produce, so a customer can tell a real message from a fake one.
+// ── Oct 17 2026 (0.56) — "did the customer check the bank account?" chip on each order ──
+// Green once the customer has typed this order's reference and Pay Code on the real check page with a genuine account number.
+// Amber (a nudge) for a bank/USSD order placed since the check step began that is still unpaid and not checked.
+const ACCT_CHECK_SINCE = '2026-10-17';
+function acctCheckChipHtml(o) {
+  if(o.acctCheckedAt) return `<span class="chip chip-lime" title="The customer checked the bank account on our check page (${escapeHtml(String(o.acctCheckedAt).slice(0, 16).replace('T', ' '))}).">✓ ACCOUNT CHECKED</span>`;
+  const pm = String(o.paymentMethod || o.payment || '').toLowerCase();
+  const open = ['pending', 'confirmed', 'new', 'reserved'].includes(String(o.status || '').toLowerCase());
+  const since = String(o.createdAt || '').slice(0, 10) >= ACCT_CHECK_SINCE;
+  if(o.payCode && open && since && !o.paymentVerified && pm !== 'cash' && pm !== 'card') return `<span class="chip chip-amber" title="The customer has not used the check page for this order yet. Nudge them to check the account before paying.">⚠ NOT CHECKED</span>`;
+  return '';
+}
+
+// ── Oct 17 2026 (0.56) — red security alerts (Owner only) ──
+// A customer was sent a false account, or an official account was added / retired / reactivated / edited / released.
+// Shown as a red bar across the top of every screen AND as a red block on Command Centre until the Owner acknowledges it.
+let SEC_ALERTS = { count: 0, alerts: [] };
+async function secAlertsPoll() {
+  if(typeof ERP_ROLE === 'undefined' || ERP_ROLE !== 'owner') return;
+  const token = await erpGetAuthToken(); if(!token) return;
+  try {
+    const r = await fetch(`${BACKEND_URL}/payment-accounts/alerts`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if(!r.ok) return;
+    SEC_ALERTS = await r.json();
+  } catch(e) { return; }
+  renderSecAlerts();
+}
+function secAlertWhen(at) { try { return new Date(at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch(e) { return ''; } }
+function renderSecAlerts() {
+  const n = SEC_ALERTS.count || 0, list = SEC_ALERTS.alerts || [];
+  // 1) the bar across the top of every screen
+  let bar = document.getElementById('sec-alert-bar');
+  if(!n) { if(bar) bar.style.display = 'none'; document.body.style.paddingTop = ''; }
+  else {
+    if(!bar) {
+      const st = document.createElement('style');
+      st.textContent = '@keyframes secpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,60,60,.8)}50%{box-shadow:0 0 22px 6px rgba(255,60,60,.9)}}';
+      document.head.appendChild(st);
+      bar = document.createElement('div'); bar.id = 'sec-alert-bar';
+      bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#c4161c;color:#fff;font-family:'DM Mono',monospace;font-size:12px;padding:9px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;animation:secpulse 1.6s infinite";
+      document.body.appendChild(bar);
+    }
+    const first = list[0] || { message: 'Security alert' };
+    bar.innerHTML = `<span style="font-size:16px">🚨</span><strong>SECURITY ALERT${n > 1 ? ' (' + n + ')' : ''}</strong><span style="flex:1;min-width:200px">${escapeHtml(first.message)}</span>
+      <button type="button" onclick="switchModule('payaccts')" style="background:#fff;color:#c4161c;border:0;border-radius:5px;padding:5px 10px;font-weight:700;cursor:pointer">Open Payment Accounts</button>
+      <button type="button" onclick="secAlertAck(${first.id})" style="background:transparent;color:#fff;border:1px solid #fff;border-radius:5px;padding:5px 10px;cursor:pointer">I have seen this</button>`;
+    bar.style.display = 'flex';
+    document.body.style.paddingTop = Math.max(bar.offsetHeight, 40) + 'px';
+  }
+  // 2) the red block on Command Centre
+  const box = document.getElementById('dash-secalerts');
+  if(box) {
+    if(!n) { box.innerHTML = ''; box.style.display = 'none'; }
+    else {
+      box.style.display = 'block';
+      box.innerHTML = `<div style="border:2px solid #ff3c3c;background:rgba(196,22,28,.16);border-radius:10px;padding:14px 16px;margin-bottom:14px;animation:secpulse 1.6s infinite">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:20px">🚨</span><strong style="color:#ff6b6b;font-family:'Syne',sans-serif;font-size:15px">Security alert${n > 1 ? 's' : ''}: ${n} waiting for you</strong>
+          <button class="btn btn-ghost" style="margin-left:auto" onclick="switchModule('payaccts')">Open Payment Accounts</button>
+          ${n > 1 ? `<button class="btn btn-ghost" onclick="secAlertAck('all')">Acknowledge all</button>` : ''}</div>
+        ${list.slice(0, 6).map(a => `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid rgba(255,60,60,.25);font-family:'DM Mono',monospace;font-size:11px;color:var(--cream)">
+          <span style="flex:1">${escapeHtml(a.message)}<br><span style="color:var(--mist);font-size:9px">${secAlertWhen(a.at)}</span></span>
+          <button class="btn btn-ghost" style="font-size:10px;padding:3px 9px" onclick="secAlertAck(${a.id})">I have seen this</button></div>`).join('')}
+        ${n > list.length ? `<div style="font-size:10px;color:var(--mist);margin-top:4px">…and ${n - list.length} more.</div>` : ''}</div>`;
+    }
+  }
+}
+async function secAlertAck(which) {
+  const token = await erpGetAuthToken(); if(!token) return;
+  try {
+    const r = await fetch(`${BACKEND_URL}/payment-accounts/alerts/ack`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(which === 'all' ? { all: true } : { id: Number(which) }) });
+    if(!r.ok) { showToast('⚠ Could not acknowledge. Try again.'); return; }
+  } catch(e) { showToast('⚠ No connection. Try again.'); return; }
+  secAlertsPoll();
+}
+
+const ERP_PORTAL_ORIGIN = 'https://order.eggscore.com.ng';   // the one real customer address, wherever the ERP itself is opened from
+const ERP_QR_ROWS = ["11111110010010100111101111111", "10000010011110001010101000001", "10111010000100110110101011101", "10111010011111001011001011101", "10111010011000000010001011101", "10000010100110011101101000001", "11111110101010101010101111111", "00000000011001011111000000000", "10010110111000101000110100000", "00000001000011011000101001001", "11010011010101110101000111110", "01001001001011001010011100110", "00101111110010110101101001011", "11110000101011111001110000000", "00110110100001100100110111111", "10001101001000010110011001010", "00100111110111000111110000010", "01111000000011111100011101001", "10010011011010111100011000011", "00100100001100100101001100011", "10101011110010010000111110100", "00000000110000110000100010111", "11111110011100001100101010010", "10000010101100110000100011100", "10111010010100001100111110010", "10111010100000010101101011101", "10111010011110011001000011101", "10000010010100101111100010010", "11111110101001110010111101010"];
 const ERP_PAYCODES = {};
 async function erpPayCode(ref) {
   if(!ref) return null;
@@ -36243,7 +36332,7 @@ async function erpPaymentLines(ref, knownCode) {
   if(!code) { showToast('⚠ Could not get the Pay Code for this message (no connection?). Nothing was sent. Try again.'); return null; }
   return {
     block: accts.map(a => `🏦 ${a.bank} · ${a.accountName} · Acc: ${a.accountNumber}\n`).join(''),
-    footer: `🔑 *Pay Code:* ${code}\n🔎 Check any account before you pay: ${location.origin}/verify-payment.html\n`,
+    footer: `🔑 *Pay Code:* ${code}\n🔎 Check the account first: ${ERP_PORTAL_ORIGIN}/verify-payment.html\n📲 Always open EggScore at ${ERP_PORTAL_ORIGIN}. Save it to your home screen. Never pay from a link sent to you.\n`,
   };
 }
 
@@ -36346,6 +36435,19 @@ function generateOrderConfirmationPDF(ref) {
   const note = 'This confirms we have received your order and are reviewing it. Price and availability are estimates until the order is formally confirmed — a final invoice follows at that point.';
   const noteLines = doc.splitTextToSize(note, doc.internal.pageSize.getWidth()-36);
   doc.text(noteLines, 18, y); y += noteLines.length*5 + 10;
+
+  // Oct 17 2026 (0.56) — the real EggScore address as a QR code, so the customer learns to open EggScore only from here.
+  try {
+    const qs = 30, cell = qs / (ERP_QR_ROWS.length + 8), qx = 18, qy = y;
+    doc.setFillColor(255,255,255); doc.rect(qx, qy, qs, qs, 'F');
+    doc.setFillColor(0,0,0);
+    ERP_QR_ROWS.forEach((row, ry) => { for(let cx = 0; cx < row.length; cx++) if(row[cx] === '1') doc.rect(qx + (cx + 4) * cell, qy + (ry + 4) * cell, cell + 0.02, cell + 0.02, 'F'); });
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(40);
+    doc.text('Open the real EggScore only from this code or address:', qx + qs + 6, qy + 11);
+    doc.setFont('helvetica','normal'); doc.text(ERP_PORTAL_ORIGIN.replace('https://', ''), qx + qs + 6, qy + 17);
+    doc.text('Never pay from a link sent to you. Check the account first.', qx + qs + 6, qy + 23);
+    y = qy + qs + 8;
+  } catch(e) {}
 
   pdfDocFooter(doc);
   doc.save(`Order-Confirmation-${o.ref}.pdf`);
@@ -36557,7 +36659,7 @@ function renderEventLog() {
   if(filter === 'warn')       log = log.filter(e => e.level === 'warn');
   else if(filter === 'crit')  log = log.filter(e => e.level === 'crit');
   else if(filter)             log = log.filter(e => e.category === filter);
-  if(search) log = log.filter(e => (e.message||'').toLowerCase().includes(search) || (e.detail||'').toLowerCase().includes(search));
+  if(search) log = log.filter(e => (e.message||'').toLowerCase().includes(search) || evDetailText(e.detail).toLowerCase().includes(search));
 
   // KPIs
   const all   = loadEventLog();
@@ -36592,7 +36694,7 @@ function renderEventLog() {
     <div class="evlog-row">
       <div class="evlog-icon">${icon}</div>
       <div class="evlog-body">
-        <div class="evlog-event">${e.message}${e.detail?`<br><span style="color:var(--mist);font-size:9px">${e.detail}</span>`:''}</div>
+        <div class="evlog-event">${e.message}${evDetailText(e.detail)?`<br><span style="color:var(--mist);font-size:9px">${escapeHtml(evDetailText(e.detail))}</span>`:''}</div>
         <div class="evlog-meta">${ts} · ${e.category}</div>
       </div>
       <span class="evlog-badge ${badgeCls}">${e.level.toUpperCase()}</span>
@@ -36615,7 +36717,7 @@ function exportEventLog() {
   const rows    = log.map(e => [
     e.ts, e.category, e.level,
     `"${(e.message||'').replace(/"/g,'""')}"`,
-    `"${(e.detail||'').replace(/"/g,'""')}"`,
+    `"${evDetailText(e.detail).replace(/"/g,'""')}"`,
   ].join(','));
   const csv  = [headers.join(','), ...rows].join('\n');
   const blob = new Blob([csv], {type:'text/csv'});
@@ -37429,16 +37531,20 @@ async function payacctApi(path, opts) {
 }
 let payacctPendingRetire = null;
 async function renderPayAccounts() {
-  const lnk = document.getElementById('payacct-link'); if(lnk) lnk.textContent = location.origin + '/verify-payment.html';
+  const lnk = document.getElementById('payacct-link'); if(lnk) lnk.textContent = ERP_PORTAL_ORIGIN + '/verify-payment.html';
   const box = document.getElementById('payacct-list'), tag = document.getElementById('payacct-tag'); if(!box) return;
   let r; try { r = await payacctApi('/all'); } catch(e) { r = { ok: false }; }
   if(!r.ok) { box.innerHTML = `<div style="color:var(--red);font-family:'DM Mono',monospace;font-size:11px">Could not load the accounts${r.status === 403 ? ' (Owner only)' : ''}. Check your connection and press Refresh.</div>`; if(tag) tag.textContent = 'not loaded'; return; }
   const list = r.json.accounts || [];
-  STATE.paymentAccounts = list.filter(a => a.active).map(a => ({ id: a.id, bank: a.bank, accountName: a.accountName, accountNumber: a.accountNumber, label: a.label })); saveState();
-  const active = list.filter(a => a.active).length;
-  if(tag) tag.textContent = active ? `${active} active · customers can pay into these` : 'none active · customers are shown no account';
+  STATE.paymentAccounts = list.filter(a => a.active && !a.pending).map(a => ({ id: a.id, bank: a.bank, accountName: a.accountName, accountNumber: a.accountNumber, label: a.label })); saveState();
+  const active = list.filter(a => a.active && !a.pending).length, waiting = list.filter(a => a.pending).length;
+  if(tag) tag.textContent = (active ? `${active} live · customers can pay into these` : 'none live · customers are shown no account') + (waiting ? ` · ${waiting} waiting` : '');
   box.innerHTML = list.length ? `<div style="overflow-x:auto"><table class="data-table" id="payacct-table"><thead><tr><th>Bank</th><th>Account name</th><th>Number</th><th>Label</th><th>Status</th><th></th></tr></thead><tbody>${
-    list.map(a => `<tr style="${a.active ? '' : 'opacity:.55'}"><td data-label="Bank">${escapeHtml(a.bank)}</td><td data-label="Account name">${escapeHtml(a.accountName)}</td><td data-label="Number" class="mono">${escapeHtml(a.accountNumber)}</td><td data-label="Label">${escapeHtml(a.label || '—')}</td><td data-label="Status">${a.active ? '<span class="chip chip-lime">ACTIVE</span>' : '<span class="chip chip-amber">RETIRED</span>'}</td><td data-label=""><button class="btn btn-ghost" style="font-size:10px;padding:3px 9px" data-acct-id="${a.id}" onclick="payacctToggle(${a.id}, ${a.active ? 'false' : 'true'}, this)">${a.active ? 'Retire' : 'Reactivate'}</button></td></tr>`).join('')
+    list.map(a => {
+      const status = !a.active ? '<span class="chip chip-amber">RETIRED</span>' : (a.pending ? `<span class="chip chip-amber" title="Customers cannot see this account until then">WAITING · live ${escapeHtml(secAlertWhen(a.liveAt))}</span>` : '<span class="chip chip-lime">ACTIVE</span>');
+      const rel = a.pending ? `<button class="btn btn-ghost" style="font-size:10px;padding:3px 9px;margin-right:4px" data-acct-rel="${a.id}" onclick="payacctRelease(${a.id}, this)">Release now</button>` : '';
+      return `<tr style="${a.active ? '' : 'opacity:.55'}"><td data-label="Bank">${escapeHtml(a.bank)}</td><td data-label="Account name"><span id="payacct-nm-${a.id}">${escapeHtml(a.accountName)}</span> <button class="btn btn-ghost" style="font-size:9px;padding:1px 6px" onclick="payacctEditName(${a.id})">Edit name</button></td><td data-label="Number" class="mono">${escapeHtml(a.accountNumber)}</td><td data-label="Label">${escapeHtml(a.label || '—')}</td><td data-label="Status">${status}</td><td data-label="">${rel}<button class="btn btn-ghost" style="font-size:10px;padding:3px 9px" data-acct-id="${a.id}" onclick="payacctToggle(${a.id}, ${a.active ? 'false' : 'true'}, this)">${a.active ? 'Retire' : 'Reactivate'}</button></td></tr>`;
+    }).join('')
   }</tbody></table></div>` : `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--amber)">No accounts yet. Add your real accounts below. Until then customers see no account number.</div>`;
 }
 async function payacctAdd() {
@@ -37447,8 +37553,8 @@ async function payacctAdd() {
   const r = await payacctApi('', { method: 'POST', body: JSON.stringify(body) });
   if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not add the account.')); return; }
   ['payacct-bank', 'payacct-name', 'payacct-number', 'payacct-label'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
-  showToast('✓ Account added. Customers can see it now.');
-  renderPayAccounts();
+  showToast('✓ Account added. Customers can see it in 24 hours, or when you release it. A red alert was raised.');
+  renderPayAccounts(); secAlertsPoll();
 }
 async function payacctToggle(id, on, btn) {
   if(!on && payacctPendingRetire !== id) {
@@ -37460,18 +37566,44 @@ async function payacctToggle(id, on, btn) {
   const r = await payacctApi('/' + id, { method: 'PATCH', body: JSON.stringify({ active: on }) });
   if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not change the account.')); return; }
   showToast(on ? '✓ Account reactivated.' : '✓ Account retired. Customers will be told it is no longer ours.');
-  renderPayAccounts();
+  renderPayAccounts(); secAlertsPoll();
+}
+let payacctPendingRelease = null;
+async function payacctRelease(id, btn) {
+  if(payacctPendingRelease !== id) {
+    payacctPendingRelease = id; if(btn) { btn.textContent = 'Click again to release'; btn.style.color = 'var(--amber)'; }
+    setTimeout(() => { if(payacctPendingRelease === id) { payacctPendingRelease = null; if(btn && btn.isConnected) { btn.textContent = 'Release now'; btn.style.color = ''; } } }, 4000);
+    return;
+  }
+  payacctPendingRelease = null;
+  const r = await payacctApi('/' + id, { method: 'PATCH', body: JSON.stringify({ release: true }) });
+  if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not release the account.')); return; }
+  showToast('✓ Released. Customers can see this account now. A red alert was raised.');
+  syncPaymentAccountsFromBackend(); renderPayAccounts(); secAlertsPoll();
+}
+function payacctEditName(id) {
+  const span = document.getElementById('payacct-nm-' + id); if(!span || span.dataset.editing) return;
+  span.dataset.editing = '1';
+  const cur = span.textContent;
+  span.innerHTML = `<input class="form-input" id="payacct-nm-in-${id}" type="text" value="${escapeHtml(cur)}" style="min-width:180px;padding:3px 6px;font-size:11px"> <button class="btn btn-primary" style="font-size:10px;padding:3px 9px" onclick="payacctSaveName(${id})">Save</button> <button class="btn btn-ghost" style="font-size:10px;padding:3px 9px" onclick="renderPayAccounts()">Cancel</button>`;
+}
+async function payacctSaveName(id) {
+  const el = document.getElementById('payacct-nm-in-' + id); const v = el ? el.value.trim() : ''; if(!v) { showToast('⚠ Enter the account name.'); return; }
+  const r = await payacctApi('/' + id, { method: 'PATCH', body: JSON.stringify({ accountName: v }) });
+  if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not save the name.')); return; }
+  showToast('✓ Name saved.'); syncPaymentAccountsFromBackend(); renderPayAccounts(); secAlertsPoll();
 }
 async function payacctTest() {
   const n = (document.getElementById('payacct-test') || {}).value || '', out = document.getElementById('payacct-test-res'); if(!out) return;
   const r = await payacctApi('/verify', { method: 'POST', body: JSON.stringify({ accountNumber: n }) });
   const j = r.json || {};
   if(!r.ok) { out.style.color = 'var(--amber)'; out.textContent = j.error || 'Could not check.'; return; }
-  if(j.official) { out.style.color = 'var(--lime)'; out.textContent = '✓ Genuine: ' + j.bank + ' · ' + j.accountName; }
+  if(j.pending) { out.style.color = 'var(--amber)'; out.textContent = '⏳ Waiting. Customers are told it is not in use yet.'; }
+  else if(j.official) { out.style.color = 'var(--lime)'; out.textContent = '✓ Genuine: ' + j.bank + ' · ' + j.accountName; }
   else { out.style.color = 'var(--red)'; out.textContent = j.retired ? '✗ Retired. Customers are told it is no longer ours.' : '✗ Not an EggScore account. Customers are told not to pay it.'; }
 }
 function payacctCopyLink() {
-  const t = location.origin + '/verify-payment.html';
+  const t = ERP_PORTAL_ORIGIN + '/verify-payment.html';
   try { navigator.clipboard.writeText(t).then(() => showToast('✓ Link copied.'), () => showToast(t)); } catch(e) { showToast(t); }
 }
 
@@ -39776,6 +39908,8 @@ document.addEventListener('DOMContentLoaded', () => {
   syncReservationSettingsFromBackend();
   syncLogisticsSettingsFromBackend();
   syncPaymentAccountsFromBackend();
+  setTimeout(secAlertsPoll, 5000); setInterval(secAlertsPoll, 30000);   // Oct 17 2026 (0.56) — red security alerts, Owner only
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) secAlertsPoll(); });
   syncProcurementReminderSettingsFromBackend();
   syncBrandingReadinessSettingsFromBackend();
   syncTimeValueRateBandFromBackend(); // Sep 27 2026 fix — must sync before the rate below, see saveTimeValueRateBand()
