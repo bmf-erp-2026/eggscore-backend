@@ -5780,7 +5780,7 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div id="pin-prompt-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--red);min-height:18px;margin-bottom:12px"></div>
     <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-bottom:14px">
-      PIN locked after 3 failed attempts for 30 minutes. A security alert will be sent via WhatsApp.
+      The PIN is checked on the server. 3 wrong tries lock it for 30 minutes and raise a red alert on your phone.
     </div>
     <div class="submit-btns">
       <button class="btn btn-ghost" onclick="cancelPinPrompt()">Cancel</button>
@@ -5849,9 +5849,14 @@ input[type=number]{-moz-appearance:textfield;}
       <input class="form-input" type="password" id="rec-confirm" placeholder="Repeat new PIN" maxlength="8"/>
     </div>
     <div id="rec-err" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--red);min-height:18px;margin-bottom:12px"></div>
+    <div id="rec-newcode-section" style="display:none;background:rgba(61,214,192,0.07);border:1px solid rgba(61,214,192,0.3);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--teal);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Your NEW Recovery Code — Write This Down Now</div>
+      <div id="rec-newcode" style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--lime);letter-spacing:4px;margin-bottom:6px"></div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist)">Your PIN is reset. The old recovery code no longer works. This new code will NOT be shown again.</div>
+    </div>
     <div class="submit-btns">
-      <button class="btn btn-ghost" onclick="closeModal('modal-pin-recovery')">Cancel</button>
-      <button class="btn btn-primary" onclick="submitPinRecovery()">🔓 Reset PIN</button>
+      <button class="btn btn-ghost" id="rec-cancel-btn" onclick="closeModal('modal-pin-recovery')">Cancel</button>
+      <button class="btn btn-primary" id="rec-submit-btn" onclick="submitPinRecovery()">🔓 Reset PIN</button>
     </div>
   </div>
 </div>
@@ -6929,10 +6934,11 @@ input[type=number]{-moz-appearance:textfield;}
       <div style="margin-top:10px;padding:12px 14px;background:var(--raised);border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
           <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:3px">🔑 Owner Override PIN</div>
-          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--dust);line-height:1.6">SHA-256 hashed · Lockout after 3 failed attempts · WA security alert on lockout</div>
+          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--dust);line-height:1.6">Checked on the server only · 3 wrong tries lock it for 30 minutes · red alert + phone push</div>
           <div id="pin-set-status" style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:3px"></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost" style="font-size:9px;padding:4px 10px" onclick="testOwnerPin()">✔ Test PIN</button>
           <button class="btn btn-ghost" style="font-size:9px;padding:4px 10px" onclick="openChangePinModal()">🔑 Change PIN</button>
           <button class="btn btn-ghost" style="font-size:9px;padding:4px 10px" onclick="openRecoveryModal()">🔓 Use Recovery Code</button>
         </div>
@@ -12569,10 +12575,11 @@ const DEFAULT_STATE = {
   badDebtRecoveries: [], // money recovered later against a bad debt
   creditOverrideLog: [], // { id, customerName, reason, exposure, creditLimit, overriddenAt, overriddenBy: 'owner' }
   ownerPin: null,         // DEPRECATED — migrated to ownerPinHash
-  ownerPinHash: null,     // SHA-256 hash of PIN — never stores plaintext
+  ownerPinHash: null,     // DEPRECATED (0.64) — the PIN is checked on the server; no hash is kept on any device
   ownerPinRecoveryHash: null, // SHA-256 hash of one-time recovery code
   ownerPinLockoutUntil: null, // ISO timestamp — PIN locked until this time
   ownerPinSetAt: null,    // ISO timestamp — when PIN was last changed
+  ownerPinIsSet: false,   // 0.64 — whether the server holds a PIN (never the PIN or its hash)
   overpayments: [], // { id, customerName, invoiceRef, invoiceAmount, amountReceived, excess, resolution, walletCredited, date, recordedBy, notes }
   walletTransactions: [], // { id, customerName, type: 'credit'|'applied'|'refund_pending', amount, ref, date, notes }
   paymentHolds: [], // { id, orderRef, customerName, holdType, txRef, claimedAmount, claimedAt, verifiedAt, releasedBy, releasedAt, notes, status }
@@ -14093,10 +14100,10 @@ function renderPricePanel() {
   if(pinStatus) {
     if(STATE.ownerPinSetAt) {
       pinStatus.textContent = `Last changed: ${new Date(STATE.ownerPinSetAt).toLocaleDateString('en-GB')}`;
-    } else if(STATE.ownerPinHash) {
-      pinStatus.textContent = 'PIN set (migrated from previous version)';
+    } else if(STATE.ownerPinIsSet) {
+      pinStatus.textContent = 'PIN set';
     } else {
-      pinStatus.textContent = '⚠ No PIN set — default 0000 is active. Change immediately.';
+      pinStatus.textContent = '⚠ No Owner PIN is set yet. Set one now with Change PIN.';
       pinStatus.style.color = 'var(--amber)';
     }
   }
@@ -14594,8 +14601,7 @@ async function confirmStopLossOverride() {
 
   const result = await verifyPin(pin);
   if(!result.ok) {
-    if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(result));
     return;
   }
 
@@ -15330,8 +15336,7 @@ async function confirmEditTerms() {
 
   const result = await verifyPin(pin);
   if(!result.ok) {
-    if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(result));
     return;
   }
 
@@ -24696,6 +24701,7 @@ async function postSpecialVolumeThresholdToBackend(crates, updatedBy) {
 // closes the gap where a lockout on one device wouldn't stop a retry
 // attempt on another (deliberate decision, see memory).
 async function syncOwnerPinFromBackend() {
+  scrubOwnerPinLocal();   // 0.64: no PIN hash is kept on this device any more, so wipe any an earlier version saved
   const token = await erpGetAuthToken();
   if(!token) return;
   try {
@@ -24703,25 +24709,11 @@ async function syncOwnerPinFromBackend() {
     if(!resp.ok) return;
     const data = await resp.json();
     if(!data.pin) return;
-    STATE.ownerPinHash = data.pin.hash;
-    STATE.ownerPinRecoveryHash = data.pin.recoveryHash;
-    STATE.ownerPinSetAt = data.pin.setAt;
-    STATE.ownerPinLockoutUntil = data.pin.lockoutUntil || null;
+    STATE.ownerPinIsSet = !!data.pin.set;
+    STATE.ownerPinSetAt = data.pin.setAt || null;
     saveState();
-  } catch(networkErr) {}
-}
-async function postOwnerPinToBackend(pin, updatedBy, proof) {
-  const token = await erpGetAuthToken();
-  if(!token) return;
-  // 0.60: changing the PIN needs proof of the current PIN, or of the recovery code, so the server never takes a swap on the login alone.
-  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-  if(proof && proof.pin) headers['x-owner-pin'] = proof.pin;
-  if(proof && proof.recovery) headers['x-owner-recovery'] = proof.recovery;
-  try {
-    await fetch(`${BACKEND_URL}/settings/owner-pin`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify({ pin, updatedBy: updatedBy || null }),
-    });
+    const st = document.getElementById('pin-set-status');
+    if(st) st.textContent = STATE.ownerPinSetAt ? `Last changed: ${new Date(STATE.ownerPinSetAt).toLocaleDateString('en-GB')}` : 'PIN set';
   } catch(networkErr) {}
 }
 
@@ -24857,8 +24849,7 @@ async function submitDeleteBatch() {
 
   const pinResult = await verifyPin(pin);
   if(!pinResult.ok) {
-    if(pinResult.reason === 'locked') showToast(`🔒 PIN locked for ${pinResult.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${pinResult.remaining} attempt${pinResult.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(pinResult));
     return;
   }
 
@@ -27096,8 +27087,7 @@ async function confirmReversal() {
     if(!pin) { showToast('⚠ Enter the owner PIN to authorise this reversal.'); return; }
     const result = await verifyPin(pin);
     if(!result.ok) {
-      if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-      else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+      showToast(pinFailText(result));
       return;
     }
   }
@@ -27983,8 +27973,7 @@ async function confirmBadDebt() {
   if(!pin) { showToast('⚠ Enter the Owner PIN to approve this write-off.'); return; }
   const result = await verifyPin(pin);
   if(!result.ok) {
-    if(result.reason === 'locked' || result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining !== 1 ? 's' : ''} remaining.`);
+    showToast(pinFailText(result));
     return;
   }
   const split = (s.rep && s.rep !== 'Direct') ? badDebtCommissionSplit(s, unpaid) : { commOnUnpaid: 0, held: 0, kept: 0 };
@@ -28780,7 +28769,7 @@ async function fuSubmit() {
           const pin = document.getElementById('fu-pin').value;
           if(!pin) { err.textContent = 'Enter the Owner PIN to change the crates.'; return; }
           const pr = await verifyPin(pin);
-          if(!pr.ok) { err.textContent = pr.reason === 'locked' ? 'PIN locked for ' + pr.mins + ' more minute(s).' : 'Incorrect PIN. ' + pr.remaining + ' attempt(s) remaining.'; return; }
+          if(!pr.ok) { err.textContent = pinFailText(pr); return; }
         }
         const old = { crates: o.crates, eggSubtotal: o.eggSubtotal, deliveryTotal: o.deliveryTotal, grandTotal: o.grandTotal };
         const price = o.lockedPrice || o.pricePerCrate || 0, perDel = (o.deliveryTotal || 0) / (o.crates || 1);
@@ -31042,8 +31031,7 @@ async function confirmOrderAbuseOverride() {
 
   const result = await verifyPin(pin);
   if(!result.ok) {
-    if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(result));
     return;
   }
 
@@ -35797,8 +35785,7 @@ async function submitVolumeAdjustment() {
 
   const pinResult = await verifyPin(pin);
   if(!pinResult.ok) {
-    if(pinResult.reason === 'locked') showToast(`🔒 PIN locked for ${pinResult.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${pinResult.remaining} attempt${pinResult.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(pinResult));
     return;
   }
 
@@ -37638,11 +37625,11 @@ async function payacctForgotConfirm() {
     const r = await payacctApi('/forgot/confirm', { method: 'POST', body: JSON.stringify({ code, newPin: np }) });
     if(!r.ok) { er.textContent = '\u{1F6AB} ' + ((r.json && r.json.error) || 'Could not set the PIN. Try again.'); if(r.status === 429 || (r.json && /expired|cancelled/i.test(r.json.error || ''))) setTimeout(payacctForgotCancel, 2500); return; }
     // The server now holds the new PIN. Update this device's copy so the ERP's other PIN boxes accept it straight away.
-    try { STATE.ownerPinHash = await hashPin(np); STATE.ownerPinLockoutUntil = null; STATE.ownerPinSetAt = new Date().toISOString(); STATE.ownerPin = null; resetPinAttempts(); saveState(); } catch(e) {}
+    try { STATE.ownerPinSetAt = new Date().toISOString(); STATE.ownerPinIsSet = true; scrubOwnerPinLocal(); saveState(); } catch(e) {}
     try { logCrit('security', 'Owner PIN changed with a one-time code', ''); } catch(e) {}
     PAYACCT_PIN = np; payacctForgotCancel();
     const mod = document.getElementById('mod-payaccts'); if(mod) mod.classList.remove('payacct-locked');
-    showToast('\u2713 New PIN set. Other devices pick it up the next time they load the ERP.');
+    showToast('\u2713 New PIN set. It works on every device straight away.');
     renderPayAccounts(); secAlertsPoll();
   } catch(e) { er.textContent = 'No connection. Try again.'; }
   finally { if(btn) btn.disabled = false; }
@@ -38457,8 +38444,7 @@ async function confirmCreditOverride() {
 
   const result = await verifyPin(pin);
   if(!result.ok) {
-    if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(result));
     return;
   }
 
@@ -38525,8 +38511,7 @@ async function confirmAttestationOverride() {
 
   const result = await verifyPin(pin);
   if(!result.ok) {
-    if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(result));
     return;
   }
 
@@ -39000,8 +38985,7 @@ function confirmPaymentVerified() {
     if(pin === null) return; // cancelled — payment stays unverified
     verifyPin(pin).then(result => {
       if(!result.ok) {
-        if(result.reason === 'locked') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-        else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+        showToast(pinFailText(result));
         return;
       }
       finalizePaymentVerification(o, orders, amount, notes, remainingAfterWallet);
@@ -39119,8 +39103,7 @@ async function confirmReleaseHold() {
   if(!pin)     { showToast('⚠ Enter the owner PIN.'); return; }
   const result = await verifyPin(pin);
   if(!result.ok) {
-    if(result.reason === 'lockout') showToast(`🔒 PIN locked for ${result.mins} more minute(s).`);
-    else showToast(`🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`);
+    showToast(pinFailText(result));
     return;
   }
   const hold = STATE.paymentHolds?.find(h => h.orderRef === ref && h.status === 'held');
@@ -39808,92 +39791,59 @@ function sendCreditReminderWA(customerName) {
    current-PIN verification, full audit trail.
 ═══════════════════════════════════════════════════════ */
 
-// ── Hash a PIN string using Web Crypto (async, SHA-256) ──
-async function hashPin(pin) {
-  const encoder = new TextEncoder();
-  const data    = encoder.encode(pin + 'bel_eggscore_salt_2026');
-  const hashBuf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuf))
-    .map(b => b.toString(16).padStart(2,'0')).join('');
+// ── The PIN is checked on the SERVER only (0.64) ──
+// No hash of the PIN is ever sent to this browser or kept on this device. Whatever is typed goes to POST /owner-pin/verify;
+// the server counts wrong tries (ONE lock for the whole system: 3 wrong tries = 30 minutes, red alert + phone push).
+// So the old on-device lock check and attempt counter are gone: the server is the only judge.
+function isPinLockedOut() { return false; }
+function pinLockoutRemainingMins() { return 0; }
+
+// Remove any PIN hash / old plaintext PIN an earlier version left in this browser's saved data.
+function scrubOwnerPinLocal() {
+  try {
+    let dirty = false;
+    ['ownerPin', 'ownerPinHash', 'ownerPinRecoveryHash', 'ownerPinLockoutUntil'].forEach(k => { if(STATE[k]) { STATE[k] = null; dirty = true; } });
+    try { sessionStorage.removeItem('bel_pin_attempts'); } catch(e) {}
+    if(dirty) saveState();
+  } catch(e) {}
 }
 
-// ── Generate a random 8-character alphanumeric recovery code ──
-function generateRecoveryCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no confusable chars
-  return Array.from(crypto.getRandomValues(new Uint8Array(8)))
-    .map(b => chars[b % chars.length]).join('');
+// Talk to the PIN routes. Returns { ok, status, json, offline }.
+async function ownerPinApi(path, body) {
+  const token = await erpGetAuthToken();
+  if(!token) return { ok: false, status: 0, json: { error: 'You are signed out. Sign in again, then try once more.' }, offline: true };
+  try {
+    const resp = await fetch(`${BACKEND_URL}/owner-pin${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(body || {}) });
+    let json = null; try { json = await resp.json(); } catch(e) {}
+    return { ok: resp.ok, status: resp.status, json: json || {}, offline: false };
+  } catch(e) { return { ok: false, status: 0, json: { error: 'No connection. The PIN cannot be checked offline.' }, offline: true }; }
 }
 
-// ── Check if PIN is currently locked out ──
-function isPinLockedOut() {
-  if(!STATE.ownerPinLockoutUntil) return false;
-  return new Date() < new Date(STATE.ownerPinLockoutUntil);
-}
-
-function pinLockoutRemainingMins() {
-  if(!STATE.ownerPinLockoutUntil) return 0;
-  const ms = new Date(STATE.ownerPinLockoutUntil) - new Date();
-  return Math.max(0, Math.ceil(ms / 60000));
-}
-
-// ── Attempt counter in sessionStorage (survives tab refresh
-//    but clears when browser closes — can't be wiped by
-//    clearing localStorage without also losing all app data) ──
-function getPinAttempts() { return parseInt(sessionStorage.getItem('bel_pin_attempts') || '0'); }
-function incPinAttempts() { sessionStorage.setItem('bel_pin_attempts', getPinAttempts() + 1); }
-function resetPinAttempts(){ sessionStorage.removeItem('bel_pin_attempts'); }
-
-// ── Core verify function — returns {ok, reason} ──
+// ── Core verify function — returns {ok, reason}. reason: 'lockout' | 'wrong' | 'offline' | 'unset' | 'error' ──
 async function verifyPin(enteredPin) {
-  // Lockout check
-  if(isPinLockedOut()) {
-    return { ok: false, reason: `locked`, mins: pinLockoutRemainingMins() };
-  }
+  const r = await ownerPinApi('/verify', { pin: String(enteredPin || '') });
+  if(r.ok && r.json && r.json.ok) return { ok: true };
+  if(r.offline) return { ok: false, reason: 'offline', message: r.json.error };
+  if(r.status === 423 || (r.json && r.json.locked)) return { ok: false, reason: 'lockout', mins: (r.json && r.json.mins) || 30 };
+  if(r.status === 401 && r.json && r.json.pinRequired) return { ok: false, reason: 'wrong', remaining: r.json.remaining == null ? 0 : r.json.remaining };
+  if(r.status === 409) return { ok: false, reason: 'unset', message: r.json.error };
+  return { ok: false, reason: 'error', message: (r.json && r.json.error) || ('The server could not check the PIN (' + r.status + ').') };
+}
 
-  // Migration: if still using plaintext legacy pin, auto-migrate silently
-  if(STATE.ownerPin && !STATE.ownerPinHash) {
-    STATE.ownerPinHash = await hashPin(STATE.ownerPin);
-    STATE.ownerPin     = null;
-    saveState();
-  }
+// One sentence for any failed verifyPin() result, used by every PIN box.
+function pinFailText(r) {
+  r = r || {};
+  if(r.reason === 'lockout' || r.reason === 'locked') return `🔒 PIN locked for ${r.mins || 30} more minute(s). A red alert was raised.`;
+  if(r.reason === 'wrong') return `🚫 Incorrect PIN. ${r.remaining} attempt${r.remaining !== 1 ? 's' : ''} remaining before the lock.`;
+  if(r.reason === 'offline') return '⚠ ' + (r.message || 'No connection. The PIN cannot be checked offline.');
+  return '⚠ ' + ((r && r.message) || 'The PIN could not be checked. Try again.');
+}
 
-  // If no PIN has ever been set, default 0000
-  if(!STATE.ownerPinHash) {
-    STATE.ownerPinHash = await hashPin('0000');
-    saveState();
-  }
-
-  const entered = await hashPin(enteredPin);
-  if(entered === STATE.ownerPinHash) {
-    resetPinAttempts();
-    return { ok: true };
-  }
-
-  // Wrong PIN
-  incPinAttempts();
-  const attempts = getPinAttempts();
-  const remaining = Math.max(0, 3 - attempts);
-
-  if(attempts >= 3) {
-    // Lockout for 30 minutes
-    const until = new Date(Date.now() + 30 * 60000).toISOString();
-    STATE.ownerPinLockoutUntil = until;
-    saveState();
-    postOwnerPinToBackend({ hash: STATE.ownerPinHash, recoveryHash: STATE.ownerPinRecoveryHash, setAt: STATE.ownerPinSetAt, lockoutUntil: until }, 'Admin');
-    logCrit('security',
-      `PIN lockout triggered — 3 consecutive failed attempts`,
-      `Function attempted: owner override · Locked until: ${new Date(until).toLocaleTimeString('en-GB')}`
-    );
-    // Pre-compose WA alert to Bob's number (first customer tagged as owner, or first rep)
-    const ownerPhone = STATE.reps?.[0]?.phone || '';
-    if(ownerPhone) {
-      const msg = encodeURIComponent(`⚠ EggScore Security Alert: 3 failed PIN attempts on your ERP system at ${new Date().toLocaleTimeString('en-GB')}. PIN is locked for 30 minutes. If this was not you, investigate immediately.`);
-      window.open(`https://wa.me/${ownerPhone.replace(/\D/g,'')}?text=${msg}`, '_blank');
-    }
-    return { ok: false, reason: 'lockout', mins: 30 };
-  }
-
-  return { ok: false, reason: 'wrong', remaining };
+// Settings → "Test PIN": opens the normal PIN pop-up and says whether what was typed is the real Owner PIN (checked on the server).
+// Nothing is changed. A wrong PIN counts toward the same 3-tries lock as everywhere else.
+async function testOwnerPin() {
+  const okPin = await promptPin('Test only: type your Owner PIN to check it works. Nothing will be changed.');
+  showToast(okPin ? '✓ That is the right Owner PIN (checked on the server).' : 'PIN test cancelled.');
 }
 
 // ── Unified PIN prompt used by all three override sites ──
@@ -39914,20 +39864,15 @@ async function submitPinPrompt() {
   const pin = document.getElementById('pin-prompt-input')?.value || '';
   const errEl= document.getElementById('pin-prompt-err');
 
-  if(isPinLockedOut()) {
-    errEl.textContent = `🔒 PIN locked for ${pinLockoutRemainingMins()} more minute(s). Try again later.`;
-    return;
-  }
-
   const result = await verifyPin(pin);
   if(result.ok) {
     closeModal('modal-pin-prompt');
     if(_pinResolve) { _pinResolve(true); _pinResolve = null; }
   } else if(result.reason === 'lockout') {
-    errEl.textContent = `🔒 PIN locked for 30 minutes after 3 failed attempts. A WhatsApp security alert has been sent.`;
+    errEl.textContent = `🔒 PIN locked for ${result.mins || 30} minutes after 3 wrong tries. A red alert was raised.`;
     setTimeout(() => { closeModal('modal-pin-prompt'); if(_pinResolve){ _pinResolve(false); _pinResolve=null; } }, 2000);
   } else {
-    errEl.textContent = `🚫 Incorrect PIN. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining before lockout.`;
+    errEl.textContent = pinFailText(result);
   }
 }
 
@@ -39951,62 +39896,51 @@ async function submitChangePin() {
   const newPin  = document.getElementById('cp-new')?.value || '';
   const confirm = document.getElementById('cp-confirm')?.value || '';
   const errEl   = document.getElementById('cp-err');
+  const btn     = document.getElementById('cp-submit-btn');
 
-  if(isPinLockedOut()) {
-    errEl.textContent = `🔒 PIN locked for ${pinLockoutRemainingMins()} more minute(s).`;
-    return;
-  }
   if(newPin.length < 4) { errEl.textContent = '⚠ New PIN must be at least 4 characters.'; return; }
   if(newPin !== confirm) { errEl.textContent = '⚠ New PIN and confirmation do not match.'; return; }
 
-  const result = await verifyPin(current);
-  if(!result.ok) {
-    if(result.reason === 'lockout') {
-      errEl.textContent = `🔒 PIN locked for 30 minutes after 3 failed attempts.`;
-    } else {
-      errEl.textContent = `🚫 Current PIN incorrect. ${result.remaining} attempt${result.remaining!==1?'s':''} remaining.`;
+  if(btn) btn.disabled = true; errEl.textContent = '';
+  try {
+    // The server checks the current PIN, makes the recovery code, stores only hashes, and raises a red alert.
+    const r = await ownerPinApi('/change', { currentPin: current, newPin });
+    if(!r.ok) {
+      errEl.textContent = '🚫 ' + ((r.json && r.json.error) || 'The PIN could not be changed. Nothing was changed.');
+      return;
     }
-    return;
-  }
+    STATE.ownerPinSetAt = (r.json && r.json.setAt) || new Date().toISOString();
+    STATE.ownerPinIsSet = true;
+    scrubOwnerPinLocal();
 
-  // Generate recovery code and hash both
-  const recoveryCode = generateRecoveryCode();
-  const [newHash, recoveryHash] = await Promise.all([hashPin(newPin), hashPin(recoveryCode)]);
+    if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
+    const pinEntry = {
+      id: 'pinchg' + Date.now(), type: 'pin_change',
+      changedAt: STATE.ownerPinSetAt,
+      note: 'PIN changed via Change PIN flow (checked on the server)',
+    };
+    STATE.creditOverrideLog.unshift(pinEntry);
+    postCreditOverrideToBackend(pinEntry);
+    saveState();
 
-  const oldHash = STATE.ownerPinHash;
-  STATE.ownerPinHash         = newHash;
-  STATE.ownerPinRecoveryHash = recoveryHash;
-  STATE.ownerPinLockoutUntil = null;
-  STATE.ownerPinSetAt        = new Date().toISOString();
-  STATE.ownerPin             = null; // clear any legacy plaintext
-  resetPinAttempts();
+    // Show recovery code — displayed ONCE, never stored here
+    document.getElementById('cp-recovery-code').textContent = (r.json && r.json.recoveryCode) || '';
+    document.getElementById('cp-recovery-section').style.display = 'block';
+    document.getElementById('cp-current').value = '';
+    document.getElementById('cp-new').value     = '';
+    document.getElementById('cp-confirm').value = '';
+    const st = document.getElementById('pin-set-status'); if(st) st.textContent = `Last changed: ${new Date(STATE.ownerPinSetAt).toLocaleDateString('en-GB')}`;
 
-  if(!STATE.creditOverrideLog) STATE.creditOverrideLog = [];
-  const pinEntry = {
-    id: 'pinchg' + Date.now(), type: 'pin_change',
-    changedAt: STATE.ownerPinSetAt,
-    note: 'PIN changed via Change PIN flow — previous hash archived for audit',
-    previousHash: oldHash?.slice(0,8) + '…', // partial hash only — not reversible
-  };
-  STATE.creditOverrideLog.unshift(pinEntry);
-  postCreditOverrideToBackend(pinEntry); // Aug 28 fix — was local-only before
-  saveState();
-  postOwnerPinToBackend({ hash: newHash, recoveryHash, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin', { pin: current });
-
-  // Show recovery code — displayed ONCE, never stored in plaintext
-  document.getElementById('cp-recovery-code').textContent = recoveryCode;
-  document.getElementById('cp-recovery-section').style.display = 'block';
-  document.getElementById('cp-current').value = '';
-  document.getElementById('cp-new').value     = '';
-  document.getElementById('cp-confirm').value = '';
-  errEl.textContent = '';
-
-  logCrit('security', 'Owner PIN changed successfully', 'Recovery code generated and shown once.');
-  showToast('✓ PIN changed. Copy your recovery code now — it will not be shown again.');
+    logCrit('security', 'Owner PIN changed successfully', 'Recovery code generated and shown once.');
+    showToast('✓ PIN changed. Copy your recovery code now — it will not be shown again.');
+  } finally { if(btn) btn.disabled = false; }
 }
 
 // ── Recovery flow — use recovery code to reset PIN ────
 function openRecoveryModal() {
+  const ns = document.getElementById('rec-newcode-section'); if(ns) ns.style.display = 'none';
+  const sb = document.getElementById('rec-submit-btn'); if(sb) sb.style.display = '';
+  const cb = document.getElementById('rec-cancel-btn'); if(cb) cb.textContent = 'Cancel';
   document.getElementById('rec-code').value = '';
   document.getElementById('rec-new').value  = '';
   document.getElementById('rec-confirm').value = '';
@@ -40019,37 +39953,34 @@ async function submitPinRecovery() {
   const newPin  = document.getElementById('rec-new')?.value || '';
   const confirm = document.getElementById('rec-confirm')?.value || '';
   const errEl   = document.getElementById('rec-err');
+  const btn     = document.getElementById('rec-submit-btn');
 
   if(!code)            { errEl.textContent = '⚠ Enter your recovery code.'; return; }
   if(newPin.length < 4){ errEl.textContent = '⚠ New PIN must be at least 4 characters.'; return; }
   if(newPin !== confirm){ errEl.textContent = '⚠ New PIN and confirmation do not match.'; return; }
 
-  if(!STATE.ownerPinRecoveryHash) {
-    errEl.textContent = '⚠ No recovery code on file. Contact system administrator.';
-    return;
-  }
-
-  const codeHash = await hashPin(code);
-  if(codeHash !== STATE.ownerPinRecoveryHash) {
-    logCrit('security', 'Failed PIN recovery attempt — incorrect recovery code', '');
-    errEl.textContent = '🚫 Incorrect recovery code.';
-    return;
-  }
-
-  // Valid recovery — set new PIN, invalidate recovery code (one-time use)
-  const [newHash, newRecovery] = await Promise.all([hashPin(newPin), hashPin(generateRecoveryCode())]);
-  STATE.ownerPinHash         = newHash;
-  STATE.ownerPinRecoveryHash = newRecovery; // immediately replaced — old code can't be reused
-  STATE.ownerPinLockoutUntil = null;
-  STATE.ownerPinSetAt        = new Date().toISOString();
-  STATE.ownerPin             = null;
-  resetPinAttempts();
-  saveState();
-  postOwnerPinToBackend({ hash: newHash, recoveryHash: newRecovery, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin', { recovery: code });
-
-  closeModal('modal-pin-recovery');
-  logCrit('security', 'PIN reset via recovery code — new PIN set', '');
-  showToast('✓ PIN reset successfully. Your old recovery code is now invalid — generate a new one from Settings.');
+  if(btn) btn.disabled = true; errEl.textContent = '';
+  try {
+    // The server checks the recovery code (same 3-tries lock as the PIN), sets the new PIN and makes a NEW recovery code.
+    const r = await ownerPinApi('/recover', { code, newPin });
+    if(!r.ok) {
+      if(!(r.json && r.json.error) || r.status === 0) logCrit('security', 'PIN recovery attempt could not be completed', '');
+      errEl.textContent = '🚫 ' + ((r.json && r.json.error) || 'The PIN could not be reset. Nothing was changed.');
+      return;
+    }
+    STATE.ownerPinSetAt = (r.json && r.json.setAt) || new Date().toISOString();
+    STATE.ownerPinIsSet = true;
+    scrubOwnerPinLocal(); saveState();
+    // The old code is dead. Show the NEW one once, in this box.
+    document.getElementById('rec-newcode').textContent = (r.json && r.json.recoveryCode) || '';
+    document.getElementById('rec-newcode-section').style.display = 'block';
+    ['rec-code', 'rec-new', 'rec-confirm'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
+    if(btn) { btn.style.display = 'none'; }
+    const cb = document.getElementById('rec-cancel-btn'); if(cb) cb.textContent = 'Close';
+    const st = document.getElementById('pin-set-status'); if(st) st.textContent = `Last changed: ${new Date(STATE.ownerPinSetAt).toLocaleDateString('en-GB')}`;
+    logCrit('security', 'PIN reset via recovery code — new PIN set', '');
+    showToast('✓ PIN reset. Copy your NEW recovery code now — it will not be shown again.');
+  } finally { if(btn) btn.disabled = false; }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
