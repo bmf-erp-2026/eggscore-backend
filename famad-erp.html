@@ -8062,11 +8062,12 @@ input[type=number]{-moz-appearance:textfield;}
       <div id="payacct-pinbox">
         <button class="btn btn-primary" id="payacct-unlock-btn" onclick="payacctUnlock()">🔑 Unlock</button>
         <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:12px">3 wrong PINs lock this page for 30 minutes and raise a red alert. The page locks again every time you leave it.</div>
-        <div style="margin-top:14px"><a href="#" id="payacct-forgot-link" onclick="payacctForgotStart(); return false;" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue)">Forgot your PIN? Email me a code</a></div>
+        <div style="margin-top:14px"><a href="#" id="payacct-forgot-link" onclick="payacctForgotStart('email'); return false;" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue)">Forgot your PIN? Email me a code</a></div>
+        <div style="margin-top:8px"><a href="#" id="payacct-forgot-sms-link" onclick="payacctForgotStart('phone'); return false;" style="display:none;font-family:'DM Mono',monospace;font-size:11px;color:var(--blue)">Or text me a code</a></div>
       </div>
       <div id="payacct-forgot" style="display:none">
         <div id="payacct-forgot-msg" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin:4px 0 12px"></div>
-        <input class="form-input" id="payacct-fcode" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6-digit code from the email" style="text-align:center;max-width:240px;margin:0 auto 8px auto">
+        <input class="form-input" id="payacct-fcode" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6-digit code" style="text-align:center;max-width:240px;margin:0 auto 8px auto">
         <input class="form-input" id="payacct-fnew" type="password" maxlength="8" autocomplete="new-password" placeholder="New PIN (4 to 8 characters)" style="text-align:center;max-width:240px;margin:0 auto 8px auto">
         <input class="form-input" id="payacct-fnew2" type="password" maxlength="8" autocomplete="new-password" placeholder="Type the new PIN again" style="text-align:center;max-width:240px;margin:0 auto 8px auto" onkeydown="if(event.key==='Enter') payacctForgotConfirm()">
         <div id="payacct-ferr" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-height:18px;margin-bottom:10px"></div>
@@ -37565,6 +37566,7 @@ function payacctLock(msg) {
   const inp = document.getElementById('payacct-pin'); if(inp) inp.value = '';
   const err = document.getElementById('payacct-pin-err'); if(err) err.textContent = msg || '';
   payacctForgotCancel();
+  if(typeof currentModule !== 'undefined' && currentModule === 'payaccts') payacctChannels();
   if(inp && typeof currentModule !== 'undefined' && currentModule === 'payaccts') setTimeout(() => { try { inp.focus(); } catch(e) {} }, 60);
 }
 async function payacctUnlock() {
@@ -37594,14 +37596,29 @@ function payacctForgotCancel() {
   ['payacct-fcode', 'payacct-fnew', 'payacct-fnew2'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
   const er = document.getElementById('payacct-ferr'); if(er) er.textContent = '';
 }
-async function payacctForgotStart() {
-  const err = document.getElementById('payacct-pin-err'), link = document.getElementById('payacct-forgot-link');
+// 0.61: which ways of getting a code are switched on. Asked when the lock card shows, so the "text me" link appears only if it can work.
+var PAYACCT_CHANNELS_AT = 0, PAYACCT_CHANNELS = null;
+async function payacctChannels() {
+  if(Date.now() - PAYACCT_CHANNELS_AT < 5 * 60 * 1000) return;
+  try {
+    const r = await payacctApi('/forgot/channels');
+    if(r.ok && r.json) {
+      PAYACCT_CHANNELS_AT = Date.now(); PAYACCT_CHANNELS = r.json;
+      const l = document.getElementById('payacct-forgot-sms-link');
+      if(l) { l.style.display = r.json.phone ? '' : 'none'; l.textContent = 'Or text me a code' + (r.json.phone ? ' (' + r.json.phone + ')' : ''); }
+    }
+  } catch(e) {}
+}
+async function payacctForgotStart(via) {
+  via = via === 'phone' ? 'phone' : 'email';
+  const err = document.getElementById('payacct-pin-err'), link = document.getElementById(via === 'phone' ? 'payacct-forgot-sms-link' : 'payacct-forgot-link');
   if(err) err.textContent = ''; if(link) link.style.opacity = '.5';
   try {
-    const r = await payacctApi('/forgot', { method: 'POST', body: '{}' });
+    const r = await payacctApi('/forgot', { method: 'POST', body: JSON.stringify({ via }) });
     if(r.ok) {
       const f = document.getElementById('payacct-forgot'), b = document.getElementById('payacct-pinbox'), m = document.getElementById('payacct-forgot-msg');
-      if(m) m.textContent = 'We emailed a 6-digit code to ' + ((r.json && r.json.sentTo) || 'your email') + '. It works for ' + ((r.json && r.json.minutes) || 15) + ' minutes. Type it here and choose a new PIN. A red alert was raised so you will know this was used.';
+      const way = (r.json && r.json.via === 'phone') ? 'texted' : 'emailed';
+      if(m) m.textContent = 'We ' + way + ' a 6-digit code to ' + ((r.json && r.json.sentTo) || (way === 'texted' ? 'your phone' : 'your email')) + '. It works for ' + ((r.json && r.json.minutes) || 15) + ' minutes. Type it here and choose a new PIN. A red alert was raised so you will know this was used.';
       if(b) b.style.display = 'none'; if(f) f.style.display = '';
       ['payacct-pin', 'payacct-pin-err'].forEach(id => { const e = document.getElementById(id); if(e) e.style.display = 'none'; });
       const c = document.getElementById('payacct-fcode'); if(c) setTimeout(() => { try { c.focus(); } catch(e) {} }, 60);
@@ -37613,7 +37630,7 @@ async function payacctForgotStart() {
 async function payacctForgotConfirm() {
   const v = id => ((document.getElementById(id) || {}).value || '').trim(), er = document.getElementById('payacct-ferr'), btn = document.getElementById('payacct-fbtn');
   const code = v('payacct-fcode').replace(/\D/g, ''), np = (document.getElementById('payacct-fnew') || {}).value || '', np2 = (document.getElementById('payacct-fnew2') || {}).value || '';
-  if(code.length !== 6) { er.textContent = 'Type the 6-digit code from the email.'; return; }
+  if(code.length !== 6) { er.textContent = 'Type the 6-digit code you were sent.'; return; }
   if(np.length < 4 || np.length > 8) { er.textContent = 'The new PIN must be 4 to 8 characters.'; return; }
   if(np !== np2) { er.textContent = 'The two PINs do not match.'; return; }
   if(btn) btn.disabled = true; er.textContent = '';
@@ -37622,7 +37639,7 @@ async function payacctForgotConfirm() {
     if(!r.ok) { er.textContent = '\u{1F6AB} ' + ((r.json && r.json.error) || 'Could not set the PIN. Try again.'); if(r.status === 429 || (r.json && /expired|cancelled/i.test(r.json.error || ''))) setTimeout(payacctForgotCancel, 2500); return; }
     // The server now holds the new PIN. Update this device's copy so the ERP's other PIN boxes accept it straight away.
     try { STATE.ownerPinHash = await hashPin(np); STATE.ownerPinLockoutUntil = null; STATE.ownerPinSetAt = new Date().toISOString(); STATE.ownerPin = null; resetPinAttempts(); saveState(); } catch(e) {}
-    try { logCrit('security', 'Owner PIN changed with an emailed code', ''); } catch(e) {}
+    try { logCrit('security', 'Owner PIN changed with a one-time code', ''); } catch(e) {}
     PAYACCT_PIN = np; payacctForgotCancel();
     const mod = document.getElementById('mod-payaccts'); if(mod) mod.classList.remove('payacct-locked');
     showToast('\u2713 New PIN set. Other devices pick it up the next time they load the ERP.');
@@ -37630,11 +37647,62 @@ async function payacctForgotConfirm() {
   } catch(e) { er.textContent = 'No connection. Try again.'; }
   finally { if(btn) btn.disabled = false; }
 }
+// ── 0.62: every change to the list needs a one-time code (emailed, or texted once Termii is on) on top of the PIN ──
+// payacctChange() sends the change; when the server answers "a code is needed" it sends the code, asks for it in a small box,
+// and repeats the change with the code. Used by add, edit name, retire/reactivate and release.
+function payacctAskCode(sentTo, errMsg) {
+  return new Promise(resolve => {
+    let box = document.getElementById('payacct-chgbox'); if(box) box.remove();
+    box = document.createElement('div'); box.id = 'payacct-chgbox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(5,8,14,.78);display:flex;align-items:center;justify-content:center;padding:16px';
+    box.innerHTML = `<div style="background:var(--card,#101826);border:1px solid var(--border,#26334a);border-radius:14px;max-width:380px;width:100%;padding:22px;text-align:center">
+      <div style="font-size:30px">\u{1F510}</div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:17px;margin:6px 0 8px">One more step</div>
+      <div id="payacct-chg-msg" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:12px"></div>
+      <input class="form-input" id="payacct-chg-code" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6-digit code" style="text-align:center;max-width:200px;margin:0 auto 8px auto">
+      <div id="payacct-chg-err" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-height:18px;margin-bottom:10px"></div>
+      <button class="btn btn-primary" id="payacct-chg-ok">\u2713 Confirm the change</button>
+      <div style="margin-top:12px"><a href="#" id="payacct-chg-resend" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue)">Send me a new code</a> &nbsp;\u00b7&nbsp; <a href="#" id="payacct-chg-cancel" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue)">Cancel</a></div></div>`;
+    document.body.appendChild(box);
+    const $ = id => document.getElementById(id);
+    $('payacct-chg-msg').textContent = 'A one-time code was sent to ' + (sentTo || 'you') + '. Type it here to save this change. A red alert was raised so you will know it was used.';
+    $('payacct-chg-err').textContent = errMsg || '';
+    const done = v => { box.remove(); resolve(v); };
+    $('payacct-chg-ok').onclick = () => { const c = ($('payacct-chg-code').value || '').replace(/\D/g, ''); if(c.length !== 6) { $('payacct-chg-err').textContent = 'Type the 6-digit code.'; return; } done({ code: c }); };
+    $('payacct-chg-code').onkeydown = e => { if(e.key === 'Enter') $('payacct-chg-ok').click(); };
+    $('payacct-chg-cancel').onclick = e => { e.preventDefault(); done(null); };
+    $('payacct-chg-resend').onclick = e => { e.preventDefault(); done({ resend: true }); };
+    setTimeout(() => { try { $('payacct-chg-code').focus(); } catch(x) {} }, 60);
+  });
+}
+async function payacctSendChangeCode() {
+  const via = PAYACCT_CHANNELS && PAYACCT_CHANNELS.phone ? 'phone' : 'email';
+  return payacctApi('/change-code', { method: 'POST', body: JSON.stringify({ via }) });
+}
+async function payacctChange(path, opts) {
+  let r = await payacctApi(path, opts), code = null, sentTo = (r.json && r.json.sentTo) || '', errMsg = '';
+  for(let guard = 0; guard < 8; guard++) {
+    if(!(r.status === 428 && r.json && r.json.codeRequired) && !(r.json && r.json.codeRequired && r.json.codeWrong)) return r;
+    if(r.json.needSend) {
+      const s = await payacctSendChangeCode();
+      if(!s.ok) return s;
+      sentTo = (s.json && s.json.sentTo) || sentTo; secAlertsPoll();
+    } else { sentTo = r.json.sentTo || sentTo; }
+    if(r.json.codeWrong) errMsg = r.json.error || '';
+    const a = await payacctAskCode(sentTo, errMsg); errMsg = '';
+    if(!a) return { ok: false, status: 0, json: { error: 'Cancelled. Nothing was changed.' } };
+    if(a.resend) { const s = await payacctSendChangeCode(); if(!s.ok) { errMsg = (s.json && s.json.error) || 'Could not send a new code.'; r = { ok: false, status: 428, json: { codeRequired: true, needSend: false, sentTo } }; continue; } sentTo = (s.json && s.json.sentTo) || sentTo; secAlertsPoll(); r = { ok: false, status: 428, json: { codeRequired: true, needSend: false, sentTo } }; continue; }
+    r = await payacctApi(path, Object.assign({}, opts || {}, { extraHeaders: { 'x-owner-code': a.code } }));
+    if(r.ok) return r;
+  }
+  return r;
+}
 async function payacctApi(path, opts) {
   const token = await erpGetAuthToken();
   const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
   if(PAYACCT_PIN) headers['x-owner-pin'] = PAYACCT_PIN;
-  const r = await fetch(`${BACKEND_URL}/payment-accounts${path}`, Object.assign({ headers }, opts || {}));
+  const o = Object.assign({}, opts || {}); if(o.extraHeaders) { Object.assign(headers, o.extraHeaders); delete o.extraHeaders; }
+  const r = await fetch(`${BACKEND_URL}/payment-accounts${path}`, Object.assign({ headers }, o));
   let j = null; try { j = await r.json(); } catch(e) {}
   if(path !== '/unlock' && (r.status === 401 || r.status === 423) && j && (j.pinRequired || j.locked)) payacctLock(j.error || 'Please enter your Owner PIN again.');
   return { ok: r.ok, status: r.status, json: j };
@@ -37661,7 +37729,7 @@ async function renderPayAccounts() {
 async function payacctAdd() {
   const v = id => (document.getElementById(id) || {}).value || '';
   const body = { bank: v('payacct-bank').trim(), accountName: v('payacct-name').trim(), accountNumber: v('payacct-number'), label: v('payacct-label').trim() };
-  const r = await payacctApi('', { method: 'POST', body: JSON.stringify(body) });
+  const r = await payacctChange('', { method: 'POST', body: JSON.stringify(body) });
   if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not add the account.')); return; }
   ['payacct-bank', 'payacct-name', 'payacct-number', 'payacct-label'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   showToast('✓ Account added. Customers can see it in 24 hours, or when you release it. A red alert was raised.');
@@ -37674,7 +37742,7 @@ async function payacctToggle(id, on, btn) {
     return;
   }
   payacctPendingRetire = null;
-  const r = await payacctApi('/' + id, { method: 'PATCH', body: JSON.stringify({ active: on }) });
+  const r = await payacctChange('/' + id, { method: 'PATCH', body: JSON.stringify({ active: on }) });
   if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not change the account.')); return; }
   showToast(on ? '✓ Account reactivated.' : '✓ Account retired. Customers will be told it is no longer ours.');
   renderPayAccounts(); secAlertsPoll();
@@ -37687,7 +37755,7 @@ async function payacctRelease(id, btn) {
     return;
   }
   payacctPendingRelease = null;
-  const r = await payacctApi('/' + id, { method: 'PATCH', body: JSON.stringify({ release: true }) });
+  const r = await payacctChange('/' + id, { method: 'PATCH', body: JSON.stringify({ release: true }) });
   if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not release the account.')); return; }
   showToast('✓ Released. Customers can see this account now. A red alert was raised.');
   syncPaymentAccountsFromBackend(); renderPayAccounts(); secAlertsPoll();
@@ -37700,7 +37768,7 @@ function payacctEditName(id) {
 }
 async function payacctSaveName(id) {
   const el = document.getElementById('payacct-nm-in-' + id); const v = el ? el.value.trim() : ''; if(!v) { showToast('⚠ Enter the account name.'); return; }
-  const r = await payacctApi('/' + id, { method: 'PATCH', body: JSON.stringify({ accountName: v }) });
+  const r = await payacctChange('/' + id, { method: 'PATCH', body: JSON.stringify({ accountName: v }) });
   if(!r.ok) { showToast('⚠ ' + ((r.json && r.json.error) || 'Could not save the name.')); return; }
   showToast('✓ Name saved.'); syncPaymentAccountsFromBackend(); renderPayAccounts(); secAlertsPoll();
 }
