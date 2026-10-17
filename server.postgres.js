@@ -55,6 +55,8 @@ catch(e) { failedRoutes.push({ path: '/settings/owner-pin', file: './lib/owner-p
 
 // Oct 16 2026 — the official EggScore bank accounts, the "Check an account" answer and the Pay Code.
 mount('/payment-accounts', './routes-postgres/payment-accounts');
+// Oct 17 2026 (0.64) — the Owner PIN is checked on the server only; no browser is sent the PIN's hash any more.
+mount('/owner-pin', './routes-postgres/owner-pin');
 mount('/orders', './routes-postgres/orders');
 mount('/events', './routes-postgres/events');
 mount('/sales', './routes-postgres/sales');
