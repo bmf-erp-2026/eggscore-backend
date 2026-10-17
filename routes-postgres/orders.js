@@ -240,6 +240,11 @@ router.get('/', requireSupabaseAuth(), async (req, res) => {
   // Oct 16 2026 (0.55) — staff see each order's Pay Code so it can go into the payment message. Only this staff-only list
   // carries it; the single-order route the portal key can reach does not.
   for(const r of rows) { try { r.pay_code = await payCode.payCodeFor(r.ref); } catch(e) {} }
+  // Oct 17 2026 (0.56) — when the customer checked this order's bank account on the Check page (null = not yet).
+  try {
+    const checked = new Map((await db.prepare('SELECT ref, checked_at FROM payment_checks').all()).map(x => [String(x.ref).toUpperCase(), x.checked_at]));
+    for(const r of rows) r.acct_checked_at = checked.get(String(r.ref).toUpperCase()) || null;
+  } catch(e) { /* table missing: no flag */ }
   res.json(rows);
 });
 
