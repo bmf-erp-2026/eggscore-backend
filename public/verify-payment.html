@@ -124,6 +124,8 @@ async function check() {
     setRes('warn', '<h2>No connection</h2><p>We could not reach the check service. Do not pay until it works. You can also ask us on WhatsApp.</p>');
   } finally { $('go').disabled = false; $('go').textContent = 'Check this account'; }
 }
+// Inside the portal's overlay the portal supplies the Back button, so ours are hidden.
+if(/(^|[?&])embed=1(&|$)/.test(location.search)) { $('back-top').style.display = 'none'; $('back-bottom').style.display = 'none'; }
 // Back button: an installed app has no browser back arrow, so this page brings its own.
 function goBack() {
   try { if(history.length > 1) { history.back(); return; } } catch(e) {}

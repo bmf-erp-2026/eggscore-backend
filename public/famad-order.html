@@ -1336,6 +1336,8 @@ const MESSAGES = {
     checkStepTitle: () => `Check the account first`,
     checkStepBody: () => `Before you send any money, type the account number you were given into our check page. It takes 10 seconds. Money sent to the wrong account cannot be brought back.`,
     checkStepBtn: () => `Check the account →`,
+    checkBackBtn: () => `← Back to my order`,
+    checkOvlTitle: () => `Check a payment account`,
     installTitle: () => `Keep the real EggScore on your phone`,
     installBody: () => `Always open EggScore from the app icon or the code below, never from a link in a message. Add it to your home screen now.`,
     installBtn: () => `Add EggScore to my home screen`,
@@ -1387,6 +1389,8 @@ const MESSAGES = {
     checkStepTitle: () => `Check the akant first`,
     checkStepBody: () => `Before you send any money, type the akant number wey dem give you for our check page. E take 10 seconds. Money wey enter wrong akant no dey come back.`,
     checkStepBtn: () => `Check the akant →`,
+    checkBackBtn: () => `← Go back to my order`,
+    checkOvlTitle: () => `Check payment akant`,
     installTitle: () => `Keep the correct EggScore for your phone`,
     installBody: () => `Always open EggScore from the app icon or the code below, no open am from link for message. Put am for your home screen now.`,
     installBtn: () => `Put EggScore for my home screen`,
@@ -2070,6 +2074,39 @@ async function loadOfficialAccounts() {
   renderOfficialAccounts();
 }
 document.addEventListener('DOMContentLoaded', loadOfficialAccounts);
+
+// ===== Check-account overlay (0.57) =====
+// The check page opens ON TOP of the order screen instead of replacing it, so the customer
+// never loses the order, the Pay Code or the payment steps. The phone's own Back button closes it too.
+function removeCheckOverlay() {
+  const o = document.getElementById('chk-ovl'); if(o) o.remove();
+  document.body.style.overflow = '';
+}
+function openCheckOverlay(href) {
+  if(document.getElementById('chk-ovl')) return;
+  const sep = href.indexOf('?') > -1 ? '&' : '?';
+  const o = document.createElement('div'); o.id = 'chk-ovl';
+  o.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:#f4f6fa;display:flex;flex-direction:column';
+  o.innerHTML = '<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 12px;background:#0a0e14;border-bottom:2px solid var(--teal)">'
+    + '<button type="button" id="chk-back" style="padding:10px 14px;border:0;border-radius:8px;background:var(--teal);color:#06231f;font-weight:800;font-family:\'Syne\',sans-serif;font-size:14px;cursor:pointer">' + escapeHtmlPortal(T().checkBackBtn()) + '</button>'
+    + '<span style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--dust)">' + escapeHtmlPortal(T().checkOvlTitle()) + '</span></div>'
+    + '<iframe id="chk-frame" title="' + escapeHtmlPortal(T().checkOvlTitle()) + '" src="' + escapeHtmlPortal(href + sep + 'embed=1') + '" style="flex:1 1 auto;width:100%;border:0;background:#f4f6fa"></iframe>';
+  document.body.appendChild(o);
+  document.body.style.overflow = 'hidden';
+  let pushed = false;
+  try { history.pushState({ chk: 1 }, ''); pushed = true; } catch(e) {}
+  document.getElementById('chk-back').addEventListener('click', () => {
+    if(pushed && history.state && history.state.chk) history.back(); else removeCheckOverlay();
+  });
+}
+window.addEventListener('popstate', () => { removeCheckOverlay(); });
+document.addEventListener('click', e => {
+  if(e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target.closest ? e.target.closest('a[href^="/verify-payment.html"]') : null;
+  if(!a) return;
+  e.preventDefault();
+  openCheckOverlay(a.getAttribute('href'));
+});
 
 async function postOrderToBackend(order) {
   try {
