@@ -5,66 +5,25 @@ const pc = require('../lib/portal-checks');
 const payCode = require('../lib/pay-code');
 const push = require('../lib/push');
 const crypto = require('crypto');
+const ownerPinLib = require('../lib/owner-pin');
 
 const HOLD_HOURS = 24;
 // An account customers may see and pay into: switched on, and past its waiting period.
 const LIVE = "active = 1 AND (live_at IS NULL OR live_at <= now())";
 const isLive = r => Number(r.active) === 1 && (!r.live_at || new Date(r.live_at).getTime() <= Date.now());
 
-// A red alert the Owner must acknowledge. One per dedupe key (so the same stranger number on the same day is one alert),
-// and a phone push goes out the moment a NEW one is raised. Never throws into the caller.
-async function raiseAlert({ kind, key, message, detail, pushTitle, pushBody }) {
-  try {
-    const info = await db.prepare('INSERT INTO security_alerts (kind, dedupe_key, message, detail) VALUES (?, ?, ?, ?) ON CONFLICT (dedupe_key) DO NOTHING')
-      .run(kind, key, message, JSON.stringify(detail || null));
-    if(info && info.changes) {
-      push.notifyOwners({ title: pushTitle || '\u{1F6A8} EggScore security alert', body: pushBody || message, url: '/famad-erp.html', tag: 'secalert-' + key, kind: 'security_alert' })
-        .catch(e => console.error('[payment-accounts] alert push failed:', e.message));
-    }
-  } catch(e) { console.warn('[payment-accounts] could not raise alert:', e.message); }
-}
-const who = req => (req.user && req.user.email) || 'someone';
+const { raiseAlert, who } = require('../lib/owner-pin');
 const fmtAcct = r => `${r.bank} \u00b7 ${r.account_name} \u00b7 ${r.account_number}`;
 
 // ── Owner PIN door (0.59) ────────────────────────────────────────────────────────────────────────────────────────────
 // The Payment Accounts page and every change to the list need the Owner PIN on top of the Owner login, so a screen left
-// open (idle lock failed) or a stolen login is still stopped at the door. The PIN is checked HERE, on the server, against
-// the same hash the ERP's other PIN boxes use (settings key owner_pin, SHA-256 of the PIN + the app's salt). The PIN travels
-// in the x-owner-pin header (or {pin} on /unlock) over HTTPS, is never stored or logged, and the stored hash is never sent
-// back. Three wrong PINs lock the door for 30 minutes and raise a red alert + phone push. The counter lives in memory, so a
-// server restart clears it; that is the one soft edge, and the alert has already gone out by then.
-const PIN_SALT = 'bel_eggscore_salt_2026';
-const PIN_TRIES = 3, PIN_LOCK_MS = 30 * 60 * 1000;
-const pinDoor = { fails: 0, lockedUntil: 0 };
-const pinMins = () => Math.max(1, Math.ceil((pinDoor.lockedUntil - Date.now()) / 60000));
-// Returns true when the PIN is right. Otherwise it has already answered the request and returns false.
+// open (idle lock failed) or a stolen login is still stopped at the door. The check is in lib/owner-pin.js: the PIN travels in
+// the x-owner-pin header (or {pin} on /unlock) over HTTPS and is compared with the stored hash; it is never stored or logged.
+// Three wrong PINs lock the door for 30 minutes and raise a red alert + phone push.
 async function checkOwnerPin(req, res) {
-  if(Date.now() < pinDoor.lockedUntil) { res.status(423).json({ error: `Locked for ${pinMins()} more minute(s) after wrong PINs.`, locked: true, mins: pinMins() }); return false; }
-  const supplied = String(req.headers['x-owner-pin'] || (req.body && req.body.pin) || '').slice(0, 32);
-  if(!supplied) { res.status(401).json({ error: 'Owner PIN required.', pinRequired: true, remaining: PIN_TRIES - pinDoor.fails }); return false; }
-  let stored = null;
-  try {
-    const row = await db.prepare("SELECT value FROM settings WHERE key = 'owner_pin'").get();
-    stored = row && JSON.parse(row.value);
-  } catch(e) { stored = null; }
-  if(!stored || !stored.hash) { res.status(409).json({ error: 'No Owner PIN is set yet. Set one in Settings first.' }); return false; }
-  const a = crypto.createHash('sha256').update(supplied + PIN_SALT).digest();
-  const b = Buffer.from(String(stored.hash), 'hex');
-  if(b.length === a.length && crypto.timingSafeEqual(a, b)) { pinDoor.fails = 0; return true; }
-  pinDoor.fails += 1;
-  const stamp = Date.now();
-  await pc.logServerEvent({ entryId: `srv-payacct-badpin-${stamp}`, category: 'security', level: 'warn',
-    message: `Wrong Owner PIN typed at Payment Accounts (${pinDoor.fails} of ${PIN_TRIES})`, detail: { by: who(req) } });
-  if(pinDoor.fails >= PIN_TRIES) {
-    pinDoor.fails = 0; pinDoor.lockedUntil = stamp + PIN_LOCK_MS;
-    await raiseAlert({ kind: 'pin_lockout', key: `pinlock-${stamp}`,
-      message: `The wrong Owner PIN was typed ${PIN_TRIES} times at Payment Accounts (signed in as ${who(req)}). The page is locked for 30 minutes. If this was not you, change your password now.`,
-      detail: { by: who(req) }, pushTitle: '\u{1F6A8} Wrong PIN at Payment Accounts', pushBody: `${PIN_TRIES} wrong Owner PINs at Payment Accounts (${who(req)}). Locked for 30 minutes.` });
-    res.status(423).json({ error: 'Locked for 30 minutes after 3 wrong PINs. A red alert was raised.', locked: true, mins: 30 });
-    return false;
-  }
-  res.status(401).json({ error: `Incorrect PIN. ${PIN_TRIES - pinDoor.fails} attempt(s) left before the lock.`, pinRequired: true, remaining: PIN_TRIES - pinDoor.fails });
-  return false;
+  const r = await ownerPinLib.checkSecret(req, 'pin', req.headers['x-owner-pin'] || (req.body && req.body.pin), 'Payment Accounts');
+  if(r.ok) return true;
+  res.status(r.status).json(r.body); return false;
 }
 const ownerPin = async (req, res, next) => { try { if(await checkOwnerPin(req, res)) next(); } catch(e) { next(e); } };
 
@@ -73,6 +32,7 @@ const router = express.Router();
 // The official EggScore bank accounts (Oct 16 2026, 0.55).
 //
 //   GET   /payment-accounts           portal or staff: the ACTIVE accounts (what a customer may pay into)
+//   POST  /payment-accounts/forgot, /forgot/confirm   Owner only, no PIN: email a one-time code, then set a new Owner PIN (0.60)
 //   POST  /payment-accounts/unlock    Owner only: the PIN door (0.59). /all, POST and PATCH also need the Owner PIN (x-owner-pin)
 //   GET   /payment-accounts/all       Owner only (+PIN): every account including retired ones
 //   POST  /payment-accounts           Owner only: add an account
@@ -185,6 +145,91 @@ router.post('/unlock', requireSupabaseAuth(), requireRole('owner'), async (req, 
   if(!(await checkOwnerPin(req, res))) return;
   await pc.logServerEvent({ entryId: `srv-payacct-unlock-${Date.now()}`, category: 'security', level: 'info',
     message: 'Payment Accounts opened with the Owner PIN', detail: { by: who(req) } });
+  res.json({ ok: true });
+});
+
+// ── "Forgot my PIN" by email (0.60) ──────────────────────────────────────────────────────────────────────────────────
+// The back channel for a forgotten Owner PIN. It works while the door is locked, because it asks for no PIN: it asks for a
+// 6-digit code that is emailed to the Owner's login email (Resend, key in the RESEND_API_KEY variable). The code lasts 15
+// minutes, allows 5 tries, and only its hash is kept. A correct code sets a NEW Owner PIN (the same PIN the ERP's other PIN
+// boxes use) and lifts any lock. Asking for a code and using one both raise a red alert + phone push.
+const RESET_KEY = 'owner_pin_reset';
+const RESET_MIN = 15, RESET_TRIES = 5;
+const maskEmail = e => { const [u, d] = String(e || '').split('@'); return u ? (u.slice(0, 1) + '***' + (u.length > 3 ? u.slice(-1) : '') + '@' + (d || '')) : ''; };
+const resetHash = c => ownerPinLib.hashSecret('reset:' + c);
+async function getReset() { try { const r = await db.prepare('SELECT value FROM settings WHERE key = ?').get(RESET_KEY); return r ? JSON.parse(r.value) : null; } catch(e) { return null; } }
+async function putReset(obj, by) {
+  if(obj === null) { await db.prepare('DELETE FROM settings WHERE key = ?').run(RESET_KEY); return; }
+  await db.prepare("INSERT INTO settings (key, value, updated_by, updated_at) VALUES (?, ?, ?, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()")
+    .run(RESET_KEY, JSON.stringify(obj), by || null);
+}
+const WEAK = new Set(['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999', '1234', '4321', '0123', '3210', '1212', '2580', '1122', '12345', '54321', '123456', '654321', '1234567', '12345678', '00000000']);
+function weakPin(p) { return WEAK.has(p) || /^(.)\1+$/.test(p); }
+
+router.post('/forgot', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const email = (req.user && req.user.email) || '';
+  if(!email) return res.status(400).json({ error: 'Your login has no email address to send a code to.' });
+  const key = process.env.RESEND_API_KEY;
+  if(!key) return res.status(503).json({ error: 'Email codes are not switched on yet (the RESEND_API_KEY is not set in Railway).' });
+  const prev = await getReset(); const now = Date.now();
+  if(prev && prev.sentAt && now - prev.sentAt < 60 * 1000) return res.status(429).json({ error: 'A code was just sent. Wait a minute before asking for another.' });
+  const hourStart = prev && prev.hourStart && now - prev.hourStart < 3600 * 1000 ? prev.hourStart : now;
+  const count = hourStart === (prev && prev.hourStart) ? (prev.count || 0) : 0;
+  if(count >= 3) return res.status(429).json({ error: 'Three codes have been sent in the last hour. Try again later.' });
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  const body = {
+    from: process.env.EMAIL_FROM || 'EggScore Security <onboarding@resend.dev>', to: [email],
+    subject: 'Your EggScore Owner PIN code',
+    text: `Your EggScore code is ${code}\n\nIt works for ${RESET_MIN} minutes and lets you choose a new Owner PIN.\nIf you did not ask for this, do not share it, and change your EggScore password now.`,
+    html: `<p>Your EggScore code is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It works for ${RESET_MIN} minutes and lets you choose a new Owner PIN.</p><p>If you did not ask for this, do not share it, and change your EggScore password now.</p>`
+  };
+  let ok = false, status = 0;
+  try {
+    const r = await fetch(process.env.RESEND_API_URL || 'https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    ok = r.ok; status = r.status;
+  } catch(e) { status = 0; }
+  if(!ok) {
+    await pc.logServerEvent({ entryId: `srv-ownerpin-mailfail-${now}`, category: 'security', level: 'warn', message: `Owner PIN code email failed (status ${status})`, detail: { by: who(req) } });
+    return res.status(502).json({ error: status === 403 ? 'The email service refused this address. With the free test sender, the email must be the one you signed up to Resend with.' : 'Could not send the email. Try again in a minute.' });
+  }
+  await putReset({ hash: resetHash(code), exp: now + RESET_MIN * 60 * 1000, tries: 0, sentAt: now, hourStart, count: count + 1, email }, email);
+  await pc.logServerEvent({ entryId: `srv-ownerpin-mail-${now}`, category: 'security', level: 'info', message: 'An Owner PIN code was emailed', detail: { by: who(req), to: maskEmail(email) } });
+  await raiseAlert({ kind: 'pin_reset_requested', key: `pinreset-req-${now}`,
+    message: `An Owner PIN code was emailed to ${maskEmail(email)} (asked for by ${who(req)}). If this was not you, change your password now.`,
+    detail: { by: who(req) }, pushTitle: '\u{1F6A8} Owner PIN code requested', pushBody: `A PIN code was emailed to ${maskEmail(email)}. Not you? Change your password now.` });
+  res.json({ ok: true, sentTo: maskEmail(email), minutes: RESET_MIN });
+});
+
+router.post('/forgot/confirm', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const code = String((req.body && req.body.code) || '').replace(/\D/g, '');
+  const newPin = String((req.body && req.body.newPin) || '');
+  if(code.length !== 6) return res.status(400).json({ error: 'Type the 6-digit code from the email.' });
+  if(newPin.length < 4 || newPin.length > 8) return res.status(400).json({ error: 'The new PIN must be 4 to 8 characters.' });
+  if(weakPin(newPin)) return res.status(400).json({ error: 'That PIN is too easy to guess (like 1234 or 0000). Choose another.' });
+  const row = await getReset();
+  if(!row || !row.exp || Date.now() > row.exp) { if(row) await putReset(null); return res.status(400).json({ error: 'That code has expired or was never sent. Ask for a new one.' }); }
+  if(!ownerPinLib.sameHex(resetHash(code), row.hash)) {
+    row.tries = (row.tries || 0) + 1;
+    await pc.logServerEvent({ entryId: `srv-ownerpin-badcode-${Date.now()}`, category: 'security', level: 'warn', message: `Wrong emailed PIN code typed (${row.tries} of ${RESET_TRIES})`, detail: { by: who(req) } });
+    if(row.tries >= RESET_TRIES) {
+      await putReset(null);
+      await raiseAlert({ kind: 'pin_reset_failed', key: `pinreset-fail-${Date.now()}`,
+        message: `The emailed Owner PIN code was typed wrong ${RESET_TRIES} times (signed in as ${who(req)}). The code was cancelled. If this was not you, change your password now.`,
+        detail: { by: who(req) }, pushTitle: '\u{1F6A8} Wrong PIN code typed', pushBody: `${RESET_TRIES} wrong emailed-code tries (${who(req)}). Code cancelled.` });
+      return res.status(429).json({ error: 'Too many wrong codes. That code is cancelled. Ask for a new one.' });
+    }
+    await putReset(row, who(req));
+    return res.status(401).json({ error: `Wrong code. ${RESET_TRIES - row.tries} try(s) left.` });
+  }
+  const stored = (await ownerPinLib.getStored()) || {};
+  const next = Object.assign({}, stored, { hash: ownerPinLib.hashSecret(newPin), setAt: new Date().toISOString(), lockoutUntil: null });
+  await db.prepare("INSERT INTO settings (key, value, updated_by, updated_at) VALUES ('owner_pin', ?, ?, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()")
+    .run(JSON.stringify(next), who(req));
+  await putReset(null); ownerPinLib.clearLock();
+  await pc.logServerEvent({ entryId: `srv-ownerpin-reset-${Date.now()}`, category: 'security', level: 'warn', message: 'Owner PIN changed with an emailed code', detail: { by: who(req) } });
+  await raiseAlert({ kind: 'pin_reset_done', key: `pinreset-done-${Date.now()}`,
+    message: `The Owner PIN was changed with an emailed code (signed in as ${who(req)}). If this was not you, change your password now.`,
+    detail: { by: who(req) }, pushTitle: '\u{1F6A8} Owner PIN changed', pushBody: `The Owner PIN was changed by ${who(req)} using an emailed code. Not you? Change your password now.` });
   res.json({ ok: true });
 });
 
