@@ -105,7 +105,9 @@ async function check() {
     if(r.status === 429) { setRes('warn', `<h2>Please wait</h2><p>${esc(j.error || 'Too many checks. Try again in a minute.')}</p>`); return; }
     if(r.status !== 200) { setRes('warn', `<h2>We could not check that</h2><p>${esc(j.error || 'Something went wrong. Try again.')}</p>`); return; }
     const report = `<a href="${waLink('I was sent account ' + acct + ' to pay EggScore, and your check says it is NOT yours. Order ref: ' + (ref || 'none'))}" target="_blank" rel="noopener">Report it on WhatsApp</a>`;
-    if(!j.official) {
+    if(j.pending) {
+      setRes('bad', `<h2>Do not pay this account yet</h2><p>This number is not in use yet. Please ask us on WhatsApp which account to pay.</p><p>${report}</p>`);
+    } else if(!j.official) {
       setRes('bad', `<h2>NOT an EggScore account. Do not pay.</h2><p>${j.retired ? 'This number was once ours but is no longer in use.' : 'This number is not on our official list.'} Someone may be trying to collect money in our name.</p><p>${report}</p>`);
     } else if(j.codeChecked && j.codeValid === false) {
       setRes('warn', `<h2>Account is ours, but the Pay Code does not match</h2><p>${esc(j.bank)} · ${esc(j.accountName)}.</p><p>The code you typed does not belong to that order reference. Check you typed both exactly as written, or ask us on WhatsApp before paying. The message you received may not be from us.</p><p><a href="${waLink('My Pay Code did not match for order ' + ref + '. Please confirm my payment details.')}" target="_blank" rel="noopener">Ask us on WhatsApp</a></p>`);

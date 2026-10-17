@@ -1009,6 +1009,9 @@ input.cs-val:focus{background:rgba(74,158,255,0.08);}
 
     <div class="payment-instructions" id="success-payment"></div>
 
+    <!-- Oct 17 2026 (0.56) — keep the customer on the REAL address: install prompt + QR code of it. Filled by showSuccess(). -->
+    <div id="success-install" style="display:none;max-width:420px;margin:12px auto 0 auto;padding:14px;border-radius:10px;background:rgba(91,168,240,0.07);border:1px solid rgba(91,168,240,0.28);font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);text-align:left;line-height:1.7"></div>
+
     <a id="success-wa-link" href="#" class="wa-fallback" target="_blank" style="margin-top:0">
       <span>💬</span><span data-i18n="ss.wa_complaints">Send your payment complaints via WhatsApp</span>
     </a>
@@ -1330,6 +1333,14 @@ const MESSAGES = {
     payCodeTitle: () => `🔑 Your EggScore Pay Code`,
     payCodeBody: (code, ref) => `<strong style="font-size:20px;letter-spacing:3px;color:var(--teal)">${code}</strong><br/>Every genuine payment message from EggScore carries this code. If a message about your order has no Pay Code, or a different one, do not pay. <a href="/verify-payment.html?ref=${encodeURIComponent(ref)}" style="color:var(--teal);font-weight:700">Check an account →</a>`,
     payCodeLater: () => `Your Pay Code comes in our confirmation message. A payment message without it is not from us.`,
+    checkStepTitle: () => `Check the account first`,
+    checkStepBody: () => `Before you send any money, type the account number you were given into our check page. It takes 10 seconds. Money sent to the wrong account cannot be brought back.`,
+    checkStepBtn: () => `Check the account →`,
+    installTitle: () => `Keep the real EggScore on your phone`,
+    installBody: () => `Always open EggScore from the app icon or the code below, never from a link in a message. Add it to your home screen now.`,
+    installBtn: () => `Add EggScore to my home screen`,
+    installIOS: () => `On iPhone: tap the Share button, then "Add to Home Screen".`,
+    installQr: () => `Scan with a phone camera to open the real EggScore, or show it to a friend.`,
     escrowNotice: () => `Except cash, all transactions are interbank related. Please contact your bank for all transfer clarifications held in escrow.`,
     committedNote: (committed) => `${committed} crates held for pending orders`,
     maxAvailable: (available) => `Max: ${available} crates available to order`,
@@ -1373,6 +1384,14 @@ const MESSAGES = {
     payCodeTitle: () => `🔑 Your EggScore Pay Code`,
     payCodeBody: (code, ref) => `<strong style="font-size:20px;letter-spacing:3px;color:var(--teal)">${code}</strong><br/>Every correct payment message from EggScore dey carry this code. If message about your order no get Pay Code, or e get different one, no pay. <a href="/verify-payment.html?ref=${encodeURIComponent(ref)}" style="color:var(--teal);font-weight:700">Check akant →</a>`,
     payCodeLater: () => `Your Pay Code go come inside our confirmation message. Payment message wey no get am no be from us.`,
+    checkStepTitle: () => `Check the akant first`,
+    checkStepBody: () => `Before you send any money, type the akant number wey dem give you for our check page. E take 10 seconds. Money wey enter wrong akant no dey come back.`,
+    checkStepBtn: () => `Check the akant →`,
+    installTitle: () => `Keep the correct EggScore for your phone`,
+    installBody: () => `Always open EggScore from the app icon or the code below, no open am from link for message. Put am for your home screen now.`,
+    installBtn: () => `Put EggScore for my home screen`,
+    installIOS: () => `For iPhone: tap the Share button, then "Add to Home Screen".`,
+    installQr: () => `Scan am with phone camera to open the correct EggScore, or show your padi.`,
     // TODO(Bob): English text only for now, Sep 7 2026 — needs proper
     // Pidgin wording, same register as the vocabulary pass earlier
     // (bonus mark, awoof, etc.), not a plain English fallback. Bob's
@@ -1999,6 +2018,34 @@ function toggleCoverageMap() {
 // the portal never carries an account number of its own. If the list cannot be fetched, no number is shown at all.
 let OFFICIAL_ACCOUNTS = null;   // null = not loaded yet (or the fetch failed)
 function fmtAcctNo(n) { return String(n || '').replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3'); }
+// ── Oct 17 2026 (0.56) — the real address as a QR code, the check-page link, and the install card ──
+const EGG_QR_ROWS = ["11111110010010100111101111111", "10000010011110001010101000001", "10111010000100110110101011101", "10111010011111001011001011101", "10111010011000000010001011101", "10000010100110011101101000001", "11111110101010101010101111111", "00000000011001011111000000000", "10010110111000101000110100000", "00000001000011011000101001001", "11010011010101110101000111110", "01001001001011001010011100110", "00101111110010110101101001011", "11110000101011111001110000000", "00110110100001100100110111111", "10001101001000010110011001010", "00100111110111000111110000010", "01111000000011111100011101001", "10010011011010111100011000011", "00100100001100100101001100011", "10101011110010010000111110100", "00000000110000110000100010111", "11111110011100001100101010010", "10000010101100110000100011100", "10111010010100001100111110010", "10111010100000010101101011101", "10111010011110011001000011101", "10000010010100101111100010010", "11111110101001110010111101010"];
+function eggQrSvg(px) {
+  const n = EGG_QR_ROWS.length, q = 4, size = n + q * 2;
+  let r = '';
+  EGG_QR_ROWS.forEach((row, y) => { let x = 0; while(x < n) { if(row[x] === '1') { let w = 1; while(x + w < n && row[x + w] === '1') w++; r += `<rect x="${x + q}" y="${y + q}" width="${w}" height="1"/>`; x += w; } else x++; } });
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${px}" height="${px}" shape-rendering="crispEdges" role="img" aria-label="QR code of order.eggscore.com.ng"><rect width="${size}" height="${size}" fill="#fff"/><g fill="#000">${r}</g></svg>`;
+}
+// The check page opens with the order reference and Pay Code filled in, but NOT the account number: the customer must type the
+// number they were given, which is the whole point of the check.
+function checkPageLink(order) {
+  const q = [];
+  if(order && order.ref) q.push('ref=' + encodeURIComponent(order.ref));
+  if(order && order.payCode) q.push('code=' + encodeURIComponent(order.payCode));
+  return '/verify-payment.html' + (q.length ? '?' + q.join('&') : '');
+}
+function renderInstallCard() {
+  const el = document.getElementById('success-install'); if(!el) return;
+  const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  if(standalone) { el.style.display = 'none'; return; }       // already the installed app: nothing to add
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const btn = window._pwaDeferredPrompt
+    ? `<button type="button" onclick="triggerPwaInstall(); this.style.display='none'" style="display:block;width:100%;margin-top:8px;padding:11px 14px;border-radius:8px;border:0;background:var(--blue,#5ba8f0);color:#04121f;font-weight:800;font-family:'Syne',sans-serif;font-size:14px;cursor:pointer">${T().installBtn()}</button>`
+    : (ios ? `<div style="margin-top:6px;color:var(--cream)">${T().installIOS()}</div>` : '');
+  el.innerHTML = `<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--cream);margin-bottom:4px">📲 ${T().installTitle()}</div>${T().installBody()}${btn}
+    <div style="display:flex;gap:12px;align-items:center;margin-top:10px"><div style="flex:none;border-radius:6px;overflow:hidden">${eggQrSvg(96)}</div><div>${T().installQr()}<br/><strong style="color:var(--cream)">order.eggscore.com.ng</strong></div></div>`;
+  el.style.display = 'block';
+}
 function officialAccountsInline() {
   if(!OFFICIAL_ACCOUNTS || !OFFICIAL_ACCOUNTS.length) {
     return `Our account details come from our verified WhatsApp number. <a href="/verify-payment.html" style="color:var(--teal);font-weight:700">Check any account before you pay →</a>`;
@@ -4709,6 +4756,8 @@ function showSuccess(order, paid) {
       : `<div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--teal);margin-bottom:4px">${T().payCodeTitle()}</div>${T().payCodeLater()}`;
   }
 
+  renderInstallCard();   // Oct 17 2026 (0.56) — install prompt + QR of the real address
+
   // Delivery location confirmation (Sep 26 2026) — see the HTML comment
   // above #success-delivery-location for why this is safe to show here.
   const deliveryLocEl = document.getElementById('success-delivery-location');
@@ -4762,12 +4811,16 @@ function showSuccess(order, paid) {
     piEl.innerHTML = `
       <div class="pi-title">${T().howToPayTitle(order.paymentMethod==='ussd'?'USSD':'Bank Transfer')}</div>
       <div class="pi-step"><div class="pi-num">1</div><div class="pi-text">
-        ${T().bankStep1(total)}
+        <strong style="color:var(--teal)">${T().checkStepTitle()}</strong><br/>${T().checkStepBody()}
+        <a href="${checkPageLink(order)}" target="_blank" rel="noopener" style="display:block;margin-top:8px;padding:11px 14px;border-radius:8px;background:var(--teal);color:#06231f;font-weight:800;text-align:center;text-decoration:none;font-family:'Syne',sans-serif;font-size:14px">${T().checkStepBtn()}</a>
       </div></div>
       <div class="pi-step"><div class="pi-num">2</div><div class="pi-text">
-        ${T().bankStep2(order.ref)}
+        ${T().bankStep1(total)}
       </div></div>
       <div class="pi-step"><div class="pi-num">3</div><div class="pi-text">
+        ${T().bankStep2(order.ref)}
+      </div></div>
+      <div class="pi-step"><div class="pi-num">4</div><div class="pi-text">
         ${T().bankStep3()}
       </div></div>
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;color:var(--mist)">
@@ -4895,6 +4948,7 @@ function logThemeView() {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       window._pwaDeferredPrompt = e;
+      try { if(document.getElementById('success-screen').classList.contains('show')) renderInstallCard(); } catch(_) {}
       banner.style.display = 'block';
       installBtn.style.display = 'block';
     });
