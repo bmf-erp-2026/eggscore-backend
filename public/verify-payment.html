@@ -35,11 +35,14 @@ button:disabled{opacity:.6;cursor:wait}
 .acct b{font-size:15px;letter-spacing:1px}
 .small{font-size:11px;color:var(--mist)}
 a{color:var(--blue)}
+button.back{width:auto;margin:0 0 6px;padding:9px 14px;background:transparent;color:var(--blue);border:1px solid var(--border);font-size:13px;display:inline-block}
+button.back.big{width:100%;display:block;margin:0 0 14px;padding:13px;font-size:15px}
 ol{padding-left:20px;margin:6px 0 0;color:var(--dust)} li{margin:4px 0}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <button type="button" class="back" id="back-top">← Back to my order</button>
   <div class="small" style="font-weight:700;letter-spacing:2px">BMF EGGSCORE LIMITED</div>
   <h1>Check a payment account</h1>
   <div class="sub">Before you send money, make sure the account you were given is really ours. It takes ten seconds.</div>
@@ -70,6 +73,7 @@ ol{padding-left:20px;margin:6px 0 0;color:var(--dust)} li{margin:4px 0}
       <li>If an account fails, do not pay. <a id="wa" href="#" target="_blank" rel="noopener">Tell us on WhatsApp</a> so we can warn other customers.</li>
     </ol>
   </div>
+  <button type="button" class="back big" id="back-bottom">← Back to my order</button>
 </div>
 <script>
 const BACKEND_URL = 'https://ingenious-learning-production-b9b6.up.railway.app';
@@ -120,6 +124,14 @@ async function check() {
     setRes('warn', '<h2>No connection</h2><p>We could not reach the check service. Do not pay until it works. You can also ask us on WhatsApp.</p>');
   } finally { $('go').disabled = false; $('go').textContent = 'Check this account'; }
 }
+// Back button: an installed app has no browser back arrow, so this page brings its own.
+function goBack() {
+  try { if(history.length > 1) { history.back(); return; } } catch(e) {}
+  try { window.close(); } catch(e) {}
+  setTimeout(() => { location.href = '/'; }, 300);
+}
+$('back-top').addEventListener('click', goBack);
+$('back-bottom').addEventListener('click', goBack);
 $('go').addEventListener('click', check);
 ['acct','ref','code'].forEach(id => $(id).addEventListener('keydown', e => { if(e.key === 'Enter') check(); }));
 $('wa').href = waLink('Hello BMF EggScore Limited, I want to report a payment account that failed your check.');
