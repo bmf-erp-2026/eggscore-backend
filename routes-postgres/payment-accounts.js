@@ -4,6 +4,7 @@ const { requireSupabaseAuth, requireEitherAuth, requireRole } = require('../auth
 const pc = require('../lib/portal-checks');
 const payCode = require('../lib/pay-code');
 const push = require('../lib/push');
+const crypto = require('crypto');
 
 const HOLD_HOURS = 24;
 // An account customers may see and pay into: switched on, and past its waiting period.
@@ -25,13 +26,55 @@ async function raiseAlert({ kind, key, message, detail, pushTitle, pushBody }) {
 const who = req => (req.user && req.user.email) || 'someone';
 const fmtAcct = r => `${r.bank} \u00b7 ${r.account_name} \u00b7 ${r.account_number}`;
 
+// ── Owner PIN door (0.59) ────────────────────────────────────────────────────────────────────────────────────────────
+// The Payment Accounts page and every change to the list need the Owner PIN on top of the Owner login, so a screen left
+// open (idle lock failed) or a stolen login is still stopped at the door. The PIN is checked HERE, on the server, against
+// the same hash the ERP's other PIN boxes use (settings key owner_pin, SHA-256 of the PIN + the app's salt). The PIN travels
+// in the x-owner-pin header (or {pin} on /unlock) over HTTPS, is never stored or logged, and the stored hash is never sent
+// back. Three wrong PINs lock the door for 30 minutes and raise a red alert + phone push. The counter lives in memory, so a
+// server restart clears it; that is the one soft edge, and the alert has already gone out by then.
+const PIN_SALT = 'bel_eggscore_salt_2026';
+const PIN_TRIES = 3, PIN_LOCK_MS = 30 * 60 * 1000;
+const pinDoor = { fails: 0, lockedUntil: 0 };
+const pinMins = () => Math.max(1, Math.ceil((pinDoor.lockedUntil - Date.now()) / 60000));
+// Returns true when the PIN is right. Otherwise it has already answered the request and returns false.
+async function checkOwnerPin(req, res) {
+  if(Date.now() < pinDoor.lockedUntil) { res.status(423).json({ error: `Locked for ${pinMins()} more minute(s) after wrong PINs.`, locked: true, mins: pinMins() }); return false; }
+  const supplied = String(req.headers['x-owner-pin'] || (req.body && req.body.pin) || '').slice(0, 32);
+  if(!supplied) { res.status(401).json({ error: 'Owner PIN required.', pinRequired: true, remaining: PIN_TRIES - pinDoor.fails }); return false; }
+  let stored = null;
+  try {
+    const row = await db.prepare("SELECT value FROM settings WHERE key = 'owner_pin'").get();
+    stored = row && JSON.parse(row.value);
+  } catch(e) { stored = null; }
+  if(!stored || !stored.hash) { res.status(409).json({ error: 'No Owner PIN is set yet. Set one in Settings first.' }); return false; }
+  const a = crypto.createHash('sha256').update(supplied + PIN_SALT).digest();
+  const b = Buffer.from(String(stored.hash), 'hex');
+  if(b.length === a.length && crypto.timingSafeEqual(a, b)) { pinDoor.fails = 0; return true; }
+  pinDoor.fails += 1;
+  const stamp = Date.now();
+  await pc.logServerEvent({ entryId: `srv-payacct-badpin-${stamp}`, category: 'security', level: 'warn',
+    message: `Wrong Owner PIN typed at Payment Accounts (${pinDoor.fails} of ${PIN_TRIES})`, detail: { by: who(req) } });
+  if(pinDoor.fails >= PIN_TRIES) {
+    pinDoor.fails = 0; pinDoor.lockedUntil = stamp + PIN_LOCK_MS;
+    await raiseAlert({ kind: 'pin_lockout', key: `pinlock-${stamp}`,
+      message: `The wrong Owner PIN was typed ${PIN_TRIES} times at Payment Accounts (signed in as ${who(req)}). The page is locked for 30 minutes. If this was not you, change your password now.`,
+      detail: { by: who(req) }, pushTitle: '\u{1F6A8} Wrong PIN at Payment Accounts', pushBody: `${PIN_TRIES} wrong Owner PINs at Payment Accounts (${who(req)}). Locked for 30 minutes.` });
+    res.status(423).json({ error: 'Locked for 30 minutes after 3 wrong PINs. A red alert was raised.', locked: true, mins: 30 });
+    return false;
+  }
+  res.status(401).json({ error: `Incorrect PIN. ${PIN_TRIES - pinDoor.fails} attempt(s) left before the lock.`, pinRequired: true, remaining: PIN_TRIES - pinDoor.fails });
+  return false;
+}
+const ownerPin = async (req, res, next) => { try { if(await checkOwnerPin(req, res)) next(); } catch(e) { next(e); } };
 
 const router = express.Router();
 
 // The official EggScore bank accounts (Oct 16 2026, 0.55).
 //
 //   GET   /payment-accounts           portal or staff: the ACTIVE accounts (what a customer may pay into)
-//   GET   /payment-accounts/all       Owner only: every account including retired ones
+//   POST  /payment-accounts/unlock    Owner only: the PIN door (0.59). /all, POST and PATCH also need the Owner PIN (x-owner-pin)
+//   GET   /payment-accounts/all       Owner only (+PIN): every account including retired ones
 //   POST  /payment-accounts           Owner only: add an account
 //   PATCH /payment-accounts/:id       Owner only: retire / reactivate / fix the bank, name or label
 //   POST  /payment-accounts/verify    portal or staff: "is this account number ours?" and, if a reference + Pay Code are
@@ -54,12 +97,12 @@ router.get('/', requireEitherAuth(), async (req, res) => {
   res.json({ accounts: rows.map(shape) });
 });
 
-router.get('/all', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+router.get('/all', requireSupabaseAuth(), requireRole('owner'), ownerPin, async (req, res) => {
   const rows = await db.prepare('SELECT * FROM payment_accounts ORDER BY active DESC, id').all();
   res.json({ accounts: rows.map(r => ({ ...shape(r), active: Number(r.active) === 1, createdAt: r.created_at, retiredAt: r.retired_at, createdBy: r.created_by, liveAt: r.live_at || null, pending: Number(r.active) === 1 && !isLive(r) })) });
 });
 
-router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+router.post('/', requireSupabaseAuth(), requireRole('owner'), ownerPin, async (req, res) => {
   const bank = String(req.body.bank || '').trim().slice(0, 60);
   const accountName = String(req.body.accountName || '').trim().slice(0, 80);
   const accountNumber = digits(req.body.accountNumber);
@@ -80,7 +123,7 @@ router.post('/', requireSupabaseAuth(), requireRole('owner'), async (req, res) =
   res.status(201).json({ ...shape(row), active: true, pending: true, liveAt: row.live_at });
 });
 
-router.patch('/:id', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+router.patch('/:id', requireSupabaseAuth(), requireRole('owner'), ownerPin, async (req, res) => {
   const row = await db.prepare('SELECT * FROM payment_accounts WHERE id = ?').get(req.params.id);
   if(!row) return res.status(404).json({ error: 'Account not found.' });
   const sets = [], vals = [], changed = [];
@@ -135,6 +178,15 @@ function tooMany(key, max, windowMs, store) {
 }
 function note(key, store) { const a = store.get(key) || []; a.push(Date.now()); store.set(key, a); }
 setInterval(() => { const now = Date.now(); for(const [k, a] of hits) if(!a.some(t => now - t < 60000)) hits.delete(k); for(const [k, a] of badCodes) if(!a.some(t => now - t < 3600000)) badCodes.delete(k); }, 600000).unref();
+
+// The page's door: the ERP calls this with the typed PIN before it shows the Payment Accounts page. Wrong and right tries are
+// counted here, so the lock and the alert do not depend on the browser.
+router.post('/unlock', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  if(!(await checkOwnerPin(req, res))) return;
+  await pc.logServerEvent({ entryId: `srv-payacct-unlock-${Date.now()}`, category: 'security', level: 'info',
+    message: 'Payment Accounts opened with the Owner PIN', detail: { by: who(req) } });
+  res.json({ ok: true });
+});
 
 router.post('/verify', requireEitherAuth(), async (req, res) => {
   const caller = String((req.headers['x-forwarded-for'] || req.ip || 'x')).split(',')[0].trim();
