@@ -48,6 +48,11 @@ function mount(path, file) {
   }
 }
 
+// Oct 17 2026 (0.60) — the Owner PIN can only be swapped with proof of the current PIN or the recovery code, so a stolen
+// Owner login cannot overwrite it. This sits ahead of the Settings routes and lets valid requests fall through to them.
+try { app.patch('/settings/owner-pin', require('./lib/owner-pin').guardPinChange()); }
+catch(e) { failedRoutes.push({ path: '/settings/owner-pin', file: './lib/owner-pin', error: String(e && e.message || e).split('\n')[0].slice(0, 200) }); console.error('[startup] WARNING: owner PIN guard did not load:', e && e.message); }
+
 // Oct 16 2026 — the official EggScore bank accounts, the "Check an account" answer and the Pay Code.
 mount('/payment-accounts', './routes-postgres/payment-accounts');
 mount('/orders', './routes-postgres/orders');

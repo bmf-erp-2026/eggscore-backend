@@ -8059,8 +8059,20 @@ input[type=number]{-moz-appearance:textfield;}
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:14px">This page holds the bank accounts customers pay into. Enter your Owner PIN to open it.</div>
       <input class="form-input" id="payacct-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Owner PIN" style="text-align:center;max-width:220px;margin:0 auto 10px auto" onkeydown="if(event.key==='Enter') payacctUnlock()">
       <div id="payacct-pin-err" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-height:18px;margin-bottom:10px"></div>
-      <button class="btn btn-primary" id="payacct-unlock-btn" onclick="payacctUnlock()">🔑 Unlock</button>
-      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:12px">3 wrong PINs lock this page for 30 minutes and raise a red alert. The page locks again every time you leave it.</div>
+      <div id="payacct-pinbox">
+        <button class="btn btn-primary" id="payacct-unlock-btn" onclick="payacctUnlock()">🔑 Unlock</button>
+        <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:12px">3 wrong PINs lock this page for 30 minutes and raise a red alert. The page locks again every time you leave it.</div>
+        <div style="margin-top:14px"><a href="#" id="payacct-forgot-link" onclick="payacctForgotStart(); return false;" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue)">Forgot your PIN? Email me a code</a></div>
+      </div>
+      <div id="payacct-forgot" style="display:none">
+        <div id="payacct-forgot-msg" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin:4px 0 12px"></div>
+        <input class="form-input" id="payacct-fcode" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6-digit code from the email" style="text-align:center;max-width:240px;margin:0 auto 8px auto">
+        <input class="form-input" id="payacct-fnew" type="password" maxlength="8" autocomplete="new-password" placeholder="New PIN (4 to 8 characters)" style="text-align:center;max-width:240px;margin:0 auto 8px auto">
+        <input class="form-input" id="payacct-fnew2" type="password" maxlength="8" autocomplete="new-password" placeholder="Type the new PIN again" style="text-align:center;max-width:240px;margin:0 auto 8px auto" onkeydown="if(event.key==='Enter') payacctForgotConfirm()">
+        <div id="payacct-ferr" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-height:18px;margin-bottom:10px"></div>
+        <button class="btn btn-primary" id="payacct-fbtn" onclick="payacctForgotConfirm()">🔑 Set new PIN and open</button>
+        <div style="margin-top:12px"><a href="#" onclick="payacctForgotCancel(); return false;" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue)">Back to PIN</a></div>
+      </div>
     </div>
   </div>
   <div class="alert-banner warn" style="margin-bottom:14px">
@@ -24697,12 +24709,16 @@ async function syncOwnerPinFromBackend() {
     saveState();
   } catch(networkErr) {}
 }
-async function postOwnerPinToBackend(pin, updatedBy) {
+async function postOwnerPinToBackend(pin, updatedBy, proof) {
   const token = await erpGetAuthToken();
   if(!token) return;
+  // 0.60: changing the PIN needs proof of the current PIN, or of the recovery code, so the server never takes a swap on the login alone.
+  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+  if(proof && proof.pin) headers['x-owner-pin'] = proof.pin;
+  if(proof && proof.recovery) headers['x-owner-recovery'] = proof.recovery;
   try {
     await fetch(`${BACKEND_URL}/settings/owner-pin`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      method: 'PATCH', headers,
       body: JSON.stringify({ pin, updatedBy: updatedBy || null }),
     });
   } catch(networkErr) {}
@@ -37548,6 +37564,7 @@ function payacctLock(msg) {
   const tag = document.getElementById('payacct-tag'); if(tag) tag.textContent = 'locked';
   const inp = document.getElementById('payacct-pin'); if(inp) inp.value = '';
   const err = document.getElementById('payacct-pin-err'); if(err) err.textContent = msg || '';
+  payacctForgotCancel();
   if(inp && typeof currentModule !== 'undefined' && currentModule === 'payaccts') setTimeout(() => { try { inp.focus(); } catch(e) {} }, 60);
 }
 async function payacctUnlock() {
@@ -37568,6 +37585,49 @@ async function payacctUnlock() {
       if(r.status === 423 || (r.json && r.json.locked)) secAlertsPoll();
     }
   } catch(e) { if(err) err.textContent = 'No connection. Try again.'; }
+  finally { if(btn) btn.disabled = false; }
+}
+// ── 0.60: "Forgot your PIN?" — a one-time code is emailed to the Owner's login email; with it a NEW Owner PIN is set ──
+function payacctForgotCancel() {
+  const f = document.getElementById('payacct-forgot'), b = document.getElementById('payacct-pinbox'); if(f) f.style.display = 'none'; if(b) b.style.display = '';
+  ['payacct-pin', 'payacct-pin-err'].forEach(id => { const e = document.getElementById(id); if(e) e.style.display = ''; });
+  ['payacct-fcode', 'payacct-fnew', 'payacct-fnew2'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
+  const er = document.getElementById('payacct-ferr'); if(er) er.textContent = '';
+}
+async function payacctForgotStart() {
+  const err = document.getElementById('payacct-pin-err'), link = document.getElementById('payacct-forgot-link');
+  if(err) err.textContent = ''; if(link) link.style.opacity = '.5';
+  try {
+    const r = await payacctApi('/forgot', { method: 'POST', body: '{}' });
+    if(r.ok) {
+      const f = document.getElementById('payacct-forgot'), b = document.getElementById('payacct-pinbox'), m = document.getElementById('payacct-forgot-msg');
+      if(m) m.textContent = 'We emailed a 6-digit code to ' + ((r.json && r.json.sentTo) || 'your email') + '. It works for ' + ((r.json && r.json.minutes) || 15) + ' minutes. Type it here and choose a new PIN. A red alert was raised so you will know this was used.';
+      if(b) b.style.display = 'none'; if(f) f.style.display = '';
+      ['payacct-pin', 'payacct-pin-err'].forEach(id => { const e = document.getElementById(id); if(e) e.style.display = 'none'; });
+      const c = document.getElementById('payacct-fcode'); if(c) setTimeout(() => { try { c.focus(); } catch(e) {} }, 60);
+      secAlertsPoll();
+    } else if(err) err.textContent = '\u{1F6AB} ' + ((r.json && r.json.error) || 'Could not send the code. Try again.');
+  } catch(e) { if(err) err.textContent = 'No connection. Try again.'; }
+  finally { if(link) link.style.opacity = ''; }
+}
+async function payacctForgotConfirm() {
+  const v = id => ((document.getElementById(id) || {}).value || '').trim(), er = document.getElementById('payacct-ferr'), btn = document.getElementById('payacct-fbtn');
+  const code = v('payacct-fcode').replace(/\D/g, ''), np = (document.getElementById('payacct-fnew') || {}).value || '', np2 = (document.getElementById('payacct-fnew2') || {}).value || '';
+  if(code.length !== 6) { er.textContent = 'Type the 6-digit code from the email.'; return; }
+  if(np.length < 4 || np.length > 8) { er.textContent = 'The new PIN must be 4 to 8 characters.'; return; }
+  if(np !== np2) { er.textContent = 'The two PINs do not match.'; return; }
+  if(btn) btn.disabled = true; er.textContent = '';
+  try {
+    const r = await payacctApi('/forgot/confirm', { method: 'POST', body: JSON.stringify({ code, newPin: np }) });
+    if(!r.ok) { er.textContent = '\u{1F6AB} ' + ((r.json && r.json.error) || 'Could not set the PIN. Try again.'); if(r.status === 429 || (r.json && /expired|cancelled/i.test(r.json.error || ''))) setTimeout(payacctForgotCancel, 2500); return; }
+    // The server now holds the new PIN. Update this device's copy so the ERP's other PIN boxes accept it straight away.
+    try { STATE.ownerPinHash = await hashPin(np); STATE.ownerPinLockoutUntil = null; STATE.ownerPinSetAt = new Date().toISOString(); STATE.ownerPin = null; resetPinAttempts(); saveState(); } catch(e) {}
+    try { logCrit('security', 'Owner PIN changed with an emailed code', ''); } catch(e) {}
+    PAYACCT_PIN = np; payacctForgotCancel();
+    const mod = document.getElementById('mod-payaccts'); if(mod) mod.classList.remove('payacct-locked');
+    showToast('\u2713 New PIN set. Other devices pick it up the next time they load the ERP.');
+    renderPayAccounts(); secAlertsPoll();
+  } catch(e) { er.textContent = 'No connection. Try again.'; }
   finally { if(btn) btn.disabled = false; }
 }
 async function payacctApi(path, opts) {
@@ -39863,7 +39923,7 @@ async function submitChangePin() {
   STATE.creditOverrideLog.unshift(pinEntry);
   postCreditOverrideToBackend(pinEntry); // Aug 28 fix — was local-only before
   saveState();
-  postOwnerPinToBackend({ hash: newHash, recoveryHash, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin');
+  postOwnerPinToBackend({ hash: newHash, recoveryHash, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin', { pin: current });
 
   // Show recovery code — displayed ONCE, never stored in plaintext
   document.getElementById('cp-recovery-code').textContent = recoveryCode;
@@ -39917,7 +39977,7 @@ async function submitPinRecovery() {
   STATE.ownerPin             = null;
   resetPinAttempts();
   saveState();
-  postOwnerPinToBackend({ hash: newHash, recoveryHash: newRecovery, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin');
+  postOwnerPinToBackend({ hash: newHash, recoveryHash: newRecovery, setAt: STATE.ownerPinSetAt, lockoutUntil: null }, 'Admin', { recovery: code });
 
   closeModal('modal-pin-recovery');
   logCrit('security', 'PIN reset via recovery code — new PIN set', '');
