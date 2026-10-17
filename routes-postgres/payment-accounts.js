@@ -6,6 +6,7 @@ const payCode = require('../lib/pay-code');
 const push = require('../lib/push');
 const crypto = require('crypto');
 const ownerPinLib = require('../lib/owner-pin');
+const sms = require('../lib/sms');
 
 const HOLD_HOURS = 24;
 // An account customers may see and pay into: switched on, and past its waiting period.
@@ -27,12 +28,58 @@ async function checkOwnerPin(req, res) {
 }
 const ownerPin = async (req, res, next) => { try { if(await checkOwnerPin(req, res)) next(); } catch(e) { next(e); } };
 
+// ── A one-time code before any change to the list (0.62, Phase B part 2) ─────────────────────────────────────────────────
+// On top of the Owner login and the Owner PIN, adding, editing, retiring or releasing an account needs a fresh 6-digit code
+// sent to the Owner (the Owner's login email through Resend; the Owner's phone through Termii once that is switched on).
+// So someone who has the login AND learned the PIN is still stopped unless they also hold the Owner's mailbox or phone.
+// The code lasts 10 minutes, allows 5 tries, only its hash is kept, and it is used up by the first change that succeeds.
+// If NO channel is switched on (no RESEND_API_KEY and no Termii settings) the code step is skipped, so a missing setting can
+// never lock the Owner out of managing the list.
+const CHG_KEY = 'owner_change_code', CHG_MIN = 10, CHG_TRIES = 5;
+const chgHash = c => ownerPinLib.hashSecret('chg:' + c);
+const chgMask = e => { const [u, d] = String(e || '').split('@'); return u ? (u.slice(0, 1) + '***' + (u.length > 3 ? u.slice(-1) : '') + '@' + (d || '')) : ''; };
+async function getChg() { try { const r = await db.prepare('SELECT value FROM settings WHERE key = ?').get(CHG_KEY); return r ? JSON.parse(r.value) : null; } catch(e) { return null; } }
+async function putChg(obj, by) {
+  if(obj === null) { await db.prepare('DELETE FROM settings WHERE key = ?').run(CHG_KEY); return; }
+  await db.prepare("INSERT INTO settings (key, value, updated_by, updated_at) VALUES (?, ?, ?, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()")
+    .run(CHG_KEY, JSON.stringify(obj), by || null);
+}
+const chgChannels = req => ({ email: !!(process.env.RESEND_API_KEY && req.user && req.user.email), phone: sms.phoneReady() });
+const changeCode = async (req, res, next) => {
+  try {
+    const ch = chgChannels(req);
+    if(!ch.email && !ch.phone) return next();
+    const row = await getChg(), now = Date.now(), live = !!(row && row.exp && now <= row.exp);
+    const supplied = String(req.headers['x-owner-code'] || '').replace(/\D/g, '');
+    if(!supplied) return res.status(428).json({ codeRequired: true, needSend: !live, sentTo: live ? row.sentTo : undefined,
+      error: live ? 'Type the one-time code we sent to ' + row.sentTo + '.' : 'A one-time code is needed for this change. One will be sent now.' });
+    if(!live) { if(row) await putChg(null); return res.status(428).json({ codeRequired: true, needSend: true, error: 'That code has expired. A new one will be sent now.' }); }
+    if(supplied.length !== 6 || !ownerPinLib.sameHex(chgHash(supplied), row.hash)) {
+      row.tries = (row.tries || 0) + 1;
+      await pc.logServerEvent({ entryId: `srv-chgcode-bad-${now}`, category: 'security', level: 'warn', message: `Wrong Payment Accounts change code typed (${row.tries} of ${CHG_TRIES})`, detail: { by: who(req) } });
+      if(row.tries >= CHG_TRIES) {
+        await putChg(null);
+        await raiseAlert({ kind: 'change_code_failed', key: `chgcode-fail-${now}`,
+          message: `The Payment Accounts change code was typed wrong ${CHG_TRIES} times (signed in as ${who(req)}). The code was cancelled. If this was not you, change your password now.`,
+          detail: { by: who(req) }, pushTitle: '\u{1F6A8} Wrong change code typed', pushBody: `${CHG_TRIES} wrong Payment Accounts change-code tries (${who(req)}). Code cancelled.` });
+        return res.status(429).json({ codeRequired: true, needSend: true, error: 'Too many wrong codes. That code is cancelled. A new one is needed.' });
+      }
+      await putChg(row, who(req));
+      return res.status(401).json({ codeRequired: true, codeWrong: true, needSend: false, remaining: CHG_TRIES - row.tries, sentTo: row.sentTo, error: `Wrong code. ${CHG_TRIES - row.tries} try(s) left.` });
+    }
+    // Right code: it is used up only when the change itself succeeds, so a typo in the form does not burn it.
+    res.on('finish', () => { if(res.statusCode < 300) putChg(null).catch(() => {}); });
+    next();
+  } catch(e) { next(e); }
+};
+
 const router = express.Router();
 
 // The official EggScore bank accounts (Oct 16 2026, 0.55).
 //
 //   GET   /payment-accounts           portal or staff: the ACTIVE accounts (what a customer may pay into)
 //   POST  /payment-accounts/forgot, /forgot/confirm   Owner only, no PIN: email a one-time code, then set a new Owner PIN (0.60)
+//   POST  /payment-accounts/change-code  Owner only (+PIN): send the one-time code that unlocks ONE change (0.62)
 //   POST  /payment-accounts/unlock    Owner only: the PIN door (0.59). /all, POST and PATCH also need the Owner PIN (x-owner-pin)
 //   GET   /payment-accounts/all       Owner only (+PIN): every account including retired ones
 //   POST  /payment-accounts           Owner only: add an account
@@ -62,7 +109,7 @@ router.get('/all', requireSupabaseAuth(), requireRole('owner'), ownerPin, async 
   res.json({ accounts: rows.map(r => ({ ...shape(r), active: Number(r.active) === 1, createdAt: r.created_at, retiredAt: r.retired_at, createdBy: r.created_by, liveAt: r.live_at || null, pending: Number(r.active) === 1 && !isLive(r) })) });
 });
 
-router.post('/', requireSupabaseAuth(), requireRole('owner'), ownerPin, async (req, res) => {
+router.post('/', requireSupabaseAuth(), requireRole('owner'), ownerPin, changeCode, async (req, res) => {
   const bank = String(req.body.bank || '').trim().slice(0, 60);
   const accountName = String(req.body.accountName || '').trim().slice(0, 80);
   const accountNumber = digits(req.body.accountNumber);
@@ -83,7 +130,7 @@ router.post('/', requireSupabaseAuth(), requireRole('owner'), ownerPin, async (r
   res.status(201).json({ ...shape(row), active: true, pending: true, liveAt: row.live_at });
 });
 
-router.patch('/:id', requireSupabaseAuth(), requireRole('owner'), ownerPin, async (req, res) => {
+router.patch('/:id', requireSupabaseAuth(), requireRole('owner'), ownerPin, changeCode, async (req, res) => {
   const row = await db.prepare('SELECT * FROM payment_accounts WHERE id = ?').get(req.params.id);
   if(!row) return res.status(404).json({ error: 'Account not found.' });
   const sets = [], vals = [], changed = [];
@@ -166,56 +213,117 @@ async function putReset(obj, by) {
 const WEAK = new Set(['0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999', '1234', '4321', '0123', '3210', '1212', '2580', '1122', '12345', '54321', '123456', '654321', '1234567', '12345678', '00000000']);
 function weakPin(p) { return WEAK.has(p) || /^(.)\1+$/.test(p); }
 
-router.post('/forgot', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+// Ask for the code that unlocks ONE change to the list (needs the Owner PIN as well).
+router.post('/change-code', requireSupabaseAuth(), requireRole('owner'), ownerPin, async (req, res) => {
+  const ch = chgChannels(req);
+  if(!ch.email && !ch.phone) return res.status(503).json({ error: 'No code channel is switched on yet, so changes need only the PIN.' });
+  const via = req.body && req.body.via === 'phone' && ch.phone ? 'phone' : (ch.email ? 'email' : 'phone');
+  const prev = await getChg(), now = Date.now();
+  if(prev && prev.sentAt && now - prev.sentAt < 60 * 1000) return res.status(429).json({ error: 'A code was just sent. Wait a minute before asking for another.' });
+  const hourStart = prev && prev.hourStart && now - prev.hourStart < 3600 * 1000 ? prev.hourStart : now;
+  const count = hourStart === (prev && prev.hourStart) ? (prev.count || 0) : 0;
+  if(count >= 6) return res.status(429).json({ error: 'Six codes have been sent in the last hour. Try again later.' });
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   const email = (req.user && req.user.email) || '';
-  if(!email) return res.status(400).json({ error: 'Your login has no email address to send a code to.' });
-  const key = process.env.RESEND_API_KEY;
-  if(!key) return res.status(503).json({ error: 'Email codes are not switched on yet (the RESEND_API_KEY is not set in Railway).' });
+  const sentTo = via === 'phone' ? sms.maskPhone(sms.ownerPhone()) : chgMask(email);
+  const what = via === 'phone' ? 'texted' : 'emailed';
+  let ok = false, status = 0, reason = '';
+  if(via === 'phone') {
+    const r = await sms.sendSms(sms.ownerPhone(), `Your EggScore verification code is ${code}. This code expires in ${CHG_MIN} minutes. Do not share with anyone.`);
+    ok = r.ok; status = r.status; reason = r.reason || '';
+  } else {
+    const body = {
+      from: process.env.EMAIL_FROM || 'EggScore Security <onboarding@resend.dev>', to: [email],
+      subject: 'Your EggScore Payment Accounts code',
+      text: `Your EggScore code is ${code}\n\nIt lets you save one change to Payment Accounts and works for ${CHG_MIN} minutes.\nIf you did not ask for this, do not share it, and change your EggScore password now.`,
+      html: `<p>Your EggScore code is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It lets you save one change to Payment Accounts and works for ${CHG_MIN} minutes.</p><p>If you did not ask for this, do not share it, and change your EggScore password now.</p>`
+    };
+    try {
+      const r = await fetch(process.env.RESEND_API_URL || 'https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': 'Bearer ' + process.env.RESEND_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      ok = r.ok; status = r.status;
+    } catch(e) { status = 0; }
+  }
+  if(!ok) {
+    await pc.logServerEvent({ entryId: `srv-chgcode-${via}fail-${now}`, category: 'security', level: 'warn', message: `Payment Accounts change code ${via === 'phone' ? 'text' : 'email'} failed (status ${status}${reason ? ': ' + reason : ''})`, detail: { by: who(req) } });
+    return res.status(502).json({ error: via === 'phone' ? 'Could not send the text. Try again, or check the Termii account.' : 'Could not send the email. Try again in a minute.' });
+  }
+  await putChg({ hash: chgHash(code), exp: now + CHG_MIN * 60 * 1000, tries: 0, sentAt: now, hourStart, count: count + 1, via, sentTo }, who(req));
+  await pc.logServerEvent({ entryId: `srv-chgcode-${via}-${now}`, category: 'security', level: 'info', message: `A Payment Accounts change code was ${what}`, detail: { by: who(req), to: sentTo } });
+  await raiseAlert({ kind: 'change_code_requested', key: `chgcode-req-${now}`,
+    message: `A code for a Payment Accounts change was ${what} to ${sentTo} (asked for by ${who(req)}). If this was not you, change your password now.`,
+    detail: { by: who(req), via }, pushTitle: '\u{1F6A8} Payment Accounts change code', pushBody: `A change code was ${what} to ${sentTo}. Not you? Change your password now.` });
+  res.json({ ok: true, via, sentTo, minutes: CHG_MIN });
+});
+
+// Which ways of getting a code are switched on (so the lock card shows only the links that can work).
+router.get('/forgot/channels', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const email = (req.user && req.user.email) || '';
+  res.json({ email: !!(process.env.RESEND_API_KEY && email) ? maskEmail(email) : null, phone: sms.phoneReady() ? sms.maskPhone(sms.ownerPhone()) : null });
+});
+
+router.post('/forgot', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
+  const via = req.body && req.body.via === 'phone' ? 'phone' : 'email';
+  const email = (req.user && req.user.email) || '';
+  if(via === 'email') {
+    if(!email) return res.status(400).json({ error: 'Your login has no email address to send a code to.' });
+    if(!process.env.RESEND_API_KEY) return res.status(503).json({ error: 'Email codes are not switched on yet (the RESEND_API_KEY is not set in Railway).' });
+  } else if(!sms.phoneReady()) {
+    return res.status(503).json({ error: 'Text codes are not switched on yet. Railway still needs: ' + sms.missingBits().join(', ') + '.' });
+  }
   const prev = await getReset(); const now = Date.now();
   if(prev && prev.sentAt && now - prev.sentAt < 60 * 1000) return res.status(429).json({ error: 'A code was just sent. Wait a minute before asking for another.' });
   const hourStart = prev && prev.hourStart && now - prev.hourStart < 3600 * 1000 ? prev.hourStart : now;
   const count = hourStart === (prev && prev.hourStart) ? (prev.count || 0) : 0;
   if(count >= 3) return res.status(429).json({ error: 'Three codes have been sent in the last hour. Try again later.' });
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-  const body = {
-    from: process.env.EMAIL_FROM || 'EggScore Security <onboarding@resend.dev>', to: [email],
-    subject: 'Your EggScore Owner PIN code',
-    text: `Your EggScore code is ${code}\n\nIt works for ${RESET_MIN} minutes and lets you choose a new Owner PIN.\nIf you did not ask for this, do not share it, and change your EggScore password now.`,
-    html: `<p>Your EggScore code is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It works for ${RESET_MIN} minutes and lets you choose a new Owner PIN.</p><p>If you did not ask for this, do not share it, and change your EggScore password now.</p>`
-  };
-  let ok = false, status = 0;
-  try {
-    const r = await fetch(process.env.RESEND_API_URL || 'https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    ok = r.ok; status = r.status;
-  } catch(e) { status = 0; }
+  const sentTo = via === 'phone' ? sms.maskPhone(sms.ownerPhone()) : maskEmail(email);
+  const what = via === 'phone' ? 'texted' : 'emailed';
+  let ok = false, status = 0, reason = '';
+  if(via === 'phone') {
+    const r = await sms.sendSms(sms.ownerPhone(), `Your EggScore verification code is ${code}. This code expires in ${RESET_MIN} minutes. Do not share with anyone.`);
+    ok = r.ok; status = r.status; reason = r.reason || '';
+  } else {
+    const body = {
+      from: process.env.EMAIL_FROM || 'EggScore Security <onboarding@resend.dev>', to: [email],
+      subject: 'Your EggScore Owner PIN code',
+      text: `Your EggScore code is ${code}\n\nIt works for ${RESET_MIN} minutes and lets you choose a new Owner PIN.\nIf you did not ask for this, do not share it, and change your EggScore password now.`,
+      html: `<p>Your EggScore code is</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It works for ${RESET_MIN} minutes and lets you choose a new Owner PIN.</p><p>If you did not ask for this, do not share it, and change your EggScore password now.</p>`
+    };
+    try {
+      const r = await fetch(process.env.RESEND_API_URL || 'https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': 'Bearer ' + process.env.RESEND_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      ok = r.ok; status = r.status;
+    } catch(e) { status = 0; }
+  }
   if(!ok) {
-    await pc.logServerEvent({ entryId: `srv-ownerpin-mailfail-${now}`, category: 'security', level: 'warn', message: `Owner PIN code email failed (status ${status})`, detail: { by: who(req) } });
+    await pc.logServerEvent({ entryId: `srv-ownerpin-${via}fail-${now}`, category: 'security', level: 'warn', message: `Owner PIN code ${via === 'phone' ? 'text' : 'email'} failed (status ${status}${reason ? ': ' + reason : ''})`, detail: { by: who(req) } });
+    if(via === 'phone') return res.status(502).json({ error: 'Could not send the text. Check the Termii account (credit, sender name) or use the email code instead.' });
     return res.status(502).json({ error: status === 403 ? 'The email service refused this address. With the free test sender, the email must be the one you signed up to Resend with.' : 'Could not send the email. Try again in a minute.' });
   }
-  await putReset({ hash: resetHash(code), exp: now + RESET_MIN * 60 * 1000, tries: 0, sentAt: now, hourStart, count: count + 1, email }, email);
-  await pc.logServerEvent({ entryId: `srv-ownerpin-mail-${now}`, category: 'security', level: 'info', message: 'An Owner PIN code was emailed', detail: { by: who(req), to: maskEmail(email) } });
+  await putReset({ hash: resetHash(code), exp: now + RESET_MIN * 60 * 1000, tries: 0, sentAt: now, hourStart, count: count + 1, via, email: via === 'email' ? email : undefined }, who(req));
+  await pc.logServerEvent({ entryId: `srv-ownerpin-${via}-${now}`, category: 'security', level: 'info', message: `An Owner PIN code was ${what}`, detail: { by: who(req), to: sentTo } });
   await raiseAlert({ kind: 'pin_reset_requested', key: `pinreset-req-${now}`,
-    message: `An Owner PIN code was emailed to ${maskEmail(email)} (asked for by ${who(req)}). If this was not you, change your password now.`,
-    detail: { by: who(req) }, pushTitle: '\u{1F6A8} Owner PIN code requested', pushBody: `A PIN code was emailed to ${maskEmail(email)}. Not you? Change your password now.` });
-  res.json({ ok: true, sentTo: maskEmail(email), minutes: RESET_MIN });
+    message: `An Owner PIN code was ${what} to ${sentTo} (asked for by ${who(req)}). If this was not you, change your password now.`,
+    detail: { by: who(req), via }, pushTitle: '\u{1F6A8} Owner PIN code requested', pushBody: `A PIN code was ${what} to ${sentTo}. Not you? Change your password now.` });
+  res.json({ ok: true, via, sentTo, minutes: RESET_MIN });
 });
 
 router.post('/forgot/confirm', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const code = String((req.body && req.body.code) || '').replace(/\D/g, '');
   const newPin = String((req.body && req.body.newPin) || '');
-  if(code.length !== 6) return res.status(400).json({ error: 'Type the 6-digit code from the email.' });
+  if(code.length !== 6) return res.status(400).json({ error: 'Type the 6-digit code you were sent.' });
   if(newPin.length < 4 || newPin.length > 8) return res.status(400).json({ error: 'The new PIN must be 4 to 8 characters.' });
   if(weakPin(newPin)) return res.status(400).json({ error: 'That PIN is too easy to guess (like 1234 or 0000). Choose another.' });
   const row = await getReset();
+  const way = row && row.via === 'phone' ? 'texted' : 'emailed';
   if(!row || !row.exp || Date.now() > row.exp) { if(row) await putReset(null); return res.status(400).json({ error: 'That code has expired or was never sent. Ask for a new one.' }); }
   if(!ownerPinLib.sameHex(resetHash(code), row.hash)) {
     row.tries = (row.tries || 0) + 1;
-    await pc.logServerEvent({ entryId: `srv-ownerpin-badcode-${Date.now()}`, category: 'security', level: 'warn', message: `Wrong emailed PIN code typed (${row.tries} of ${RESET_TRIES})`, detail: { by: who(req) } });
+    await pc.logServerEvent({ entryId: `srv-ownerpin-badcode-${Date.now()}`, category: 'security', level: 'warn', message: `Wrong ${way} PIN code typed (${row.tries} of ${RESET_TRIES})`, detail: { by: who(req) } });
     if(row.tries >= RESET_TRIES) {
       await putReset(null);
       await raiseAlert({ kind: 'pin_reset_failed', key: `pinreset-fail-${Date.now()}`,
-        message: `The emailed Owner PIN code was typed wrong ${RESET_TRIES} times (signed in as ${who(req)}). The code was cancelled. If this was not you, change your password now.`,
-        detail: { by: who(req) }, pushTitle: '\u{1F6A8} Wrong PIN code typed', pushBody: `${RESET_TRIES} wrong emailed-code tries (${who(req)}). Code cancelled.` });
+        message: `The ${way} Owner PIN code was typed wrong ${RESET_TRIES} times (signed in as ${who(req)}). The code was cancelled. If this was not you, change your password now.`,
+        detail: { by: who(req) }, pushTitle: '\u{1F6A8} Wrong PIN code typed', pushBody: `${RESET_TRIES} wrong ${way}-code tries (${who(req)}). Code cancelled.` });
       return res.status(429).json({ error: 'Too many wrong codes. That code is cancelled. Ask for a new one.' });
     }
     await putReset(row, who(req));
@@ -226,10 +334,10 @@ router.post('/forgot/confirm', requireSupabaseAuth(), requireRole('owner'), asyn
   await db.prepare("INSERT INTO settings (key, value, updated_by, updated_at) VALUES ('owner_pin', ?, ?, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()")
     .run(JSON.stringify(next), who(req));
   await putReset(null); ownerPinLib.clearLock();
-  await pc.logServerEvent({ entryId: `srv-ownerpin-reset-${Date.now()}`, category: 'security', level: 'warn', message: 'Owner PIN changed with an emailed code', detail: { by: who(req) } });
+  await pc.logServerEvent({ entryId: `srv-ownerpin-reset-${Date.now()}`, category: 'security', level: 'warn', message: `Owner PIN changed with a ${way} code`, detail: { by: who(req) } });
   await raiseAlert({ kind: 'pin_reset_done', key: `pinreset-done-${Date.now()}`,
-    message: `The Owner PIN was changed with an emailed code (signed in as ${who(req)}). If this was not you, change your password now.`,
-    detail: { by: who(req) }, pushTitle: '\u{1F6A8} Owner PIN changed', pushBody: `The Owner PIN was changed by ${who(req)} using an emailed code. Not you? Change your password now.` });
+    message: `The Owner PIN was changed with a ${way} code (signed in as ${who(req)}). If this was not you, change your password now.`,
+    detail: { by: who(req) }, pushTitle: '\u{1F6A8} Owner PIN changed', pushBody: `The Owner PIN was changed by ${who(req)} using a ${way} code. Not you? Change your password now.` });
   res.json({ ok: true });
 });
 
