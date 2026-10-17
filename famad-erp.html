@@ -621,6 +621,9 @@ input[type=number]{-moz-appearance:textfield;}
 .rep-status-badge{font-family:'DM Mono',monospace;font-size:8px;padding:2px 7px;border-radius:3px;margin-left:6px;}
 .rsb-active{background:rgba(109,217,109,0.1);color:var(--lime);}
 .rsb-inactive{background:rgba(224,72,72,0.08);color:var(--red);}
+#payacct-gate{display:none;max-width:440px;margin:26px auto}
+#mod-payaccts.payacct-locked #payacct-gate{display:block}
+#mod-payaccts.payacct-locked > .panel:not(#payacct-gate),#mod-payaccts.payacct-locked > .alert-banner{display:none}
 .audit-row{display:flex;justify-content:space-between;align-items:flex-start;padding:7px 0;border-bottom:1px solid rgba(74,158,255,0.05);font-family:'DM Mono',monospace;font-size:9px;}
 .audit-row:last-child{border-bottom:none;}
 .ar-left{color:var(--dust);line-height:1.6;}
@@ -8049,6 +8052,17 @@ input[type=number]{-moz-appearance:textfield;}
     </div>
     <div class="ph-actions"><button class="btn btn-ghost" onclick="renderPayAccounts()">↻ Refresh</button></div>
   </div>
+  <div class="panel" id="payacct-gate">
+    <div class="panel-body" style="text-align:center;padding:24px 20px">
+      <div style="font-size:34px;line-height:1">🔒</div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:18px;margin:8px 0 4px">Payment Accounts is locked</div>
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--dust);line-height:1.7;margin-bottom:14px">This page holds the bank accounts customers pay into. Enter your Owner PIN to open it.</div>
+      <input class="form-input" id="payacct-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Owner PIN" style="text-align:center;max-width:220px;margin:0 auto 10px auto" onkeydown="if(event.key==='Enter') payacctUnlock()">
+      <div id="payacct-pin-err" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--red);min-height:18px;margin-bottom:10px"></div>
+      <button class="btn btn-primary" id="payacct-unlock-btn" onclick="payacctUnlock()">🔑 Unlock</button>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--mist);margin-top:12px">3 wrong PINs lock this page for 30 minutes and raise a red alert. The page locks again every time you leave it.</div>
+    </div>
+  </div>
   <div class="alert-banner warn" style="margin-bottom:14px">
     ⚠ Type each account exactly as the bank shows it. An account number can never be edited: if one is wrong, retire it and add the right one. A new account stays hidden from customers for 24 hours (a safety wait, so a stolen login cannot add a fake account that works at once); you can release it early. Every change here raises a red alert and a phone alert, even when it is you. Until an account is live here, the portal shows no account number and the ERP refuses to send payment messages.
   </div>
@@ -12910,6 +12924,7 @@ function switchModule(name) {
   const labels = {dashboard:'Dashboard',orders:'Orders Inbox',sales:'Sales Log',inventory:'Inventory',logistics:'Logistics',reps:'Rep Centre',customers:'Customers',scorecard:'Customer Scorecard',promotions:'Promotions',whatsapp:'WA Broadcast',pushnotify:'Push Notifications',pit:'My Tax (PIT)',payaccts:'Payment Accounts',commission:'Commission Engine',credit:'Credit Register',timevalue:'Time-Value',voltrack:'Volume Tracker',receivables:'Receivables Aging',incomestmt:'Income Statement',balancesheet:'Balance Sheet',expansion:'Expansion Planner',reservations:'Reservation Intelligence',eventlog:'System Event Log',suppliers:'Suppliers',supplierscorecard:'Supplier Scorecard',pnl:'P&L Calculator',taxpanel:'Tax Panel'};
   document.getElementById('bc-module').textContent = labels[name] || name;
 
+  if(currentModule === 'payaccts' && name !== 'payaccts' && typeof payacctLock === 'function') payacctLock();   // 0.59: the Payment Accounts door shuts behind you
   currentModule = name;
   closeSidebar();
   document.getElementById('main-scroll').scrollTop = 0;
@@ -37523,14 +37538,50 @@ function renderPitResults() {
 /* ═══════════════════════════════════════════════════════
    PAYMENT ACCOUNTS — Oct 16 2026 (0.55). Owner-only page; see the route comments in routes-postgres/payment-accounts.js.
 ═══════════════════════════════════════════════════════ */
+// 0.59: the Owner PIN door. The PIN lives only in this variable (never saved) while the page is open; the server checks it on
+// every request, so a wrong or missing PIN there throws the page back to the lock.
+var PAYACCT_PIN = null;
+function payacctLock(msg) {
+  PAYACCT_PIN = null;
+  const mod = document.getElementById('mod-payaccts'); if(mod) mod.classList.add('payacct-locked');
+  const box = document.getElementById('payacct-list'); if(box) box.innerHTML = '';
+  const tag = document.getElementById('payacct-tag'); if(tag) tag.textContent = 'locked';
+  const inp = document.getElementById('payacct-pin'); if(inp) inp.value = '';
+  const err = document.getElementById('payacct-pin-err'); if(err) err.textContent = msg || '';
+  if(inp && typeof currentModule !== 'undefined' && currentModule === 'payaccts') setTimeout(() => { try { inp.focus(); } catch(e) {} }, 60);
+}
+async function payacctUnlock() {
+  const inp = document.getElementById('payacct-pin'), err = document.getElementById('payacct-pin-err'), btn = document.getElementById('payacct-unlock-btn');
+  const pin = ((inp && inp.value) || '').trim();
+  if(!pin) { if(err) err.textContent = 'Type your Owner PIN.'; return; }
+  if(btn) btn.disabled = true; if(err) err.textContent = '';
+  try {
+    const r = await payacctApi('/unlock', { method: 'POST', body: JSON.stringify({ pin }) });
+    if(r.ok) {
+      PAYACCT_PIN = pin; if(inp) inp.value = '';
+      const mod = document.getElementById('mod-payaccts'); if(mod) mod.classList.remove('payacct-locked');
+      renderPayAccounts();
+    } else {
+      if(inp) inp.value = '';
+      const m = (r.json && r.json.error) || 'Could not check the PIN. Try again.';
+      if(err) err.textContent = (r.status === 423 ? '\u{1F512} ' : '\u{1F6AB} ') + m;
+      if(r.status === 423 || (r.json && r.json.locked)) secAlertsPoll();
+    }
+  } catch(e) { if(err) err.textContent = 'No connection. Try again.'; }
+  finally { if(btn) btn.disabled = false; }
+}
 async function payacctApi(path, opts) {
   const token = await erpGetAuthToken();
-  const r = await fetch(`${BACKEND_URL}/payment-accounts${path}`, Object.assign({ headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } }, opts || {}));
+  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+  if(PAYACCT_PIN) headers['x-owner-pin'] = PAYACCT_PIN;
+  const r = await fetch(`${BACKEND_URL}/payment-accounts${path}`, Object.assign({ headers }, opts || {}));
   let j = null; try { j = await r.json(); } catch(e) {}
+  if(path !== '/unlock' && (r.status === 401 || r.status === 423) && j && (j.pinRequired || j.locked)) payacctLock(j.error || 'Please enter your Owner PIN again.');
   return { ok: r.ok, status: r.status, json: j };
 }
 let payacctPendingRetire = null;
 async function renderPayAccounts() {
+  if(!PAYACCT_PIN) { payacctLock(); return; }   // 0.59: nothing is loaded or shown until the Owner PIN is typed
   const lnk = document.getElementById('payacct-link'); if(lnk) lnk.textContent = ERP_PORTAL_ORIGIN + '/verify-payment.html';
   const box = document.getElementById('payacct-list'), tag = document.getElementById('payacct-tag'); if(!box) return;
   let r; try { r = await payacctApi('/all'); } catch(e) { r = { ok: false }; }
