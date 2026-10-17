@@ -484,7 +484,11 @@ router.patch('/time-value-rate-band', requireSupabaseAuth(), requireRole('owner'
 router.get('/owner-pin', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const row = await db.prepare("SELECT value, updated_by, updated_at FROM settings WHERE key = 'owner_pin'").get();
   if(!row) return res.json({ pin: null });
-  res.json({ pin: JSON.parse(row.value), updatedBy: row.updated_by, updatedAt: row.updated_at });
+  let p = {}; try { p = JSON.parse(row.value) || {}; } catch(e) {}
+  // 0.64 (Oct 2026): the PIN's hash and recovery hash are NEVER sent to a browser any more. The PIN is checked on the server
+  // (POST /owner-pin/verify). Only "is one set, and when was it changed" goes out. `hash` is a fixed placeholder, not a real
+  // hash, so an old ERP page still open in a browser cannot match anything typed and so refuses every PIN until it is reloaded.
+  res.json({ pin: { set: !!p.hash, hash: 'server-side-only', setAt: p.setAt || null }, updatedBy: row.updated_by, updatedAt: row.updated_at });
 });
 router.patch('/owner-pin', requireSupabaseAuth(), requireRole('owner'), async (req, res) => {
   const { pin, updatedBy } = req.body;
